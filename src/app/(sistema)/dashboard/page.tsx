@@ -61,7 +61,7 @@ export default function DashboardPage() {
         cargarStockMinimo(),
       ])
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error al cargar datos')
+      setError(err instanceof Error ? err.message : JSON.stringify(err))
     } finally {
       setLoading(false)
     }
