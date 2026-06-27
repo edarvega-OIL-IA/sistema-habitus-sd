@@ -1,340 +1,255 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useForm } from 'react-hook-form'
 import { createClient } from '@/lib/supabase/client'
-import Link from 'next/link'
-import { Plus, Filter } from 'lucide-react'
-
-interface Movimiento {
-  id: number
-  fecha_utc: string
-  creado_en: string
-  tipo: 'Ingreso' | 'Egreso'
-  monto: number
-  observaciones: string | null
-  categoria_gasto_id: number | null
-  categorias_gasto: { nombre: string } | null
-  conceptos_gasto: { nombre: string } | null
-  medios_pago: { nombre: string } | null
-}
+import { useRouter } from 'next/navigation'
+import { ArrowLeft } from 'lucide-react'
 
 interface Categoria {
   id: number
   nombre: string
 }
 
-export default function MovimientosPage() {
-  const [movimientos, setMovimientos] = useState<Movimiento[]>([])
+interface Concepto {
+  id: number
+  nombre: string
+  categoria_gasto_id: number
+}
+
+interface MedioPago {
+  id: number
+  nombre: string
+}
+
+interface FormData {
+  tipo: 'Ingreso' | 'Egreso'
+  fecha_utc: string
+  categoria_id: string
+  concepto_id: string
+  medio_pago_id: string
+  monto: string
+  observaciones: string
+}
+
+export default function NuevoMovimientoPage() {
+  const router = useRouter()
+  const supabase = createClient()
+
   const [categorias, setCategorias] = useState<Categoria[]>([])
+  const [conceptos, setConceptos] = useState<Concepto[]>([])
+  const [mediosPago, setMediosPago] = useState<MedioPago[]>([])
   const [loading, setLoading] = useState(true)
+  const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [tipoFiltro, setTipoFiltro] = useState<string>('todos')
-  const [categoriaFiltro, setCategoriaFiltro] = useState<string>('todos')
-  const [modoPeriodo, setModoPeriodo] = useState<'dia' | 'mes' | 'anio' | 'libre' | 'todos'>('todos')
-  const [fechaRef, setFechaRef] = useState<Date>(new Date())
-  const [fechaDesde, setFechaDesde] = useState<string>('')
-  const [fechaHasta, setFechaHasta] = useState<string>('')
+  const [usuarioId, setUsuarioId] = useState<string | null>(null)
 
-  function toArgentina(d: Date) {
-    return d.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
-  }
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
 
-  function getDesdHasta() {
-    if (modoPeriodo === 'todos' || modoPeriodo === 'libre') return { desde: fechaDesde, hasta: fechaHasta }
-    const y = fechaRef.getFullYear()
-    const m = fechaRef.getMonth()
-    const d = fechaRef.getDate()
-    if (modoPeriodo === 'dia') {
-      const s = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
-      return { desde: s, hasta: s }
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<FormData>({
+    defaultValues: {
+      tipo: 'Egreso',
+      fecha_utc: hoy,
+      categoria_id: '',
+      concepto_id: '',
+      medio_pago_id: '',
+      monto: '',
+      observaciones: '',
     }
-    if (modoPeriodo === 'mes') {
-      const desde = `${y}-${String(m+1).padStart(2,'0')}-01`
-      const ultimo = new Date(y, m+1, 0).getDate()
-      const hasta = `${y}-${String(m+1).padStart(2,'0')}-${String(ultimo).padStart(2,'0')}`
-      return { desde, hasta }
-    }
-    if (modoPeriodo === 'anio') {
-      return { desde: `${y}-01-01`, hasta: `${y}-12-31` }
-    }
-    return { desde: '', hasta: '' }
-  }
+  })
 
-  function avanzar() {
-    const d = new Date(fechaRef)
-    if (modoPeriodo === 'dia') d.setDate(d.getDate() + 1)
-    else if (modoPeriodo === 'mes') d.setMonth(d.getMonth() + 1)
-    else if (modoPeriodo === 'anio') d.setFullYear(d.getFullYear() + 1)
-    setFechaRef(d)
-  }
+  const tipo = watch('tipo')
+  const categoriaId = watch('categoria_id')
 
-  function retroceder() {
-    const d = new Date(fechaRef)
-    if (modoPeriodo === 'dia') d.setDate(d.getDate() - 1)
-    else if (modoPeriodo === 'mes') d.setMonth(d.getMonth() - 1)
-    else if (modoPeriodo === 'anio') d.setFullYear(d.getFullYear() - 1)
-    setFechaRef(d)
-  }
+  const conceptosFiltrados = conceptos.filter(c => c.categoria_gasto_id === parseInt(categoriaId))
 
-  function labelFechaRef() {
-    if (modoPeriodo === 'dia') return fechaRef.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'America/Argentina/Buenos_Aires' })
-    if (modoPeriodo === 'mes') return fechaRef.toLocaleDateString('es-AR', { month: 'long', year: 'numeric', timeZone: 'America/Argentina/Buenos_Aires' })
-    if (modoPeriodo === 'anio') return fechaRef.getFullYear().toString()
-    return ''
-  }
+  useEffect(() => {
+    setValue('categoria_id', '')
+    setValue('concepto_id', '')
+  }, [tipo])
 
-  function limpiarTodo() {
-    setModoPeriodo('todos')
-    setTipoFiltro('todos')
-    setCategoriaFiltro('todos')
-    setFechaDesde('')
-    setFechaHasta('')
-    setFechaRef(new Date())
-  }
+  useEffect(() => {
+    setValue('concepto_id', '')
+  }, [categoriaId])
 
-  const { desde, hasta } = getDesdHasta()
-
-  useEffect(() => { cargarDatos() }, [])
+  useEffect(() => {
+    cargarDatos()
+  }, [])
 
   async function cargarDatos() {
-    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) setUsuarioId(user.id)
+
+    const [categoriasRes, conceptosRes, mediosRes] = await Promise.all([
+      supabase.from('categorias_gasto').select('id, nombre').order('nombre'),
+      supabase.from('conceptos_gasto').select('id, nombre, categoria_gasto_id').order('nombre'),
+      supabase.from('medios_pago').select('id, nombre').eq('activo', true).order('nombre'),
+    ])
+
+    setCategorias(categoriasRes.data || [])
+    setConceptos(conceptosRes.data || [])
+    setMediosPago(mediosRes.data || [])
+    setLoading(false)
+  }
+
+  function parseMonto(v: string) {
+    return parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0
+  }
+
+  async function onSubmit(data: FormData) {
+    setGuardando(true)
+    setError(null)
     try {
-      const { data: movimientosData, error: movimientosError } = await supabase
-        .from('movimientos')
-        .select(`
-          id,
-          fecha_utc,
-          tipo,
-          monto,
-          observaciones,
-          categoria_gasto_id,
-          creado_en,
-          categorias_gasto ( nombre ),
-          conceptos_gasto ( nombre ),
-          medios_pago ( nombre )
-        `)
-        .order('fecha_utc', { ascending: false })
-        .order('id', { ascending: false })
+      const monto = parseMonto(data.monto)
+      if (monto <= 0) throw new Error('El monto debe ser mayor a cero')
 
-      if (movimientosError) throw movimientosError
+      const mesContable = data.fecha_utc.slice(0, 7) + '-01'
 
-      const { data: categoriasData, error: categoriasError } = await supabase
-        .from('categorias_gasto')
-        .select('id, nombre')
-        .order('nombre')
+      const { error: err } = await supabase.from('movimientos').insert({
+        sucursal_id: 1,
+        tipo: data.tipo,
+        fecha_utc: data.fecha_utc,
+        mes_contable: mesContable,
+        categoria_gasto_id: data.categoria_id ? parseInt(data.categoria_id) : null,
+        concepto_gasto_id: data.concepto_id ? parseInt(data.concepto_id) : null,
+        medio_pago_id: data.medio_pago_id ? parseInt(data.medio_pago_id) : null,
+        monto,
+        observaciones: data.observaciones || null,
+        usuario_id: usuarioId,
+        anulado: false,
+      })
 
-      if (categoriasError) throw categoriasError
-
-      setMovimientos(movimientosData as any || [])
-      setCategorias(categoriasData || [])
+      if (err) throw err
+      router.push('/movimientos')
     } catch (err: any) {
       setError(err.message)
     } finally {
-      setLoading(false)
+      setGuardando(false)
     }
   }
 
-  const movimientosFiltrados = movimientos.filter(mov => {
-    const cumpleTipo = tipoFiltro === 'todos' || mov.tipo === tipoFiltro
-    const cumpleCategoria = categoriaFiltro === 'todos' ||
-      mov.categoria_gasto_id?.toString() === categoriaFiltro
-    const fechaCreado = new Date(mov.creado_en).toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
-    const cumpleFechaDesde = !desde || fechaCreado >= desde
-    const cumpleFechaHasta = !hasta || fechaCreado <= hasta
-    return cumpleTipo && cumpleCategoria && cumpleFechaDesde && cumpleFechaHasta
-  })
-
-  const totalIngresos = movimientosFiltrados
-    .filter(m => m.tipo === 'Ingreso')
-    .reduce((sum, m) => sum + m.monto, 0)
-
-  const totalEgresos = movimientosFiltrados
-    .filter(m => m.tipo === 'Egreso')
-    .reduce((sum, m) => sum + m.monto, 0)
-
-  const diferencia = totalIngresos - totalEgresos
-
-  if (loading) return <p className="text-sm text-gray-500">Cargando movimientos...</p>
-  if (error) return <p className="text-red-500 text-sm">Error al cargar movimientos: {error}</p>
+  if (loading) return <p className="text-sm text-gray-500">Cargando...</p>
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-[#3c3c3b]">Movimientos de caja</h1>
-        <Link
-          href="/movimientos/nuevo"
-          className="bg-[#00a19a] text-white px-4 py-2 rounded text-sm hover:bg-[#008f89] transition-colors flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          Nuevo movimiento
-        </Link>
+    <div className="max-w-xl mx-auto">
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={() => router.back()} className="text-gray-500 hover:text-gray-700">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <h1 className="text-xl font-semibold text-[#3c3c3b]">Nuevo movimiento</h1>
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="w-4 h-4 text-gray-500" />
-          <h2 className="text-sm font-semibold text-gray-700">Filtros</h2>
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-2">✕</button>
         </div>
-
-        {/* Fila 1: botones período + fechas */}
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          {(['dia', 'mes', 'anio', 'libre'] as const).map(m => (
-            <div key={m} className="flex items-center">
-              {m !== 'libre' && modoPeriodo === m && (
-                <button onClick={retroceder}
-                  className="w-7 h-7 flex items-center justify-center rounded-l border border-r-0 border-gray-300 hover:bg-gray-100 text-gray-600 text-sm">
-                  ‹
-                </button>
-              )}
-              <button
-                onClick={() => setModoPeriodo(m)}
-                className={`px-3 py-1.5 text-sm font-medium border transition-colors ${
-                  modoPeriodo === m
-                    ? 'bg-[#00a19a] text-white border-[#00a19a]'
-                    : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-                } ${m !== 'libre' && modoPeriodo === m ? '' : 'rounded'}`}
-              >
-                {modoPeriodo === m && m !== 'libre' ? labelFechaRef() : m === 'dia' ? 'Día' : m === 'mes' ? 'Mes' : m === 'anio' ? 'Año' : 'Libre'}
-              </button>
-              {m !== 'libre' && modoPeriodo === m && (
-                <button onClick={avanzar}
-                  className="w-7 h-7 flex items-center justify-center rounded-r border border-l-0 border-gray-300 hover:bg-gray-100 text-gray-600 text-sm">
-                  ›
-                </button>
-              )}
-            </div>
-          ))}
-          <button
-            onClick={limpiarTodo}
-            className={`px-3 py-1.5 text-sm font-medium border rounded transition-colors ${
-              modoPeriodo === 'todos'
-                ? 'bg-[#00a19a] text-white border-[#00a19a]'
-                : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
-            }`}
-          >
-            Todos
-          </button>
-
-          {/* Fechas en la misma fila */}
-          <div className="flex items-center gap-2 ml-2">
-            <input type="date" value={desde}
-              onChange={e => { setModoPeriodo('libre'); setFechaDesde(e.target.value) }}
-              className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
-            <span className="text-gray-400 text-sm">—</span>
-            <input type="date" value={hasta}
-              onChange={e => { setModoPeriodo('libre'); setFechaHasta(e.target.value) }}
-              className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
-          </div>
-        </div>
-
-        {/* Fila 2: tipo y categoría */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
-            <select value={tipoFiltro} onChange={e => setTipoFiltro(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
-              <option value="todos">Todos</option>
-              <option value="Ingreso">Ingresos</option>
-              <option value="Egreso">Egresos</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Categoría</label>
-            <select value={categoriaFiltro} onChange={e => setCategoriaFiltro(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
-              <option value="todos">Todas las categorías</option>
-              {categorias.map(cat => (
-                <option key={cat.id} value={cat.id.toString()}>{cat.nombre}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="mt-3 text-xs text-gray-500">
-          {movimientosFiltrados.length} {movimientosFiltrados.length === 1 ? 'movimiento' : 'movimientos'}
-        </div>
-      </div>
-
-      {/* Totales — siempre visibles */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-        <div className="grid grid-cols-3 gap-4">
-          <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-            <p className="text-xs text-green-600 font-medium mb-1">Total Ingresos</p>
-            <p className="text-2xl font-bold text-green-700">
-              ${totalIngresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-            </p>
-          </div>
-          <div className="bg-red-50 rounded-lg p-4 border border-red-200">
-            <p className="text-xs text-red-600 font-medium mb-1">Total Egresos</p>
-            <p className="text-2xl font-bold text-red-700">
-              ${totalEgresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-            </p>
-          </div>
-          <div className={`rounded-lg p-4 border ${
-            diferencia >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'
-          }`}>
-            <p className={`text-xs font-medium mb-1 ${diferencia >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
-              Diferencia
-            </p>
-            <p className={`text-2xl font-bold ${diferencia >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
-              {diferencia >= 0 ? '+' : ''}$
-              {diferencia.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {movimientosFiltrados.length === 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-          <p className="text-sm text-gray-500">
-            {movimientos.length === 0
-              ? 'No hay movimientos registrados todavía.'
-              : 'No se encontraron movimientos con los filtros aplicados.'}
-          </p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Fecha</th>
-                  <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Tipo</th>
-                  <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Categoría</th>
-                  <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Concepto</th>
-                  <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Monto</th>
-                  <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Medio de pago</th>
-                  <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Observaciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {movimientosFiltrados.map(mov => (
-                  <tr key={mov.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-gray-700">
-                      {mov.fecha_utc.split('-').reverse().join('/')}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        mov.tipo === 'Ingreso' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                      }`}>{mov.tipo}</span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">{mov.categorias_gasto?.nombre || '—'}</td>
-                    <td className="px-4 py-3 text-gray-700">{mov.conceptos_gasto?.nombre || '—'}</td>
-                    <td className={`px-4 py-3 text-right font-semibold ${
-                      mov.tipo === 'Ingreso' ? 'text-green-700' : 'text-red-700'
-                    }`}>
-                      {mov.tipo === 'Ingreso' ? '+' : '-'}$
-                      {mov.monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{mov.medios_pago?.nombre || '—'}</td>
-                    <td className="px-4 py-3 text-gray-500 text-xs max-w-xs truncate">
-                      {mov.observaciones || '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
       )}
+
+      <form onSubmit={handleSubmit(onSubmit)} className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+
+        {/* Tipo */}
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Tipo *</label>
+          <div className="flex gap-3">
+            {(['Egreso', 'Ingreso'] as const).map(t => (
+              <label key={t} className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" value={t} {...register('tipo', { required: true })}
+                  className="accent-[#00a19a]" />
+                <span className={`text-sm font-medium ${t === 'Ingreso' ? 'text-green-700' : 'text-red-700'}`}>{t}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Fecha */}
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Fecha *</label>
+          <input type="date" {...register('fecha_utc', { required: true })}
+            className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+        </div>
+
+        {/* Categoría */}
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Categoría</label>
+          <select {...register('categoria_id')}
+            className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
+            <option value="">— Sin categoría —</option>
+            {categorias.map(c => (
+              <option key={c.id} value={c.id}>{c.nombre}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Concepto */}
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Concepto</label>
+          <select {...register('concepto_id')} disabled={!categoriaId}
+            className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50 disabled:text-gray-400">
+            <option value="">— Sin concepto —</option>
+            {conceptosFiltrados.map(c => (
+              <option key={c.id} value={c.id}>{c.nombre}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Medio de pago */}
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Medio de pago</label>
+          <select {...register('medio_pago_id')}
+            className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
+            <option value="">— Sin especificar —</option>
+            {mediosPago.map(m => (
+              <option key={m.id} value={m.id}>{m.nombre}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Monto */}
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Monto *</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="0"
+            {...register('monto', {
+              required: 'El monto es obligatorio',
+              setValueAs: v => v,
+            })}
+            onChange={e => {
+              const raw = e.target.value.replace(/\./g, '').replace(',', '.')
+              const num = parseFloat(raw)
+              if (!isNaN(num)) {
+                setValue('monto', num.toLocaleString('es-AR', { minimumFractionDigits: 2 }))
+              } else {
+                setValue('monto', e.target.value)
+              }
+            }}
+            className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+          />
+          {errors.monto && <p className="text-red-500 text-xs mt-1">{errors.monto.message}</p>}
+        </div>
+
+        {/* Observaciones */}
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Observaciones</label>
+          <textarea {...register('observaciones')} rows={2}
+            className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] resize-none"
+            placeholder="Opcional..." />
+        </div>
+
+        {/* Botones */}
+        <div className="flex gap-3 pt-2">
+          <button type="button" onClick={() => router.back()}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+            Cancelar
+          </button>
+          <button type="submit" disabled={guardando}
+            className="flex-1 px-4 py-2 bg-[#00a19a] text-white rounded text-sm font-medium hover:bg-[#008f89] transition-colors disabled:opacity-50">
+            {guardando ? 'Guardando...' : 'Guardar movimiento'}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }
