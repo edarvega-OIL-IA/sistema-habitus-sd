@@ -7,6 +7,11 @@ Reemplaza coverweb.com.ar. Stack confirmado y configurado.
 ## Ruta del proyecto
 C:\Users\Usuario\Documents\sistema-habitus-sd
 
+## Deploy
+- Repositorio: https://github.com/edarvega-OIL-IA/sistema-habitus-sd (privado, rama master)
+- Vercel: https://sistema-habitus-sd.vercel.app (deploy automático en push)
+- Workflow deploy: `git add -A` → `git commit -m "..."` → `git push`
+
 ## Stack
 - Next.js 16 (App Router) + TypeScript
 - Supabase (PostgreSQL + RLS + Auth)
@@ -89,7 +94,7 @@ src/proxy.ts (ya completo — reemplaza middleware.ts en Next.js 16)
 - Parseo: parseFloat(v.replace(/\./g,'').replace(',','.')) || 0
 - Display: n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
 
-## Tablas principales en Supabase (sandbox) — CAMPOS REALES VERIFICADOS
+## Tablas principales en Supabase — CAMPOS REALES VERIFICADOS (producción y sandbox)
 
 ### Catálogo
 - articulos (id, nombre, nombre_base, rubro_id, marca_id, codigo_interno, codigo_barra, sku, unidad_medida_id, costo_sin_iva, tasa_iva_id, precio_local, precio_web, precio_mayorista, precio_oferta_web, disponible_local, disponible_web, visible_en_tienda, atributo_nombre, atributo_valor, peso_kg, descripcion, id_producto_web, id_stock_web, activo, creado_en, actualizado_en)
@@ -108,7 +113,7 @@ src/proxy.ts (ya completo — reemplaza middleware.ts en Next.js 16)
 - historico_precios (id, articulo_id, fecha, tipo, costo_sin_iva, precio_local, precio_web, precio_mayorista, precio_oferta_web, tasa_iva_id, origen_id, usuario_id, creado_en) — tipo: 'costo'|'precio_venta'|'ajuste_masivo'|'migracion'
 
 ### Ventas y pagos
-- ventas (id, numero_venta, cliente_id, sucursal_id, usuario_id, estado_venta_id, descuento_pct, subtotal, total, observaciones, fecha_utc, cierre_turno_id, creado_en)
+- ventas (id, numero_venta, cliente_id, sucursal_id, usuario_id, estado_venta_id, descuento_pct, subtotal, total, observaciones, fecha_utc, cierre_turno_id, mes_contable, creado_en)
 - venta_items (id, venta_id, articulo_id, cantidad, precio_unitario, descuento_pct, subtotal)
 - venta_pagos (id, venta_id, medio_pago_id, emisor_pago_id, monto, referencia, payment_method_raw, creado_en)
 - medios_pago (id, nombre, fiscaliza_por_defecto, activo) — 1=Efectivo, 2=Débito, 3=Crédito, 4=Transferencia
@@ -118,9 +123,10 @@ src/proxy.ts (ya completo — reemplaza middleware.ts en Next.js 16)
 
 ### Movimientos financieros
 - categorias_gasto (id, nombre, tipo, creado_en) — NO tiene campo activo; tipo: Ingreso/Egreso/Ambos/Sistema
-- conceptos_gasto (id, categoria_gasto_id, nombre, tipo, creado_en)
+- conceptos_gasto (id, categoria_gasto_id, nombre, creado_en) — en producción NO tiene campo tipo
 - movimientos (id, sucursal_id, cuenta_id, categoria_gasto_id, concepto_gasto_id, tipo, monto, fecha_utc, mes_contable, entidad_tipo_id, entidad_id, origen_tipo, origen_id, estado_cobro_id, medio_pago_id, turno_id, usuario_id, observaciones, anulado, creado_en)
 - Compras mercadería: categoria_gasto_id=1, concepto_gasto_id=33
+- Flete compra: concepto_gasto_id=44
 
 ### Stock
 - articulo_stock (id, articulo_id, sucursal_id, stock_actual, stock_min, stock_max, actualizado_en) — stock_min/stock_max, NO stock_minimo/stock_maximo
@@ -137,15 +143,18 @@ src/proxy.ts (ya completo — reemplaza middleware.ts en Next.js 16)
 ### Cierre de turno
 - cierres_turno (id, sucursal_id, fecha, turno_id, usuario_id, apertura, apertura_contada, diferencia_apertura, ingresos_sistema, egresos_sistema, resultado_sistema, efectivo_real, diferencia, observaciones, cerrado_en, estado_cierre_turno_id, cantidad_reaperturas)
 - retiros_caja (id, sucursal_id, fecha_utc, monto, usuario_id, observaciones, cierre_turno_id, concepto, creado_en)
-- turnos (id, nombre) — 1=Mañana, 2=Tarde
-- reaperturas_caja (tabla con snapshot antes/después)
+- turnos (id, nombre) — 1=Mañana, 2=Tarde (NO existe General)
+- reaperturas_caja (id, cierre_turno_id, usuario_id, snapshot_antes, snapshot_despues, motivo, creado_en)
 
 ## Funciones PostgreSQL disponibles
 - get_rol_usuario() → retorna rol_id del usuario autenticado
 - incrementar_numero_venta(p_sucursal_id) → retorna número correlativo sin gaps
 - eliminar_movimiento_stock(p_movimiento_id) → revierte stock + elimina items + cabecera
 - editar_movimiento_stock(p_movimiento_id, p_subtipo_id, p_deportista_id, p_observaciones, p_items JSONB)
-- abrir_turno, cerrar_turno, registrar_retiro_caja, reabrir_ultimo_cierre
+- abrir_turno(p_sucursal_id, p_turno_id, p_usuario_id) → BIGINT
+- cerrar_turno(p_cierre_id, p_efectivo_real, p_observaciones)
+- registrar_retiro_caja(p_cierre_turno_id, p_monto, p_usuario_id, p_concepto)
+- NOTA: reabrir_ultimo_cierre NO existe en producción todavía
 
 ## Vista importante
 - articulos_sin_costo → igual que articulos pero SIN columna costo_sin_iva (para Encargado)
@@ -170,7 +179,7 @@ src/proxy.ts (ya completo — reemplaza middleware.ts en Next.js 16)
 - tasas_iva: 21%=4, 10.5%=5, 0%=6
 - medios_pago: Efectivo=1, Débito=2, Crédito=3, Transferencia=4
 - categorias_gasto: Compras Mercadería=1 (11 total)
-- conceptos_gasto: Compra mercadería=33
+- conceptos_gasto: Compra mercadería=33, Flete compra=44
 - proveedores: Black=1, Disfit=2, EPN=3, Vitatech=4
 - transportistas: cargados (VIA CARGO, Correo Argentino, Andreani + particulares)
 - usuarios: Ariel Vega (rol_id=1), Agustín Chandia (rol_id=2)
@@ -189,6 +198,15 @@ src/proxy.ts (ya completo — reemplaza middleware.ts en Next.js 16)
 - NO usar stock_minimo/stock_maximo — son stock_min/stock_max
 - NO usar type="number" para inputs de monto
 - NO usar valueAsNumber: true en React Hook Form para montos
-- NO hacer join anidado profundo en Supabase para articulo_stock — query separada + merge
+- NO hacer join anidado profundo en Supabase — query separada + merge por Map siempre
 - NO poner articulo_id/cantidad directamente en movimientos_stock — usar movimiento_stock_items
-- NO olvidar RLS al crear tablas nuevas
+- NO olvidar RLS + GRANT al crear tablas nuevas (van juntos, siempre)
+- NO usar `&&` en PowerShell — usar `;`
+- NO asumir que un cambio de esquema en sandbox existe en producción — verificar y documentar en SQL
+
+## Errores críticos aprendidos (no repetir)
+1. **Joins anidados bloqueados por RLS**: Supabase con RLS activo bloquea silenciosamente joins anidados profundos. Siempre usar query separada + merge por Map.
+2. **RLS sin GRANT bloquea todo**: habilitar RLS y crear políticas no alcanza — también hay que hacer GRANT SELECT/INSERT/UPDATE/DELETE a `authenticated`.
+3. **SELECT INTO en PL/pgSQL pisa valores iniciales**: si no hay filas, la variable queda NULL aunque se inicializó con un valor. Siempre agregar `variable := COALESCE(variable, fallback)` después del SELECT INTO.
+4. **Cambios de esquema sandbox → producción**: todo ALTER TABLE / CREATE TABLE / nueva política debe registrarse inmediatamente en un archivo SQL de producción al momento de hacerlo.
+5. **conceptos_gasto en producción no tiene columna `tipo`**: no usarla en queries contra producción.
