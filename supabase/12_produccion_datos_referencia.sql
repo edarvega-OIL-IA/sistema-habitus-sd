@@ -162,64 +162,68 @@ INSERT INTO depositos (id, sucursal_id, nombre, activo) VALUES
 SELECT setval('depositos_id_seq', 1);
 
 -- ---------------------------------------------------------------------------
--- 10. CATEGORÍAS DE GASTO
--- (producción no tiene columna tipo)
+-- 10. COLUMNAS tipo EN categorias_gasto Y conceptos_gasto
 -- ---------------------------------------------------------------------------
-INSERT INTO categorias_gasto (id, nombre) VALUES
-  (1,  'Compras Mercadería'),
-  (2,  'Empleados'),
-  (3,  'Impuestos'),
-  (4,  'Local Comercial'),
-  (5,  'Marketing'),
-  (6,  'Página Web'),
-  (7,  'Servicios'),
-  (8,  'Sistema'),
-  (9,  'Team Habitus'),
-  (10, 'Ventas'),
-  (11, 'Otros Ingresos'),
-  (13, 'Caja');
+ALTER TABLE categorias_gasto ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'Egreso';
+ALTER TABLE conceptos_gasto  ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'Egreso';
+
+-- ---------------------------------------------------------------------------
+-- 11. CATEGORÍAS DE GASTO
+-- ---------------------------------------------------------------------------
+INSERT INTO categorias_gasto (id, nombre, tipo) VALUES
+  (1,  'Compras Mercadería', 'Egreso'),
+  (2,  'Empleados',          'Egreso'),
+  (3,  'Impuestos',          'Egreso'),
+  (4,  'Local Comercial',    'Egreso'),
+  (5,  'Marketing',          'Egreso'),
+  (6,  'Página Web',         'Egreso'),
+  (7,  'Servicios',          'Egreso'),
+  (8,  'Sistema',            'Egreso'),
+  (9,  'Team Habitus',       'Egreso'),
+  (10, 'Ventas',             'Sistema'),
+  (11, 'Otros Ingresos',     'Ingreso'),
+  (13, 'Caja',               'Ambos');
 SELECT setval('categorias_gasto_id_seq', 13);
 
 -- ---------------------------------------------------------------------------
--- 11. CONCEPTOS DE GASTO
--- (desde sandbox al 27/06/2026 — producción no tiene columna tipo)
+-- 12. CONCEPTOS DE GASTO
 -- ---------------------------------------------------------------------------
-INSERT INTO conceptos_gasto (id, categoria_gasto_id, nombre) VALUES
-  (33, 1,  'Compra mercadería'),
-  (44, 1,  'Flete compra'),
-  (5,  2,  'Sueldo'),
-  (11, 2,  'Adelanto sueldo'),
-  (12, 2,  'F931'),
-  (13, 2,  'OSECAC'),
-  (14, 2,  'FAECYS'),
-  (15, 2,  'INACAP'),
-  (16, 2,  'Sindicato'),
-  (17, 2,  'Limpieza'),
-  (18, 3,  'Ingresos Brutos'),
-  (19, 3,  'Municipalidad'),
-  (20, 3,  'AFIP Monotributo'),
-  (1,  4,  'Alquiler'),
-  (21, 4,  'Mantenimiento'),
-  (22, 5,  'Publicidad Instagram'),
-  (23, 5,  'Diseño'),
-  (24, 6,  'Empretienda'),
-  (25, 6,  'GoDaddy'),
-  (26, 6,  'Canva'),
-  (4,  7,  'Agua'),
-  (27, 7,  'Luz EDERSA'),
-  (28, 7,  'Gas Camuzzi'),
-  (29, 7,  'Internet'),
-  (30, 7,  'Claro celular'),
-  (31, 8,  'Coverweb'),
-  (32, 8,  'Otro sistema'),
-  (34, 9,  'Sponsoreo suplementos'),
-  (35, 10, 'Venta local'),
-  (41, 13, 'Retiro'),
-  (43, 13, 'Ingreso');
+INSERT INTO conceptos_gasto (id, categoria_gasto_id, nombre, tipo) VALUES
+  (33, 1,  'Compra mercadería',      'Egreso'),
+  (44, 1,  'Flete compra',           'Egreso'),
+  (5,  2,  'Sueldo',                 'Egreso'),
+  (11, 2,  'Adelanto sueldo',        'Egreso'),
+  (12, 2,  'F931',                   'Egreso'),
+  (13, 2,  'OSECAC',                 'Egreso'),
+  (14, 2,  'FAECYS',                 'Egreso'),
+  (15, 2,  'INACAP',                 'Egreso'),
+  (16, 2,  'Sindicato',              'Egreso'),
+  (17, 2,  'Limpieza',               'Egreso'),
+  (18, 3,  'Ingresos Brutos',        'Egreso'),
+  (19, 3,  'Municipalidad',          'Egreso'),
+  (20, 3,  'AFIP Monotributo',       'Egreso'),
+  (1,  4,  'Alquiler',               'Egreso'),
+  (21, 4,  'Mantenimiento',          'Egreso'),
+  (22, 5,  'Publicidad Instagram',   'Egreso'),
+  (23, 5,  'Diseño',                 'Egreso'),
+  (24, 6,  'Empretienda',            'Egreso'),
+  (25, 6,  'GoDaddy',                'Egreso'),
+  (26, 6,  'Canva',                  'Egreso'),
+  (4,  7,  'Agua',                   'Egreso'),
+  (27, 7,  'Luz EDERSA',             'Egreso'),
+  (28, 7,  'Gas Camuzzi',            'Egreso'),
+  (29, 7,  'Internet',               'Egreso'),
+  (30, 7,  'Claro celular',          'Egreso'),
+  (31, 8,  'Coverweb',               'Egreso'),
+  (32, 8,  'Otro sistema',           'Egreso'),
+  (34, 9,  'Sponsoreo suplementos',  'Egreso'),
+  (35, 10, 'Venta local',            'Sistema'),
+  (41, 13, 'Retiro',                 'Egreso'),
+  (43, 13, 'Ingreso',                'Ingreso');
 SELECT setval('conceptos_gasto_id_seq', 44);
 
 -- ---------------------------------------------------------------------------
--- 12. VERIFICACIÓN FINAL
+-- 13. VERIFICACIÓN FINAL
 -- ---------------------------------------------------------------------------
 SELECT 'medios_pago'       AS tabla, COUNT(*) AS filas FROM medios_pago
 UNION ALL SELECT 'tasas_iva',         COUNT(*) FROM tasas_iva
