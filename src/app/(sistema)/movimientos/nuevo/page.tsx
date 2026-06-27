@@ -23,12 +23,14 @@ type MovimientoFormData = z.infer<typeof movimientoSchema>
 interface Categoria {
   id: number
   nombre: string
+  tipo: string
 }
 
 interface Concepto {
   id: number
   nombre: string
   categoria_gasto_id: number
+  tipo: string
 }
 
 export default function NuevoMovimientoPage() {
@@ -64,6 +66,8 @@ export default function NuevoMovimientoPage() {
   const tipo = watch('tipo')
   const categoriaId = watch('categoria_id')
 
+  const categoriasFiltradas = categorias.filter(c => c.tipo === tipo || c.tipo === 'Ambos')
+
   function cambiarTipo(nuevoTipo: 'Ingreso' | 'Egreso') {
     setValue('tipo', nuevoTipo)
     setValue('categoria_id', 0)
@@ -78,7 +82,10 @@ export default function NuevoMovimientoPage() {
 
   useEffect(() => {
     if (categoriaId) {
-      const filtrados = conceptos.filter(c => c.categoria_gasto_id === categoriaId)
+      const filtrados = conceptos.filter(c =>
+        c.categoria_gasto_id === categoriaId &&
+        (c.tipo === tipo || c.tipo === 'Ambos')
+      )
       setConceptosFiltrados(filtrados)
       if (filtrados.length === 1) {
         setValue('concepto_id', filtrados[0].id, { shouldValidate: true })
@@ -88,15 +95,15 @@ export default function NuevoMovimientoPage() {
     } else {
       setConceptosFiltrados([])
     }
-  }, [categoriaId, conceptos])
+  }, [categoriaId, tipo, conceptos])
 
   useEffect(() => { cargarDatos() }, [])
 
   async function cargarDatos() {
     const supabase = createClient()
     const [categoriasRes, conceptosRes, mediosRes] = await Promise.all([
-      supabase.from('categorias_gasto').select('id, nombre').order('nombre'),
-      supabase.from('conceptos_gasto').select('id, nombre, categoria_gasto_id').order('nombre'),
+      supabase.from('categorias_gasto').select('id, nombre, tipo').order('nombre'),
+      supabase.from('conceptos_gasto').select('id, nombre, categoria_gasto_id, tipo').order('nombre'),
       supabase.from('medios_pago').select('id, nombre').eq('activo', true).order('id'),
     ])
     setCategorias(categoriasRes.data || [])
@@ -218,7 +225,7 @@ export default function NuevoMovimientoPage() {
             <select {...register('categoria_id', { valueAsNumber: true })}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
               <option value="">Seleccionar categoría</option>
-              {categorias.map(cat => <option key={cat.id} value={cat.id}>{cat.nombre}</option>)}
+              {categoriasFiltradas.map(cat => <option key={cat.id} value={cat.id}>{cat.nombre}</option>)}
             </select>
             {errors.categoria_id && <p className="text-red-500 text-xs mt-1">{errors.categoria_id.message}</p>}
           </div>
@@ -227,7 +234,7 @@ export default function NuevoMovimientoPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Concepto <span className="text-red-500">*</span></label>
             <select {...register('concepto_id', { valueAsNumber: true })}
-              key={`concepto-${categoriaId}`}
+              key={`concepto-${categoriaId}-${tipo}`}
               disabled={!categoriaId}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-100">
               <option value="">{!categoriaId ? 'Primero seleccione categoría' : 'Seleccionar concepto'}</option>
