@@ -1,0 +1,719 @@
+'use client'
+
+import { useEffect, useState, useRef } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { useRouter, useParams } from 'next/navigation'
+import { Save, X, FileCheck, Search, Trash2 } from 'lucide-react'
+
+interface Proveedor { id: number; nombre_comercial: string }
+interface Transportista { id: number; nombre: string }
+interface TasaIva { id: number; porcentaje: number }
+interface Articulo {
+  id: number; nombre: string
+  codigo_interno: string | null; codigo_barra: string | null
+  rubro_nombre: string | null; marca_nombre: string | null
+  costo_sin_iva: number | null; tasa_iva_id: number | null
+  precio_local: number | null; precio_web: number | null
+  precio_mayorista: number | null; precio_oferta_web: number | null
+}
+interface ItemOrden {
+  articulo_id: number; articulo_nombre: string
+  tasa_iva_id: number | null
+  precio_local: number | null; precio_web: number | null
+  precio_mayorista: number | null; precio_oferta_web: number | null
+  cant_facturada: number; cant_recibida: number
+  precio_unitario: number; descuento_pct: number; subtotal: number
+}
+
+const MEDIOS_PAGO = [
+  { id: 1, nombre: 'Efectivo' },
+  { id: 2, nombre: 'Débito' },
+  { id: 3, nombre: 'Crédito' },
+  { id: 4, nombre: 'Transferencia' },
+]
+
+export default function ComprasEditarPage() {
+  const router = useRouter()
+  const params = useParams()
+  const ordenId = Number(params.id)
+
+  const [loading, setLoading] = useState(false)
+  const [loadingInicial, setLoadingInicial] = useState(true)
+  const [notif, setNotif] = useState<{ tipo: 'error' | 'ok'; msg: string } | null>(null)
+  const [estadoOrdenId, setEstadoOrdenId] = useState<number>(1)
+
+  const [proveedores, setProveedores] = useState<Proveedor[]>([])
+  const [transportistas, setTransportistas] = useState<Transportista[]>([])
+  const [tasasIva, setTasasIva] = useState<TasaIva[]>([])
+  const [articulos, setArticulos] = useState<Articulo[]>([])
+  const [items, setItems] = useState<ItemOrden[]>([])
+
+  // Form
+  const [tieneComprobante, setTieneComprobante] = useState(false)
+  const [nroFactura, setNroFactura] = useState('')
+  const [nroRemito, setNroRemito] = useState('')
+  const [fechaFactura, setFechaFactura] = useState('')
+  const [proveedorId, setProveedorId] = useState<number | ''>('')
+  const [fechaOrden, setFechaOrden] = useState('')
+  const [nroPedidoExterno, setNroPedidoExterno] = useState('')
+  const [medioPagoId, setMedioPagoId] = useState<number>(1)
+  const [fleteMonto, setFleteMonto] = useState<number>(0)
+  const [fleteTransportistaId, setFleteTransportistaId] = useState<number | ''>('')
+  const [fleteMedioPagoId, setFleteMedioPagoId] = useState<number>(1)
+  const [distribuirFlete, setDistribuirFlete] = useState(true)
+  const [observaciones, setObservaciones] = useState('')
+
+  // Buscador
+  const [busqueda, setBusqueda] = useState('')
+  const [resultados, setResultados] = useState<Articulo[]>([])
+  const [indiceSeleccionado, setIndiceSeleccionado] = useState(-1)
+  const busquedaRef = useRef<HTMLInputElement>(null)
+  const cantRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { cargarDatos() }, [])
+
+  useEffect(() => {
+    const termino = busqueda.trim()
+    if (!termino) { setResultados([]); setIndiceSeleccionado(-1); return }
+    const tokens = termino.toLowerCase().split(/\s+/)
+    const filtrados = articulos.filter(a => {
+      const haystack = [a.nombre, a.codigo_interno, a.codigo_barra, a.rubro_nombre, a.marca_nombre]
+        .filter(Boolean).join(' ').toLowerCase()
+      return tokens.every(t => haystack.includes(t))
+    })
+    setResultados(filtrados.slice(0, 12))
+    setIndiceSeleccionado(-1)
+  }, [busqueda, articulos])
+
+  async function cargarDatos() {
+    const supabase = createClient()
+    try {
+      const [provRes, transRes, artRes, tasasRes, ordenRes] = await Promise.all([
+        supabase.from('proveedores').select('id, nombre_comercial').eq('activo', true).order('nombre_comercial'),
+        supabase.from('transportistas').select('id, nombre').eq('activo', true).order('nombre'),
+        supabase.from('articulos').select(`
+          id, nombre, codigo_interno, codigo_barra, costo_sin_iva, tasa_iva_id,
+          precio_local, precio_web, precio_mayorista, precio_oferta_web,
+          rubros ( nombre ), marcas ( nombre )
+        `).eq('activo', true).order('nombre'),
+        supabase.from('tasas_iva').select('id, porcentaje'),
+        supabase.from('ordenes_compra').select(`
+          id, proveedor_id, fecha_orden, estado_orden_compra_id, tipo_orden_compra_id,
+          tiene_comprobante, numero_factura_proveedor, numero_remito_proveedor, fecha_factura,
+          numero_pedido_externo, flete_monto, flete_medio_pago_id, flete_transportista_id, observaciones,
+          orden_compra_items (
+            articulo_id, cantidad_facturada, cantidad_recibida,
+            precio_unitario_sin_iva, subtotal,
+            articulos ( nombre, tasa_iva_id, precio_local, precio_web, precio_mayorista, precio_oferta_web )
+          )
+        `).eq('id', ordenId).single(),
+      ])
+
+      setProveedores(provRes.data || [])
+      setTransportistas(transRes.data || [])
+      setTasasIva(tasasRes.data || [])
+      setArticulos((artRes.data || []).map((a: any) => ({
+        ...a,
+        rubro_nombre: a.rubros?.nombre || null,
+        marca_nombre: a.marcas?.nombre || null,
+      })))
+
+      // Poblar form con datos de la orden
+      const o = ordenRes.data as any
+      if (!o) throw new Error('Orden no encontrada')
+
+      setEstadoOrdenId(o.estado_orden_compra_id)
+      setProveedorId(o.proveedor_id)
+      setFechaOrden(o.fecha_orden)
+      setTieneComprobante(o.tiene_comprobante)
+      setNroFactura(o.numero_factura_proveedor || '')
+      setNroRemito(o.numero_remito_proveedor || '')
+      setFechaFactura(o.fecha_factura || '')
+      setNroPedidoExterno(o.numero_pedido_externo || '')
+      setFleteMonto(o.flete_monto || 0)
+      setFleteMedioPagoId(o.flete_medio_pago_id || 1)
+      setFleteTransportistaId(o.flete_transportista_id || '')
+      setObservaciones(o.observaciones || '')
+
+      // Poblar items — precio_unitario en pantalla es con IVA
+      const tasas: TasaIva[] = tasasRes.data || []
+      const itemsCargados: ItemOrden[] = (o.orden_compra_items || []).map((it: any) => {
+        const tasa = tasas.find(t => t.id === it.articulos?.tasa_iva_id)
+        const divisor = tasa ? 1 + tasa.porcentaje / 100 : 1.21
+        const precioConIva = Math.round(it.precio_unitario_sin_iva * divisor * 100) / 100
+        return {
+          articulo_id: it.articulo_id,
+          articulo_nombre: it.articulos?.nombre || '',
+          tasa_iva_id: it.articulos?.tasa_iva_id || null,
+          precio_local: it.articulos?.precio_local || null,
+          precio_web: it.articulos?.precio_web || null,
+          precio_mayorista: it.articulos?.precio_mayorista || null,
+          precio_oferta_web: it.articulos?.precio_oferta_web || null,
+          cant_facturada: it.cantidad_facturada,
+          cant_recibida: it.cantidad_recibida,
+          precio_unitario: precioConIva,
+          descuento_pct: it.descuento_pct || 0,
+          subtotal: it.subtotal,
+        }
+      })
+      setItems(itemsCargados)
+    } catch (e: any) {
+      setNotif({ tipo: 'error', msg: e.message })
+    } finally {
+      setLoadingInicial(false)
+    }
+  }
+
+  function getDivisorIva(tasaIvaId: number | null): number {
+    const tasa = tasasIva.find(t => t.id === tasaIvaId)
+    return tasa ? 1 + tasa.porcentaje / 100 : 1.21
+  }
+
+  function agregarArticulo(art: Articulo) {
+    if (items.find(i => i.articulo_id === art.id)) {
+      setBusqueda(''); setResultados([]); return
+    }
+    const divisor = getDivisorIva(art.tasa_iva_id)
+    const precio = art.costo_sin_iva ? Math.round(art.costo_sin_iva * divisor * 100) / 100 : 0
+    setItems(prev => [...prev, {
+      articulo_id: art.id, articulo_nombre: art.nombre,
+      tasa_iva_id: art.tasa_iva_id,
+      precio_local: art.precio_local, precio_web: art.precio_web,
+      precio_mayorista: art.precio_mayorista, precio_oferta_web: art.precio_oferta_web,
+      cant_facturada: 1, cant_recibida: 1,
+      precio_unitario: precio, descuento_pct: 0, subtotal: precio,
+    }])
+    setBusqueda(''); setResultados([])
+    setTimeout(() => cantRef.current?.focus(), 50)
+  }
+
+  function actualizarItem(index: number, campo: keyof ItemOrden, valor: any) {
+    setItems(prev => {
+      const next = [...prev]
+      next[index] = { ...next[index], [campo]: valor }
+      if (campo === 'cant_facturada') next[index].cant_recibida = valor
+      const it = next[index]
+      next[index].subtotal = it.cant_facturada * it.precio_unitario * (1 - it.descuento_pct / 100)
+      return next
+    })
+  }
+
+  function eliminarItem(index: number) {
+    setItems(prev => prev.filter((_, i) => i !== index))
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (!resultados.length) return
+    if (e.key === 'ArrowDown') { e.preventDefault(); setIndiceSeleccionado(i => Math.min(i + 1, resultados.length - 1)) }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setIndiceSeleccionado(i => Math.max(i - 1, 0)) }
+    if (e.key === 'Enter' && indiceSeleccionado >= 0) { e.preventDefault(); agregarArticulo(resultados[indiceSeleccionado]) }
+    if (e.key === 'Escape') { setResultados([]); setBusqueda('') }
+  }
+
+  function mostrarError(msg: string) {
+    setNotif({ tipo: 'error', msg })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const subtotalArticulos = items.reduce((s, i) => s + i.subtotal, 0)
+  const totalGeneral = subtotalArticulos + fleteMonto
+
+  function costoConFlete(item: ItemOrden): number | null {
+    if (!distribuirFlete || fleteMonto === 0 || subtotalArticulos === 0) return null
+    const prop = item.subtotal / subtotalArticulos
+    return (item.subtotal + fleteMonto * prop) / item.cant_recibida / getDivisorIva(item.tasa_iva_id)
+  }
+
+  function validar(): string | null {
+    if (!proveedorId) return 'Seleccioná un proveedor'
+    if (!fechaOrden) return 'La fecha es requerida'
+    if (items.length === 0) return 'Agregá al menos un artículo'
+    if (fleteMonto > 0 && !fleteTransportistaId) return 'Si hay flete, especificá el transportista'
+    return null
+  }
+
+
+  async function guardar(confirmar: boolean) {
+    const err = validar()
+    if (err) { mostrarError(err); return }
+    if (confirmar && !confirm('¿Confirmar la orden? Se revertirán los datos anteriores y se aplicarán los nuevos.')) return
+
+    setLoading(true)
+    setNotif(null)
+    const supabase = createClient()
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('No autenticado')
+      const { data: usuarioData } = await supabase
+        .from('usuarios').select('id, sucursal_id').eq('id', user.id).single()
+      if (!usuarioData) throw new Error('Usuario no encontrado')
+      const sucursalId = usuarioData.sucursal_id
+
+      // Verificar estado ACTUAL en BD (no el del estado React, que puede estar desactualizado)
+      const { data: ordenActual } = await supabase
+        .from('ordenes_compra')
+        .select('estado_orden_compra_id')
+        .eq('id', ordenId)
+        .single()
+      const eraConfirmada = ordenActual?.estado_orden_compra_id === 2
+
+      // Si era confirmada: revertir stock, costos y anular movimientos anteriores
+      if (eraConfirmada) {
+        const { data: itemsAnteriores } = await supabase
+          .from('orden_compra_items')
+          .select('articulo_id, cantidad_recibida, articulos(tasa_iva_id)')
+          .eq('orden_compra_id', ordenId)
+
+        for (const it of itemsAnteriores || []) {
+          // Revertir stock
+          const { data: stockEx } = await supabase
+            .from('articulo_stock').select('id, stock_actual')
+            .eq('articulo_id', it.articulo_id).eq('sucursal_id', sucursalId).maybeSingle()
+          if (stockEx) {
+            await supabase.from('articulo_stock')
+              .update({ stock_actual: Math.max(0, stockEx.stock_actual - it.cantidad_recibida) })
+              .eq('id', stockEx.id)
+          }
+          // Revertir costo al anterior
+          const { data: histPrevio } = await supabase
+            .from('historico_precios')
+            .select('costo_sin_iva')
+            .eq('articulo_id', it.articulo_id)
+            .eq('tipo', 'costo')
+            .neq('origen_id', ordenId)
+            .order('creado_en', { ascending: false })
+            .limit(1).maybeSingle()
+          if (histPrevio) {
+            await supabase.from('articulos')
+              .update({ costo_sin_iva: histPrevio.costo_sin_iva })
+              .eq('id', it.articulo_id)
+          }
+        }
+        // Eliminar histórico de esta orden
+        await supabase.from('historico_precios')
+          .delete().eq('origen_id', ordenId).eq('tipo', 'costo')
+      }
+
+      // SIEMPRE anular movimientos previos de esta orden (independientemente del estado anterior)
+      await supabase.from('movimientos')
+        .update({ anulado: true })
+        .eq('origen_tipo', 'orden_compra').eq('origen_id', ordenId)
+
+      // Eliminar items anteriores
+      await supabase.from('orden_compra_items').delete().eq('orden_compra_id', ordenId)
+
+      // Calcular flete prorrateado
+      const itemsConFlete = items.map(item => {
+        const prop = subtotalArticulos > 0 ? item.subtotal / subtotalArticulos : 0
+        const fleteItem = distribuirFlete ? fleteMonto * prop : 0
+        const divisorIva = getDivisorIva(item.tasa_iva_id)
+        const costoFinal = item.cant_recibida > 0
+          ? (item.subtotal + fleteItem) / item.cant_recibida / divisorIva
+          : item.precio_unitario / divisorIva
+        return { ...item, flete_prorrateado: fleteItem, costo_final_unitario: costoFinal }
+      })
+
+      // Actualizar orden
+      await supabase.from('ordenes_compra').update({
+        proveedor_id: proveedorId,
+        fecha_orden: fechaOrden,
+        tipo_orden_compra_id: tieneComprobante ? 2 : 1,
+        estado_orden_compra_id: confirmar ? 2 : 1,
+        tiene_comprobante: tieneComprobante,
+        numero_factura_proveedor: tieneComprobante ? nroFactura || null : null,
+        numero_remito_proveedor: tieneComprobante ? nroRemito || null : null,
+        fecha_factura: tieneComprobante ? fechaFactura || null : null,
+        numero_pedido_externo: nroPedidoExterno || null,
+        flete_monto: fleteMonto,
+        flete_medio_pago_id: fleteMonto > 0 ? fleteMedioPagoId : null,
+        flete_transportista_id: fleteMonto > 0 && fleteTransportistaId ? fleteTransportistaId : null,
+        subtotal: subtotalArticulos,
+        total: totalGeneral,
+        observaciones: observaciones || null,
+        usuario_id: usuarioData.id,
+      }).eq('id', ordenId)
+
+      // Insertar nuevos items
+      await supabase.from('orden_compra_items').insert(
+        itemsConFlete.map(it => ({
+          orden_compra_id: ordenId,
+          articulo_id: it.articulo_id,
+          cantidad_facturada: it.cant_facturada,
+          cantidad_recibida: it.cant_recibida,
+          precio_unitario_sin_iva: it.precio_unitario / getDivisorIva(it.tasa_iva_id),
+          flete_prorrateado: it.flete_prorrateado,
+          costo_final_unitario: it.costo_final_unitario,
+          subtotal: it.subtotal,
+        }))
+      )
+
+      if (confirmar) {
+        // Movimiento compra
+        await supabase.from('movimientos').insert({
+          sucursal_id: sucursalId, tipo: 'Egreso',
+          categoria_gasto_id: 1, concepto_gasto_id: 33,
+          monto: subtotalArticulos, medio_pago_id: medioPagoId,
+          fecha_utc: fechaOrden, mes_contable: fechaOrden.substring(0, 7) + '-01',
+          origen_tipo: 'orden_compra', origen_id: ordenId,
+          usuario_id: usuarioData.id,
+          observaciones: `Compra a proveedor - Orden #${ordenId} (modificada)`,
+        })
+
+        // Movimiento flete
+        if (fleteMonto > 0) {
+          const transNombre = transportistas.find(t => t.id === fleteTransportistaId)?.nombre || ''
+          await supabase.from('movimientos').insert({
+            sucursal_id: sucursalId, tipo: 'Egreso',
+            categoria_gasto_id: 1, concepto_gasto_id: 44,
+            monto: fleteMonto, medio_pago_id: fleteMedioPagoId,
+            fecha_utc: fechaOrden, mes_contable: fechaOrden.substring(0, 7) + '-01',
+            origen_tipo: 'orden_compra', origen_id: ordenId,
+            usuario_id: usuarioData.id,
+            observaciones: `Flete Orden #${ordenId}${transNombre ? ' - ' + transNombre : ''} (modificada)`,
+          })
+        }
+
+        // Stock + costo + histórico
+        for (const it of itemsConFlete) {
+          const { data: stockEx } = await supabase
+            .from('articulo_stock').select('id, stock_actual')
+            .eq('articulo_id', it.articulo_id).eq('sucursal_id', sucursalId).maybeSingle()
+          if (stockEx) {
+            await supabase.from('articulo_stock')
+              .update({ stock_actual: stockEx.stock_actual + it.cant_recibida }).eq('id', stockEx.id)
+          } else {
+            await supabase.from('articulo_stock').insert({
+              articulo_id: it.articulo_id, sucursal_id: sucursalId,
+              stock_actual: it.cant_recibida, stock_min: 0, stock_max: null,
+            })
+          }
+          const artPrevio = articulos.find(a => a.id === it.articulo_id)
+          const costoSinIva = it.precio_unitario / getDivisorIva(it.tasa_iva_id)
+          await supabase.from('articulos').update({ costo_sin_iva: costoSinIva }).eq('id', it.articulo_id)
+          await supabase.from('historico_precios').insert({
+            articulo_id: it.articulo_id, fecha: fechaOrden, tipo: 'costo',
+            costo_sin_iva: costoSinIva,
+            precio_local: artPrevio?.precio_local, precio_web: artPrevio?.precio_web,
+            precio_mayorista: artPrevio?.precio_mayorista, precio_oferta_web: artPrevio?.precio_oferta_web,
+            tasa_iva_id: it.tasa_iva_id, origen_id: ordenId, usuario_id: usuarioData.id,
+          })
+        }
+      }
+
+      router.push('/compras')
+      router.refresh()
+    } catch (e: any) {
+      mostrarError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function parsearMonto(v: string): number {
+    return parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0
+  }
+  function fmtInput(n: number): string {
+    if (!n) return ''
+    return n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
+  }
+  const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const esAnulada = estadoOrdenId === 3
+
+  if (loadingInicial) return <p className="text-sm text-gray-500 p-8">Cargando orden...</p>
+
+  return (
+    <div className="space-y-6">
+      {/* Encabezado */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-[#3c3c3b]">Editar orden de compra #{ordenId}</h1>
+          {esAnulada && (
+            <p className="text-xs text-red-500 mt-1">Esta orden está anulada — solo lectura</p>
+          )}
+        </div>
+        {!esAnulada && (
+          <div className="flex gap-2">
+            <button type="button" onClick={() => router.push('/compras')}
+              className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+              <X className="w-4 h-4" /> Cancelar
+            </button>
+            <button type="button" onClick={() => guardar(false)} disabled={loading}
+              className="px-4 py-2 border border-[#00a19a] text-[#00a19a] rounded text-sm hover:bg-[#00a19a] hover:text-white flex items-center gap-2 disabled:opacity-50">
+              <Save className="w-4 h-4" /> Guardar borrador
+            </button>
+            <button type="button" onClick={() => guardar(true)} disabled={loading}
+              className="px-4 py-2 bg-[#00a19a] text-white rounded text-sm hover:bg-[#008f89] flex items-center gap-2 disabled:opacity-50">
+              <FileCheck className="w-4 h-4" />
+              {loading ? 'Procesando...' : 'Confirmar orden'}
+            </button>
+          </div>
+        )}
+        {esAnulada && (
+          <button type="button" onClick={() => router.push('/compras')}
+            className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+            <X className="w-4 h-4" /> Volver
+          </button>
+        )}
+      </div>
+
+      {/* Notificación */}
+      {notif && (
+        <div className={`rounded-lg border px-4 py-3 flex items-center justify-between gap-3 ${
+          notif.tipo === 'error' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'
+        }`}>
+          <p className="text-sm font-medium">{notif.msg}</p>
+          <button onClick={() => setNotif(null)} className="opacity-50 hover:opacity-100 text-lg leading-none">✕</button>
+        </div>
+      )}
+
+      {/* Comprobante */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="flex items-center gap-3">
+          <input type="checkbox" id="tiene_comprobante" checked={tieneComprobante}
+            disabled={esAnulada}
+            onChange={e => setTieneComprobante(e.target.checked)}
+            className="w-4 h-4 text-[#00a19a] border-gray-300 rounded focus:ring-[#00a19a]" />
+          <label htmlFor="tiene_comprobante" className="text-sm font-semibold text-gray-700">
+            Tiene comprobante (factura / remito)
+          </label>
+        </div>
+        {tieneComprobante && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-200">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Nro. Factura</label>
+              <input type="text" value={nroFactura} onChange={e => setNroFactura(e.target.value)}
+                disabled={esAnulada} placeholder="0001-00001234"
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Nro. Remito</label>
+              <input type="text" value={nroRemito} onChange={e => setNroRemito(e.target.value)}
+                disabled={esAnulada} placeholder="Opcional"
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Fecha factura</label>
+              <input type="date" value={fechaFactura} onChange={e => setFechaFactura(e.target.value)}
+                disabled={esAnulada}
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Datos generales */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <h2 className="text-sm font-semibold text-gray-700 mb-4">Datos de la orden</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Proveedor <span className="text-red-500">*</span></label>
+            <select value={proveedorId} onChange={e => setProveedorId(Number(e.target.value))}
+              disabled={esAnulada}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50">
+              <option value="">Seleccionar proveedor</option>
+              {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre_comercial}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Fecha <span className="text-red-500">*</span></label>
+            <input type="date" value={fechaOrden} onChange={e => setFechaOrden(e.target.value)}
+              disabled={esAnulada}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Nro. Pedido externo</label>
+            <input type="text" value={nroPedidoExterno} onChange={e => setNroPedidoExterno(e.target.value)}
+              disabled={esAnulada} placeholder="Opcional"
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Medio de pago</label>
+            <select value={medioPagoId} onChange={e => setMedioPagoId(Number(e.target.value))}
+              disabled={esAnulada}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50">
+              {MEDIOS_PAGO.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Artículos */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <h2 className="text-sm font-semibold text-gray-700 mb-4">Artículos</h2>
+        {!esAnulada && (
+          <div className="mb-4 relative">
+            <label className="block text-xs font-medium text-gray-600 mb-1">Buscar artículo</label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input ref={busquedaRef} type="text" value={busqueda}
+                onChange={e => setBusqueda(e.target.value)} onKeyDown={handleKeyDown}
+                placeholder="Nombre, código, rubro o marca — ej: 'creat ena'"
+                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+            </div>
+            {resultados.length > 0 && (
+              <div className="absolute z-10 w-full mt-1 border border-gray-200 rounded bg-white shadow-lg max-h-64 overflow-y-auto">
+                {resultados.map((art, i) => (
+                  <button key={art.id} type="button" onClick={() => agregarArticulo(art)}
+                    className={`w-full text-left px-3 py-2 border-b border-gray-100 last:border-0 text-sm ${
+                      i === indiceSeleccionado ? 'bg-[#00a19a]/10' : 'hover:bg-gray-50'
+                    }`}>
+                    <div className="font-medium text-[#3c3c3b]">{art.nombre}</div>
+                    <div className="text-xs text-gray-400">
+                      {[art.rubro_nombre, art.marca_nombre, art.codigo_interno, art.codigo_barra].filter(Boolean).join(' · ')}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {items.length === 0 ? (
+          <div className="text-center py-8 text-gray-400 text-sm border border-gray-200 rounded">
+            {esAnulada ? 'Sin artículos' : 'Usá el buscador para agregar artículos'}
+          </div>
+        ) : (
+          <div className="overflow-x-auto border border-gray-200 rounded">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-3 py-2 text-xs text-gray-600 font-semibold">Artículo</th>
+                  <th className="text-center px-3 py-2 text-xs text-gray-600 font-semibold w-20">Cant. Fact.</th>
+                  <th className="text-center px-3 py-2 text-xs text-gray-600 font-semibold w-20">Cant. Recib.</th>
+                  <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-36">Precio Unit. (c/IVA)</th>
+                  <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-20">Desc. %</th>
+                  <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-32">Subtotal</th>
+                  {distribuirFlete && fleteMonto > 0 && (
+                    <th className="text-right px-3 py-2 text-xs text-gray-500 font-semibold w-32">Costo c/flete</th>
+                  )}
+                  {!esAnulada && <th className="w-10"></th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {items.map((item, index) => {
+                  const cf = costoConFlete(item)
+                  return (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 text-[#3c3c3b] font-medium text-xs">{item.articulo_nombre}</td>
+                      <td className="px-3 py-2">
+                        <input ref={index === items.length - 1 ? cantRef : undefined}
+                          type="number" min="0" step="1" value={item.cant_facturada}
+                          disabled={esAnulada}
+                          onFocus={e => e.target.select()}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); busquedaRef.current?.focus() } }}
+                          onChange={e => actualizarItem(index, 'cant_facturada', parseFloat(e.target.value) || 0)}
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-1 focus:ring-[#00a19a] disabled:bg-gray-50" />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input type="number" min="0" step="1" value={item.cant_recibida}
+                          disabled={esAnulada} onFocus={e => e.target.select()}
+                          onChange={e => actualizarItem(index, 'cant_recibida', parseFloat(e.target.value) || 0)}
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-1 focus:ring-[#00a19a] disabled:bg-gray-50" />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input type="text" inputMode="numeric" value={fmtInput(item.precio_unitario)}
+                          disabled={esAnulada} onFocus={e => e.target.select()}
+                          onChange={e => actualizarItem(index, 'precio_unitario', parsearMonto(e.target.value))}
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-1 focus:ring-[#00a19a] disabled:bg-gray-50" />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input type="number" min="0" max="100" step="0.01" value={item.descuento_pct}
+                          disabled={esAnulada} onFocus={e => e.target.select()}
+                          onChange={e => actualizarItem(index, 'descuento_pct', parseFloat(e.target.value) || 0)}
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-1 focus:ring-[#00a19a] disabled:bg-gray-50" />
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold text-[#3c3c3b]">{fmt(item.subtotal)}</td>
+                      {distribuirFlete && fleteMonto > 0 && (
+                        <td className="px-3 py-2 text-right text-xs text-gray-500">
+                          {cf !== null ? fmt(cf) : '—'}
+                        </td>
+                      )}
+                      {!esAnulada && (
+                        <td className="px-3 py-2 text-center">
+                          <button type="button" onClick={() => eliminarItem(index)}
+                            className="text-red-400 hover:text-red-600 p-1">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Flete */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <h2 className="text-sm font-semibold text-gray-700 mb-4">Flete</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Monto</label>
+            <input type="text" inputMode="numeric" value={fmtInput(fleteMonto)}
+              disabled={esAnulada}
+              onChange={e => setFleteMonto(parsearMonto(e.target.value))}
+              placeholder="0,00"
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Transportista</label>
+            <select value={fleteTransportistaId} onChange={e => setFleteTransportistaId(Number(e.target.value) || '')}
+              disabled={esAnulada}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50">
+              <option value="">Seleccionar</option>
+              {transportistas.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Medio de pago (flete)</label>
+            <select value={fleteMedioPagoId} onChange={e => setFleteMedioPagoId(Number(e.target.value))}
+              disabled={esAnulada}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50">
+              {MEDIOS_PAGO.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+            </select>
+          </div>
+        </div>
+        {!esAnulada && (
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="distribuir_flete" checked={distribuirFlete}
+              onChange={e => setDistribuirFlete(e.target.checked)}
+              className="w-4 h-4 text-[#00a19a] border-gray-300 rounded focus:ring-[#00a19a]" />
+            <label htmlFor="distribuir_flete" className="text-xs text-gray-600">
+              Distribuir en costo de artículos (proporcional al subtotal de cada uno)
+            </label>
+          </div>
+        )}
+      </div>
+
+      {/* Resumen */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <h2 className="text-sm font-semibold text-gray-700 mb-4">Resumen</h2>
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600">Subtotal artículos:</span>
+            <span className="font-semibold text-[#3c3c3b]">{fmt(subtotalArticulos)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600">Flete:</span>
+            <span className="font-semibold text-[#3c3c3b]">{fmt(fleteMonto)}</span>
+          </div>
+          <div className="flex justify-between text-lg pt-2 border-t border-gray-200">
+            <span className="font-bold text-[#3c3c3b]">Total:</span>
+            <span className="font-bold text-[#00a19a]">{fmt(totalGeneral)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Observaciones */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <label className="block text-xs font-medium text-gray-600 mb-2">Observaciones</label>
+        <textarea value={observaciones} onChange={e => setObservaciones(e.target.value)}
+          disabled={esAnulada} rows={3} placeholder="Información adicional (opcional)"
+          className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
+      </div>
+    </div>
+  )
+}
