@@ -209,7 +209,10 @@ export default function PanelPagos({
     }
   }
 
-  const btnClass = "group flex-1 h-11 bg-white border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 focus:bg-[#00a19a] focus:text-white focus:border-[#00a19a] focus:outline-none disabled:opacity-50 flex items-center justify-center gap-2"
+  const btnBase = "flex-1 h-11 rounded-lg text-sm focus:outline-none flex items-center justify-center gap-2 transition-colors"
+  const btnVerde = btnBase + " bg-[#00a19a] border border-[#00a19a] text-white"
+  const btnBlanco = btnBase + " bg-white border border-gray-300 text-gray-600 hover:bg-gray-50"
+  const btnDis = btnBase + " bg-white border border-gray-300 text-gray-300 opacity-50 cursor-not-allowed"
 
   return (
     <div className="w-96 flex flex-col bg-gray-50 border-l border-gray-200">
@@ -367,17 +370,17 @@ export default function PanelPagos({
             ref={btnFiscalizarRef}
             onClick={() => procesarVenta(true)}
             disabled={guardando || !puedeConfirmar}
-            className={btnClass}
+            className={!puedeConfirmar || guardando ? btnDis : (debeFiscalizar ? btnVerde : btnBlanco)}
           >
-            Fiscalizar <kbd className="text-xs bg-gray-100 group-focus:bg-white/25 px-1.5 py-0.5 rounded">Ctrl+F</kbd>
+            Fiscalizar <kbd className={`text-xs px-1.5 py-0.5 rounded ${!puedeConfirmar || guardando ? 'bg-gray-100' : debeFiscalizar ? 'bg-white/25' : 'bg-gray-100'}`}>Ctrl+F</kbd>
           </button>
           <button
             ref={btnGuardarRef}
             onClick={() => procesarVenta(false)}
             disabled={guardando || !puedeConfirmar}
-            className={btnClass}
+            className={!puedeConfirmar || guardando ? btnDis : (!debeFiscalizar ? btnVerde : btnBlanco)}
           >
-            Guardar <kbd className="text-xs bg-gray-100 group-focus:bg-white/25 px-1.5 py-0.5 rounded">Ctrl+G</kbd>
+            Guardar <kbd className={`text-xs px-1.5 py-0.5 rounded ${!puedeConfirmar || guardando ? 'bg-gray-100' : !debeFiscalizar ? 'bg-white/25' : 'bg-gray-100'}`}>Ctrl+G</kbd>
           </button>
         </div>
       </div>
