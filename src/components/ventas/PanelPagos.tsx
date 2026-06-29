@@ -209,7 +209,7 @@ export default function PanelPagos({
     }
   }
 
-  const btnClass = "flex-1 h-11 bg-white border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 focus:bg-[#00a19a] focus:text-white focus:border-[#00a19a] focus:outline-none disabled:opacity-50 flex items-center justify-center gap-2"
+  const btnClass = "group flex-1 h-11 bg-white border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 focus:bg-[#00a19a] focus:text-white focus:border-[#00a19a] focus:outline-none disabled:opacity-50 flex items-center justify-center gap-2"
 
   return (
     <div className="w-96 flex flex-col bg-gray-50 border-l border-gray-200">
@@ -369,7 +369,7 @@ export default function PanelPagos({
             disabled={guardando || !puedeConfirmar}
             className={btnClass}
           >
-            Fiscalizar <kbd className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">Ctrl+F</kbd>
+            Fiscalizar <kbd className="text-xs bg-gray-100 group-focus:bg-white/25 px-1.5 py-0.5 rounded">Ctrl+F</kbd>
           </button>
           <button
             ref={btnGuardarRef}
@@ -377,7 +377,7 @@ export default function PanelPagos({
             disabled={guardando || !puedeConfirmar}
             className={btnClass}
           >
-            Guardar <kbd className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">Ctrl+G</kbd>
+            Guardar <kbd className="text-xs bg-gray-100 group-focus:bg-white/25 px-1.5 py-0.5 rounded">Ctrl+G</kbd>
           </button>
         </div>
       </div>
