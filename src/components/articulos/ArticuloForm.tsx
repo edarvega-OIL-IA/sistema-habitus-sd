@@ -241,8 +241,11 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
         codigo_interno: data.codigo_interno?.trim() || null,
         codigo_barra: data.codigo_barra?.trim() || null,
         sku: data.sku?.trim() || null,
+        precio_local: data.precio_local ?? 0,
+        precio_web: data.precio_web ?? data.precio_local ?? 0,
         precio_mayorista: data.precio_mayorista || null,
         precio_oferta_web: data.precio_oferta_web || null,
+        costo_sin_iva: data.costo_sin_iva ?? 0,
       }
       if (articuloId) {
         const { error } = await supabase.from('articulos').update(payload).eq('id', articuloId)
