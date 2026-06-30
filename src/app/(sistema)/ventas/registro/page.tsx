@@ -99,6 +99,19 @@ export default function RegistroVentasPage() {
         .eq('id', ventaId)
 
       if (error) throw error
+
+      // Revertir el ingreso en el ledger (movimientos) generado al confirmar la venta.
+      // Si la venta nunca llegó a generar movimiento (falla previa), el delete simplemente no afecta filas.
+      const { error: movError } = await supabase
+        .from('movimientos')
+        .delete()
+        .eq('origen_tipo', 'venta')
+        .eq('origen_id', ventaId)
+
+      if (movError) {
+        console.error('Error al revertir movimiento de venta', ventaId, ':', movError.message)
+      }
+
       await cargarVentas()
       setConfirmando(null)
     } catch (err: any) {
