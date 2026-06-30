@@ -54,6 +54,7 @@ export default function ComprasNuevaPage() {
   const [nroPedidoExterno, setNroPedidoExterno] = useState('')
   const [medioPagoId, setMedioPagoId] = useState<number>(1)
   const [fleteMonto, setFleteMonto] = useState<number>(0)
+  const [fleteFecha, setFleteFecha] = useState('')
   const [fleteTransportistaId, setFleteTransportistaId] = useState<number | ''>('')
   const [fleteMedioPagoId, setFleteMedioPagoId] = useState<number>(1)
   const [distribuirFlete, setDistribuirFlete] = useState(true)
@@ -165,8 +166,7 @@ export default function ComprasNuevaPage() {
   function costoConFlete(item: ItemOrden): number | null {
     if (!distribuirFlete || fleteMonto === 0 || subtotalArticulos === 0) return null
     const prop = item.subtotal / subtotalArticulos
-    const fleteItem = fleteMonto * prop
-    return (item.subtotal + fleteItem) / item.cant_recibida / getDivisorIva(item.tasa_iva_id)
+    return (item.subtotal + fleteMonto * prop) / item.cant_recibida / getDivisorIva(item.tasa_iva_id)
   }
 
   function validar(): string | null {
@@ -174,13 +174,14 @@ export default function ComprasNuevaPage() {
     if (!fechaOrden) return 'La fecha es requerida'
     if (items.length === 0) return 'Agregá al menos un artículo'
     if (fleteMonto > 0 && !fleteTransportistaId) return 'Si hay flete, especificá el transportista'
+    if (fleteMonto > 0 && !fleteFecha) return 'Si hay flete, especificá la fecha en que se pagó'
     return null
   }
 
   async function guardar(confirmar: boolean) {
     const err = validar()
     if (err) { mostrarError(err); return }
-    if (confirmar && !confirm('¿Confirmar la orden de compra? Se actualizará el stock y los costos.')) return
+    if (confirmar && !confirm('¿Confirmar la orden? Se actualizará el stock y los costos de los artículos.')) return
 
     setLoading(true)
     setNotif(null)
@@ -194,6 +195,7 @@ export default function ComprasNuevaPage() {
       if (!usuarioData) throw new Error('Usuario no encontrado')
       const sucursalId = usuarioData.sucursal_id
 
+      // Calcular flete prorrateado
       const itemsConFlete = items.map(item => {
         const prop = subtotalArticulos > 0 ? item.subtotal / subtotalArticulos : 0
         const fleteItem = distribuirFlete ? fleteMonto * prop : 0
@@ -204,10 +206,10 @@ export default function ComprasNuevaPage() {
         return { ...item, flete_prorrateado: fleteItem, costo_final_unitario: costoFinal }
       })
 
-      const { data: orden, error: ordenErr } = await supabase
+      // Crear orden
+      const { data: orden, error: ordenError } = await supabase
         .from('ordenes_compra')
         .insert({
-          sucursal_id: sucursalId,
           proveedor_id: proveedorId,
           fecha_orden: fechaOrden,
           tipo_orden_compra_id: tieneComprobante ? 2 : 1,
@@ -218,20 +220,25 @@ export default function ComprasNuevaPage() {
           fecha_factura: tieneComprobante ? fechaFactura || null : null,
           numero_pedido_externo: nroPedidoExterno || null,
           flete_monto: fleteMonto,
+          flete_fecha: fleteMonto > 0 ? fleteFecha || null : null,
           flete_medio_pago_id: fleteMonto > 0 ? fleteMedioPagoId : null,
           flete_transportista_id: fleteMonto > 0 && fleteTransportistaId ? fleteTransportistaId : null,
+          sucursal_id: sucursalId,
           subtotal: subtotalArticulos,
           total: totalGeneral,
           observaciones: observaciones || null,
           usuario_id: usuarioData.id,
         })
-        .select().single()
-      if (ordenErr) throw ordenErr
+        .select('id')
+        .single()
 
-      const { error: itemsErr } = await supabase
-        .from('orden_compra_items')
-        .insert(itemsConFlete.map(it => ({
-          orden_compra_id: orden.id,
+      if (ordenError) throw new Error('Error al crear orden: ' + ordenError.message)
+      const ordenId = orden.id
+
+      // Insertar items
+      await supabase.from('orden_compra_items').insert(
+        itemsConFlete.map(it => ({
+          orden_compra_id: ordenId,
           articulo_id: it.articulo_id,
           cantidad_facturada: it.cant_facturada,
           cantidad_recibida: it.cant_recibida,
@@ -239,82 +246,69 @@ export default function ComprasNuevaPage() {
           flete_prorrateado: it.flete_prorrateado,
           costo_final_unitario: it.costo_final_unitario,
           subtotal: it.subtotal,
-        })))
-      if (itemsErr) throw itemsErr
+        }))
+      )
 
-      if (confirmar) {
-        // Movimiento compra
-        await supabase.from('movimientos').insert({
-          sucursal_id: sucursalId,
-          tipo: 'Egreso',
-          categoria_gasto_id: 1,
-          concepto_gasto_id: 33,
-          monto: subtotalArticulos,
-          medio_pago_id: medioPagoId,
-          fecha_utc: fechaOrden,
-          mes_contable: fechaOrden.substring(0, 7) + '-01',
-          origen_tipo: 'orden_compra',
-          origen_id: orden.id,
+      // Movimiento de MERCADERÍA — se genera siempre que el monto sea > 0,
+      // sea Borrador o Confirmada (es una orden recién creada, nunca hay uno previo que actualizar)
+      if (subtotalArticulos > 0) {
+        const { error: movError } = await supabase.from('movimientos').insert({
+          sucursal_id: sucursalId, tipo: 'Egreso',
+          categoria_gasto_id: 1, concepto_gasto_id: 33,
+          monto: subtotalArticulos, medio_pago_id: medioPagoId,
+          fecha_utc: fechaOrden, mes_contable: fechaOrden.substring(0, 7) + '-01',
+          origen_tipo: 'orden_compra', origen_id: ordenId, origen_subtipo: 'mercaderia',
           usuario_id: usuarioData.id,
-          observaciones: `Compra a proveedor - Orden #${orden.id}`,
+          observaciones: `Compra a proveedor - Orden #${ordenId}`,
         })
+        if (movError) console.error('Error al generar movimiento de mercadería:', movError.message)
+      }
 
-        // Movimiento flete separado
-        if (fleteMonto > 0) {
-          const transNombre = transportistas.find(t => t.id === fleteTransportistaId)?.nombre || ''
-          await supabase.from('movimientos').insert({
-            sucursal_id: sucursalId,
-            tipo: 'Egreso',
-            categoria_gasto_id: 1,
-            concepto_gasto_id: 44,
-            monto: fleteMonto,
-            medio_pago_id: fleteMedioPagoId,
-            fecha_utc: fechaOrden,
-            mes_contable: fechaOrden.substring(0, 7) + '-01',
-            origen_tipo: 'orden_compra',
-            origen_id: orden.id,
-            usuario_id: usuarioData.id,
-            observaciones: `Flete Orden #${orden.id}${transNombre ? ' - ' + transNombre : ''}`,
-          })
-        }
+      // Movimiento de FLETE — solo si ya está pagado (monto > 0)
+      if (fleteMonto > 0) {
+        const transNombre = transportistas.find(t => t.id === fleteTransportistaId)?.nombre || ''
+        const { error: movFleteError } = await supabase.from('movimientos').insert({
+          sucursal_id: sucursalId, tipo: 'Egreso',
+          categoria_gasto_id: 1, concepto_gasto_id: 44,
+          monto: fleteMonto, medio_pago_id: fleteMedioPagoId,
+          fecha_utc: fleteFecha || fechaOrden, mes_contable: (fleteFecha || fechaOrden).substring(0, 7) + '-01',
+          origen_tipo: 'orden_compra', origen_id: ordenId, origen_subtipo: 'flete',
+          usuario_id: usuarioData.id,
+          observaciones: `Flete Orden #${ordenId}${transNombre ? ' - ' + transNombre : ''}`,
+        })
+        if (movFleteError) console.error('Error al generar movimiento de flete:', movFleteError.message)
+      }
 
-        // Stock
+      // Stock + costo + histórico — SOLO si la orden se crea directamente Confirmada
+      if (confirmar) {
         for (const it of itemsConFlete) {
           const { data: stockEx } = await supabase
             .from('articulo_stock').select('id, stock_actual')
             .eq('articulo_id', it.articulo_id).eq('sucursal_id', sucursalId).maybeSingle()
           if (stockEx) {
             await supabase.from('articulo_stock')
-              .update({ stock_actual: stockEx.stock_actual + it.cant_recibida })
-              .eq('id', stockEx.id)
+              .update({ stock_actual: stockEx.stock_actual + it.cant_recibida }).eq('id', stockEx.id)
           } else {
             await supabase.from('articulo_stock').insert({
               articulo_id: it.articulo_id, sucursal_id: sucursalId,
               stock_actual: it.cant_recibida, stock_min: 0, stock_max: null,
             })
           }
-        }
 
-        // Costo + histórico
-        for (const it of itemsConFlete) {
+          const costoSinIva = it.costo_final_unitario
           const artPrevio = articulos.find(a => a.id === it.articulo_id)
-          const costoSinIva = it.precio_unitario / getDivisorIva(it.tasa_iva_id)
-          await supabase.from('articulos')
-            .update({ costo_sin_iva: costoSinIva })
-            .eq('id', it.articulo_id)
+
           await supabase.from('historico_precios').insert({
-            articulo_id: it.articulo_id,
-            fecha: fechaOrden,
-            tipo: 'costo',
+            articulo_id: it.articulo_id, fecha: fechaOrden, tipo: 'costo',
             costo_sin_iva: costoSinIva,
-            precio_local: artPrevio?.precio_local,
-            precio_web: artPrevio?.precio_web,
-            precio_mayorista: artPrevio?.precio_mayorista,
-            precio_oferta_web: artPrevio?.precio_oferta_web,
-            tasa_iva_id: it.tasa_iva_id,
-            origen_id: orden.id,
-            usuario_id: usuarioData.id,
+            precio_local: artPrevio?.precio_local, precio_web: artPrevio?.precio_web,
+            precio_mayorista: artPrevio?.precio_mayorista, precio_oferta_web: artPrevio?.precio_oferta_web,
+            tasa_iva_id: it.tasa_iva_id, origen_id: ordenId, usuario_id: usuarioData.id,
           })
+
+          // Una orden recién creada y confirmada siempre es la compra más reciente
+          // (no puede haber otra orden posterior para el mismo artículo todavía)
+          await supabase.from('articulos').update({ costo_sin_iva: costoSinIva }).eq('id', it.articulo_id)
         }
       }
 
@@ -327,7 +321,6 @@ export default function ComprasNuevaPage() {
     }
   }
 
-
   function parsearMonto(v: string): number {
     return parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0
   }
@@ -339,7 +332,6 @@ export default function ComprasNuevaPage() {
 
   return (
     <div className="space-y-6">
-
       {/* Encabezado */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-[#3c3c3b]">Nueva orden de compra</h1>
@@ -366,7 +358,7 @@ export default function ComprasNuevaPage() {
           notif.tipo === 'error' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'
         }`}>
           <p className="text-sm font-medium">{notif.msg}</p>
-          <button onClick={() => setNotif(null)} className="text-current opacity-50 hover:opacity-100 text-lg leading-none">✕</button>
+          <button onClick={() => setNotif(null)} className="opacity-50 hover:opacity-100 text-lg leading-none">✕</button>
         </div>
       )}
 
@@ -416,7 +408,9 @@ export default function ComprasNuevaPage() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Fecha <span className="text-red-500">*</span></label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Fecha (pedido / pago mercadería) <span className="text-red-500">*</span>
+            </label>
             <input type="date" value={fechaOrden} onChange={e => setFechaOrden(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
           </div>
@@ -427,7 +421,7 @@ export default function ComprasNuevaPage() {
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Medio de pago</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Medio de pago (mercadería)</label>
             <select value={medioPagoId} onChange={e => setMedioPagoId(Number(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
               {MEDIOS_PAGO.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
@@ -439,24 +433,20 @@ export default function ComprasNuevaPage() {
       {/* Artículos */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <h2 className="text-sm font-semibold text-gray-700 mb-4">Artículos</h2>
-
-        {/* Buscador */}
         <div className="mb-4 relative">
           <label className="block text-xs font-medium text-gray-600 mb-1">Buscar artículo</label>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input ref={busquedaRef} type="text" value={busqueda}
-              onChange={e => setBusqueda(e.target.value)}
-              onKeyDown={handleKeyDown}
+              onChange={e => setBusqueda(e.target.value)} onKeyDown={handleKeyDown}
               placeholder="Nombre, código, rubro o marca — ej: 'creat ena'"
               className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
           </div>
           {resultados.length > 0 && (
             <div className="absolute z-10 w-full mt-1 border border-gray-200 rounded bg-white shadow-lg max-h-64 overflow-y-auto">
               {resultados.map((art, i) => (
-                <button key={art.id} type="button"
-                  onClick={() => agregarArticulo(art)}
-                  className={`w-full text-left px-3 py-2 border-b border-gray-100 last:border-0 text-sm transition-colors ${
+                <button key={art.id} type="button" onClick={() => agregarArticulo(art)}
+                  className={`w-full text-left px-3 py-2 border-b border-gray-100 last:border-0 text-sm ${
                     i === indiceSeleccionado ? 'bg-[#00a19a]/10' : 'hover:bg-gray-50'
                   }`}>
                   <div className="font-medium text-[#3c3c3b]">{art.nombre}</div>
@@ -550,7 +540,10 @@ export default function ComprasNuevaPage() {
       {/* Flete */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <h2 className="text-sm font-semibold text-gray-700 mb-4">Flete</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
+        <p className="text-xs text-gray-400 -mt-2 mb-4">
+          Cargar solo cuando el flete ya fue pagado. Si todavía no se pagó, dejar en $0.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Monto</label>
             <input type="text" inputMode="numeric"
@@ -558,6 +551,12 @@ export default function ComprasNuevaPage() {
               onChange={e => setFleteMonto(parsearMonto(e.target.value))}
               placeholder="0,00"
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Fecha de pago del flete</label>
+            <input type="date" value={fleteFecha} onChange={e => setFleteFecha(e.target.value)}
+              disabled={fleteMonto === 0}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Transportista</label>
@@ -603,7 +602,7 @@ export default function ComprasNuevaPage() {
             <span className="font-bold text-[#00a19a]">{fmt(totalGeneral)}</span>
           </div>
           <p className="text-xs text-gray-400 pt-1">
-            El total refleja la factura del proveedor. El flete se registra como movimiento separado.
+            El total refleja la factura del proveedor. El flete se registra como movimiento separado, solo si ya fue pagado.
           </p>
         </div>
       </div>
