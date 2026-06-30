@@ -58,6 +58,7 @@ export default function ComprasEditarPage() {
   const [nroPedidoExterno, setNroPedidoExterno] = useState('')
   const [medioPagoId, setMedioPagoId] = useState<number>(1)
   const [fleteMonto, setFleteMonto] = useState<number>(0)
+  const [fleteFecha, setFleteFecha] = useState('')
   const [fleteTransportistaId, setFleteTransportistaId] = useState<number | ''>('')
   const [fleteMedioPagoId, setFleteMedioPagoId] = useState<number>(1)
   const [distribuirFlete, setDistribuirFlete] = useState(true)
@@ -100,7 +101,7 @@ export default function ComprasEditarPage() {
         supabase.from('ordenes_compra').select(`
           id, proveedor_id, fecha_orden, estado_orden_compra_id, tipo_orden_compra_id,
           tiene_comprobante, numero_factura_proveedor, numero_remito_proveedor, fecha_factura,
-          numero_pedido_externo, flete_monto, flete_medio_pago_id, flete_transportista_id, observaciones,
+          numero_pedido_externo, flete_monto, flete_fecha, flete_medio_pago_id, flete_transportista_id, observaciones,
           orden_compra_items (
             articulo_id, cantidad_facturada, cantidad_recibida,
             precio_unitario_sin_iva, subtotal,
@@ -131,6 +132,7 @@ export default function ComprasEditarPage() {
       setFechaFactura(o.fecha_factura || '')
       setNroPedidoExterno(o.numero_pedido_externo || '')
       setFleteMonto(o.flete_monto || 0)
+      setFleteFecha(o.flete_fecha || '')
       setFleteMedioPagoId(o.flete_medio_pago_id || 1)
       setFleteTransportistaId(o.flete_transportista_id || '')
       setObservaciones(o.observaciones || '')
@@ -229,14 +231,72 @@ export default function ComprasEditarPage() {
     if (!fechaOrden) return 'La fecha es requerida'
     if (items.length === 0) return 'Agregá al menos un artículo'
     if (fleteMonto > 0 && !fleteTransportistaId) return 'Si hay flete, especificá el transportista'
+    if (fleteMonto > 0 && !fleteFecha) return 'Si hay flete, especificá la fecha en que se pagó'
     return null
   }
 
+  // ----------------------------------------------------------------
+  // Sincroniza el movimiento de un subtipo ('mercaderia' | 'flete')
+  // contra el monto/fecha/medio actuales. Crea, actualiza o elimina
+  // (con confirmación) según corresponda. No duplica nunca.
+  // ----------------------------------------------------------------
+  async function sincronizarMovimiento(opts: {
+    supabase: any
+    subtipo: 'mercaderia' | 'flete'
+    monto: number
+    fechaUtc: string
+    medioPagoId: number
+    sucursalId: number
+    usuarioId: string
+    categoriaGastoId: number
+    conceptoGastoId: number
+    observacionesTexto: string
+  }): Promise<{ ok: boolean; cancelado?: boolean }> {
+    const { supabase, subtipo, monto, fechaUtc, medioPagoId, sucursalId, usuarioId,
+      categoriaGastoId, conceptoGastoId, observacionesTexto } = opts
+
+    const { data: movExistente } = await supabase
+      .from('movimientos')
+      .select('id, monto')
+      .eq('origen_tipo', 'orden_compra')
+      .eq('origen_id', ordenId)
+      .eq('origen_subtipo', subtipo)
+      .eq('anulado', false)
+      .maybeSingle()
+
+    if (monto > 0) {
+      if (movExistente) {
+        await supabase.from('movimientos').update({
+          monto, medio_pago_id: medioPagoId,
+          fecha_utc: fechaUtc, mes_contable: fechaUtc.substring(0, 7) + '-01',
+          observaciones: observacionesTexto,
+        }).eq('id', movExistente.id)
+      } else {
+        await supabase.from('movimientos').insert({
+          sucursal_id: sucursalId, tipo: 'Egreso',
+          categoria_gasto_id: categoriaGastoId, concepto_gasto_id: conceptoGastoId,
+          monto, medio_pago_id: medioPagoId,
+          fecha_utc: fechaUtc, mes_contable: fechaUtc.substring(0, 7) + '-01',
+          origen_tipo: 'orden_compra', origen_id: ordenId, origen_subtipo: subtipo,
+          usuario_id: usuarioId, observaciones: observacionesTexto,
+        })
+      }
+    } else if (movExistente) {
+      // El monto bajó a 0: se permite eliminar, pero se confirma explícitamente
+      const confirmaBorrado = confirm(
+        `El monto de ${subtipo === 'mercaderia' ? 'mercadería' : 'flete'} quedó en $0. ` +
+        `¿Eliminar el movimiento de pago ya registrado (id ${movExistente.id})?`
+      )
+      if (!confirmaBorrado) return { ok: false, cancelado: true }
+      await supabase.from('movimientos').delete().eq('id', movExistente.id)
+    }
+    return { ok: true }
+  }
 
   async function guardar(confirmar: boolean) {
     const err = validar()
     if (err) { mostrarError(err); return }
-    if (confirmar && !confirm('¿Confirmar la orden? Se revertirán los datos anteriores y se aplicarán los nuevos.')) return
+    if (confirmar && !confirm('¿Confirmar la orden? Se actualizará el stock y los costos de los artículos.')) return
 
     setLoading(true)
     setNotif(null)
@@ -258,15 +318,15 @@ export default function ComprasEditarPage() {
         .single()
       const eraConfirmada = ordenActual?.estado_orden_compra_id === 2
 
-      // Si era confirmada: revertir stock, costos y anular movimientos anteriores
+      // Si era confirmada y se está re-editando: revertir stock ANTES de reaplicar
+      // (el movimiento de mercadería/flete YA NO se anula acá — eso lo maneja sincronizarMovimiento)
       if (eraConfirmada) {
         const { data: itemsAnteriores } = await supabase
           .from('orden_compra_items')
-          .select('articulo_id, cantidad_recibida, articulos(tasa_iva_id)')
+          .select('articulo_id, cantidad_recibida')
           .eq('orden_compra_id', ordenId)
 
         for (const it of itemsAnteriores || []) {
-          // Revertir stock
           const { data: stockEx } = await supabase
             .from('articulo_stock').select('id, stock_actual')
             .eq('articulo_id', it.articulo_id).eq('sucursal_id', sucursalId).maybeSingle()
@@ -275,32 +335,10 @@ export default function ComprasEditarPage() {
               .update({ stock_actual: Math.max(0, stockEx.stock_actual - it.cantidad_recibida) })
               .eq('id', stockEx.id)
           }
-          // Revertir costo al anterior
-          const { data: histPrevio } = await supabase
-            .from('historico_precios')
-            .select('costo_sin_iva')
-            .eq('articulo_id', it.articulo_id)
-            .eq('tipo', 'costo')
-            .neq('origen_id', ordenId)
-            .order('creado_en', { ascending: false })
-            .limit(1).maybeSingle()
-          if (histPrevio) {
-            await supabase.from('articulos')
-              .update({ costo_sin_iva: histPrevio.costo_sin_iva })
-              .eq('id', it.articulo_id)
-          }
         }
-        // Eliminar histórico de esta orden
-        await supabase.from('historico_precios')
-          .delete().eq('origen_id', ordenId).eq('tipo', 'costo')
       }
 
-      // SIEMPRE anular movimientos previos de esta orden (independientemente del estado anterior)
-      await supabase.from('movimientos')
-        .update({ anulado: true })
-        .eq('origen_tipo', 'orden_compra').eq('origen_id', ordenId)
-
-      // Eliminar items anteriores
+      // Eliminar items anteriores (se recargan siempre)
       await supabase.from('orden_compra_items').delete().eq('orden_compra_id', ordenId)
 
       // Calcular flete prorrateado
@@ -326,6 +364,7 @@ export default function ComprasEditarPage() {
         fecha_factura: tieneComprobante ? fechaFactura || null : null,
         numero_pedido_externo: nroPedidoExterno || null,
         flete_monto: fleteMonto,
+        flete_fecha: fleteMonto > 0 ? fleteFecha || null : null,
         flete_medio_pago_id: fleteMonto > 0 ? fleteMedioPagoId : null,
         flete_transportista_id: fleteMonto > 0 && fleteTransportistaId ? fleteTransportistaId : null,
         subtotal: subtotalArticulos,
@@ -348,33 +387,29 @@ export default function ComprasEditarPage() {
         }))
       )
 
+      // Sincronizar movimiento de MERCADERÍA — siempre, sea Borrador o Confirmada
+      const resMerc = await sincronizarMovimiento({
+        supabase, subtipo: 'mercaderia',
+        monto: subtotalArticulos, fechaUtc: fechaOrden, medioPagoId,
+        sucursalId, usuarioId: usuarioData.id,
+        categoriaGastoId: 1, conceptoGastoId: 33,
+        observacionesTexto: `Compra a proveedor - Orden #${ordenId}`,
+      })
+      if (!resMerc.ok) { setLoading(false); return }
+
+      // Sincronizar movimiento de FLETE — siempre, sea Borrador o Confirmada
+      const transNombre = transportistas.find(t => t.id === fleteTransportistaId)?.nombre || ''
+      const resFlete = await sincronizarMovimiento({
+        supabase, subtipo: 'flete',
+        monto: fleteMonto, fechaUtc: fleteFecha || fechaOrden, medioPagoId: fleteMedioPagoId,
+        sucursalId, usuarioId: usuarioData.id,
+        categoriaGastoId: 1, conceptoGastoId: 44,
+        observacionesTexto: `Flete Orden #${ordenId}${transNombre ? ' - ' + transNombre : ''}`,
+      })
+      if (!resFlete.ok) { setLoading(false); return }
+
+      // Stock + costo + histórico — SOLO si la orden queda Confirmada
       if (confirmar) {
-        // Movimiento compra
-        await supabase.from('movimientos').insert({
-          sucursal_id: sucursalId, tipo: 'Egreso',
-          categoria_gasto_id: 1, concepto_gasto_id: 33,
-          monto: subtotalArticulos, medio_pago_id: medioPagoId,
-          fecha_utc: fechaOrden, mes_contable: fechaOrden.substring(0, 7) + '-01',
-          origen_tipo: 'orden_compra', origen_id: ordenId,
-          usuario_id: usuarioData.id,
-          observaciones: `Compra a proveedor - Orden #${ordenId} (modificada)`,
-        })
-
-        // Movimiento flete
-        if (fleteMonto > 0) {
-          const transNombre = transportistas.find(t => t.id === fleteTransportistaId)?.nombre || ''
-          await supabase.from('movimientos').insert({
-            sucursal_id: sucursalId, tipo: 'Egreso',
-            categoria_gasto_id: 1, concepto_gasto_id: 44,
-            monto: fleteMonto, medio_pago_id: fleteMedioPagoId,
-            fecha_utc: fechaOrden, mes_contable: fechaOrden.substring(0, 7) + '-01',
-            origen_tipo: 'orden_compra', origen_id: ordenId,
-            usuario_id: usuarioData.id,
-            observaciones: `Flete Orden #${ordenId}${transNombre ? ' - ' + transNombre : ''} (modificada)`,
-          })
-        }
-
-        // Stock + costo + histórico
         for (const it of itemsConFlete) {
           const { data: stockEx } = await supabase
             .from('articulo_stock').select('id, stock_actual')
@@ -388,16 +423,47 @@ export default function ComprasEditarPage() {
               stock_actual: it.cant_recibida, stock_min: 0, stock_max: null,
             })
           }
+
+          const costoSinIva = it.costo_final_unitario
           const artPrevio = articulos.find(a => a.id === it.articulo_id)
-          const costoSinIva = it.precio_unitario / getDivisorIva(it.tasa_iva_id)
-          await supabase.from('articulos').update({ costo_sin_iva: costoSinIva }).eq('id', it.articulo_id)
-          await supabase.from('historico_precios').insert({
-            articulo_id: it.articulo_id, fecha: fechaOrden, tipo: 'costo',
-            costo_sin_iva: costoSinIva,
-            precio_local: artPrevio?.precio_local, precio_web: artPrevio?.precio_web,
-            precio_mayorista: artPrevio?.precio_mayorista, precio_oferta_web: artPrevio?.precio_oferta_web,
-            tasa_iva_id: it.tasa_iva_id, origen_id: ordenId, usuario_id: usuarioData.id,
-          })
+
+          // ¿Existe ya un registro de historico_precios (tipo='costo') para esta orden+artículo?
+          const { data: histDeEstaOrden } = await supabase
+            .from('historico_precios')
+            .select('id, fecha')
+            .eq('articulo_id', it.articulo_id).eq('origen_id', ordenId).eq('tipo', 'costo')
+            .maybeSingle()
+
+          if (histDeEstaOrden) {
+            // Edición de una orden ya confirmada antes: corregir el histórico siempre
+            await supabase.from('historico_precios').update({
+              costo_sin_iva: costoSinIva,
+            }).eq('id', histDeEstaOrden.id)
+          } else {
+            await supabase.from('historico_precios').insert({
+              articulo_id: it.articulo_id, fecha: fechaOrden, tipo: 'costo',
+              costo_sin_iva: costoSinIva,
+              precio_local: artPrevio?.precio_local, precio_web: artPrevio?.precio_web,
+              precio_mayorista: artPrevio?.precio_mayorista, precio_oferta_web: artPrevio?.precio_oferta_web,
+              tasa_iva_id: it.tasa_iva_id, origen_id: ordenId, usuario_id: usuarioData.id,
+            })
+          }
+
+          // ¿Es esta orden la compra de costo MÁS RECIENTE para este artículo?
+          // Si hay un historico_precios de tipo='costo' más nuevo (de otra orden), no tocar articulos.costo_sin_iva
+          const { data: histMasReciente } = await supabase
+            .from('historico_precios')
+            .select('origen_id, fecha, creado_en')
+            .eq('articulo_id', it.articulo_id).eq('tipo', 'costo')
+            .order('fecha', { ascending: false })
+            .order('creado_en', { ascending: false })
+            .limit(1).maybeSingle()
+
+          const esLaMasReciente = !histMasReciente || histMasReciente.origen_id === ordenId
+
+          if (esLaMasReciente) {
+            await supabase.from('articulos').update({ costo_sin_iva: costoSinIva }).eq('id', it.articulo_id)
+          }
         }
       }
 
@@ -516,7 +582,9 @@ export default function ComprasEditarPage() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Fecha <span className="text-red-500">*</span></label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Fecha (pedido / pago mercadería) <span className="text-red-500">*</span>
+            </label>
             <input type="date" value={fechaOrden} onChange={e => setFechaOrden(e.target.value)}
               disabled={esAnulada}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
@@ -528,7 +596,7 @@ export default function ComprasEditarPage() {
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Medio de pago</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Medio de pago (mercadería)</label>
             <select value={medioPagoId} onChange={e => setMedioPagoId(Number(e.target.value))}
               disabled={esAnulada}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50">
@@ -649,13 +717,22 @@ export default function ComprasEditarPage() {
       {/* Flete */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <h2 className="text-sm font-semibold text-gray-700 mb-4">Flete</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
+        <p className="text-xs text-gray-400 -mt-2 mb-4">
+          Cargar solo cuando el flete ya fue pagado. Si todavía no se pagó, dejar en $0.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Monto</label>
             <input type="text" inputMode="numeric" value={fmtInput(fleteMonto)}
               disabled={esAnulada}
               onChange={e => setFleteMonto(parsearMonto(e.target.value))}
               placeholder="0,00"
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Fecha de pago del flete</label>
+            <input type="date" value={fleteFecha} onChange={e => setFleteFecha(e.target.value)}
+              disabled={esAnulada || fleteMonto === 0}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
           </div>
           <div>
