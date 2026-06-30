@@ -112,8 +112,8 @@ export async function POST(request: NextRequest) {
       .insert({
         sucursal_id: usuarioSistema.sucursal_id || 1,
         tipo: 'Ingreso',
-        categoria_gasto_id: 10,
-        concepto_gasto_id: null,
+        categoria_gasto_id: 10, // Ventas
+        concepto_gasto_id: 35, // Venta local
         medio_pago_id: pagos[0].medio_pago_id,
         monto: total,
         fecha_utc: fechaHoy,
@@ -123,7 +123,11 @@ export async function POST(request: NextRequest) {
         usuario_id: user.id,
       })
 
-    if (movError) console.error('Error al generar movimiento:', movError.message)
+    if (movError) {
+      // No revertimos la venta (ya puede tener comprobante asociado),
+      // pero dejamos rastro claro para corregir manualmente el movimiento faltante.
+      console.error('Error al generar movimiento para venta', venta.id, ':', movError.message)
+    }
 
     if (fiscalizar) {
       const { error: compError } = await supabase
