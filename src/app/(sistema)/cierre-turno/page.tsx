@@ -214,7 +214,7 @@ export default function CierreTurnoPage() {
 
     const { data: ingresosData } = await supabase
       .from('movimientos')
-      .select(`id, monto, fecha_utc, creado_en, conceptos_gasto ( nombre )`)
+      .select(`id, monto, fecha_utc, creado_en, origen_tipo, conceptos_gasto ( nombre )`)
       .eq('sucursal_id', sucursalId)
       .eq('tipo', 'Ingreso')
       .eq('medio_pago_id', 1)
@@ -223,7 +223,10 @@ export default function CierreTurnoPage() {
       .order('creado_en', { ascending: true })
 
     if (ingresosData) {
-      setIngresosEfectivo((ingresosData as any[]).map(m => ({
+      // Excluir movimientos que ya provienen de una venta (ya están contados en "Ventas efectivo"
+      // vía venta_pagos). Acá solo deben quedar ingresos de caja que NO sean ventas.
+      const ingresosSinVenta = (ingresosData as any[]).filter(m => m.origen_tipo !== 'venta')
+      setIngresosEfectivo(ingresosSinVenta.map(m => ({
         numero_venta: 0,
         total_efectivo: m.monto,
         fecha_utc: m.creado_en,
