@@ -103,7 +103,7 @@ export default function DashboardPage() {
         .gte('creado_en', data.creado_en),
       supabase
         .from('movimientos')
-        .select('monto')
+        .select('monto, origen_tipo')
         .eq('sucursal_id', 1)
         .eq('tipo', 'Ingreso')
         .eq('medio_pago_id', 1)
@@ -117,7 +117,11 @@ export default function DashboardPage() {
 
     const totalVentas = (ventasEfectivoRes.data || []).reduce((s, v) => s + v.monto, 0)
     const totalEgresos = (egresosRes.data || []).reduce((s, e) => s + e.monto, 0)
-    const totalIngresos = (ingresosRes.data || []).reduce((s, i) => s + i.monto, 0)
+    // Excluir movimientos que ya provienen de una venta: esa plata ya está
+    // contada en totalVentas (vía venta_pagos). Contarla de nuevo acá la duplicaría.
+    const totalIngresos = (ingresosRes.data || [])
+      .filter((i: any) => i.origen_tipo !== 'venta')
+      .reduce((s, i) => s + i.monto, 0)
     const totalRetiros = (retirosRes.data || []).reduce((s, r) => s + r.monto, 0)
     const esperado = data.apertura + totalVentas + totalIngresos - totalEgresos - totalRetiros
 
