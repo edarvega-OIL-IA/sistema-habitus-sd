@@ -247,6 +247,7 @@ export default function ComprasNuevaPage() {
           numero_remito_proveedor: tieneComprobante ? nroRemito || null : null,
           fecha_factura: tieneComprobante ? fechaFactura || null : null,
           numero_pedido_externo: nroPedidoExterno || null,
+          medio_pago_id: medioPagoId,
           flete_monto: fleteMonto,
           flete_fecha: fleteMonto > 0 ? fleteFecha || null : null,
           flete_medio_pago_id: fleteMonto > 0 ? fleteMedioPagoId : null,

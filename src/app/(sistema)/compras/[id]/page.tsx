@@ -105,7 +105,7 @@ export default function ComprasEditarPage() {
         supabase.from('ordenes_compra').select(`
           id, proveedor_id, fecha_orden, estado_orden_compra_id, tipo_orden_compra_id,
           tiene_comprobante, numero_factura_proveedor, numero_remito_proveedor, fecha_factura,
-          numero_pedido_externo, flete_monto, flete_fecha, flete_medio_pago_id, flete_transportista_id,
+          numero_pedido_externo, medio_pago_id, flete_monto, flete_fecha, flete_medio_pago_id, flete_transportista_id,
           monto_comprobante, observaciones,
           orden_compra_items (
             articulo_id, cantidad_facturada, cantidad_recibida,
@@ -136,6 +136,7 @@ export default function ComprasEditarPage() {
       setNroRemito(o.numero_remito_proveedor || '')
       setFechaFactura(o.fecha_factura || '')
       setNroPedidoExterno(o.numero_pedido_externo || '')
+      if (o.medio_pago_id) setMedioPagoId(o.medio_pago_id)
       setFleteMonto(o.flete_monto || 0)
       setFleteFecha(o.flete_fecha || '')
       setFleteMedioPagoId(o.flete_medio_pago_id || 1)
