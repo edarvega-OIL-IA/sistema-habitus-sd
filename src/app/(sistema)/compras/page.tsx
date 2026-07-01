@@ -7,13 +7,14 @@ import { Plus, Filter, CheckCircle2, FileText, XCircle, ChevronDown, ChevronRigh
 
 interface ItemOrden {
   id: number
-  articulo_id: number
+  articulo_id: number | null
   cantidad_facturada: number
   cantidad_recibida: number
   precio_unitario_sin_iva: number
   flete_prorrateado: number
   costo_final_unitario: number
   subtotal: number
+  es_ajuste_redondeo: boolean
   articulos: { nombre: string } | null
 }
 
@@ -81,6 +82,7 @@ export default function ComprasPage() {
           orden_compra_items (
             id, articulo_id, cantidad_facturada, cantidad_recibida,
             precio_unitario_sin_iva, flete_prorrateado, costo_final_unitario, subtotal,
+            es_ajuste_redondeo,
             articulos ( nombre )
           )
         `).order('id', { ascending: false }),
@@ -376,15 +378,23 @@ export default function ComprasPage() {
                         </thead>
                         <tbody>
                           {orden.orden_compra_items.map(it => (
-                            <tr key={it.id} className="border-b border-gray-100 last:border-0">
-                              <td className="py-2 text-gray-700">{it.articulos?.nombre || '—'}</td>
-                              <td className="py-2 text-center text-gray-500">{it.cantidad_facturada}</td>
-                              <td className="py-2 text-center text-gray-500">{it.cantidad_recibida}</td>
-                              <td className="py-2 text-right text-gray-500">{fmt(it.precio_unitario_sin_iva)}</td>
-                              <td className="py-2 text-right text-gray-500">{fmt(it.flete_prorrateado || 0)}</td>
-                              <td className="py-2 text-right font-medium text-[#3c3c3b]">{fmt(it.costo_final_unitario || 0)}</td>
-                              <td className="py-2 text-right font-medium text-[#3c3c3b]">{fmt(it.subtotal)}</td>
-                            </tr>
+                            it.es_ajuste_redondeo ? (
+                              <tr key={it.id} className="border-b border-gray-100 last:border-0 bg-amber-50">
+                                <td className="py-2 text-amber-700 italic" colSpan={5}>Ajuste por redondeo</td>
+                                <td className="py-2 text-right font-medium text-amber-700 italic"></td>
+                                <td className="py-2 text-right font-medium text-amber-700 italic">{fmt(it.subtotal)}</td>
+                              </tr>
+                            ) : (
+                              <tr key={it.id} className="border-b border-gray-100 last:border-0">
+                                <td className="py-2 text-gray-700">{it.articulos?.nombre || '—'}</td>
+                                <td className="py-2 text-center text-gray-500">{it.cantidad_facturada}</td>
+                                <td className="py-2 text-center text-gray-500">{it.cantidad_recibida}</td>
+                                <td className="py-2 text-right text-gray-500">{fmt(it.precio_unitario_sin_iva)}</td>
+                                <td className="py-2 text-right text-gray-500">{fmt(it.flete_prorrateado || 0)}</td>
+                                <td className="py-2 text-right font-medium text-[#3c3c3b]">{fmt(it.costo_final_unitario || 0)}</td>
+                                <td className="py-2 text-right font-medium text-[#3c3c3b]">{fmt(it.subtotal)}</td>
+                              </tr>
+                            )
                           ))}
                         </tbody>
                       </table>

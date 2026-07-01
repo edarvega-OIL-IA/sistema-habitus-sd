@@ -253,7 +253,7 @@ export default function ComprasNuevaPage() {
           flete_transportista_id: fleteMonto > 0 && fleteTransportistaId ? fleteTransportistaId : null,
           sucursal_id: sucursalId,
           subtotal: subtotalArticulos,
-          total: totalGeneral,
+          total: montoAjustado !== undefined ? montoAjustado + fleteMonto : totalGeneral,
           observaciones: observaciones || null,
           usuario_id: usuarioData.id,
         })
@@ -263,7 +263,7 @@ export default function ComprasNuevaPage() {
       if (ordenError) throw new Error('Error al crear orden: ' + ordenError.message)
       const ordenId = orden.id
 
-      // Insertar items
+      // Insertar items (artículos reales)
       await supabase.from('orden_compra_items').insert(
         itemsConFlete.map(it => ({
           orden_compra_id: ordenId,
@@ -274,8 +274,25 @@ export default function ComprasNuevaPage() {
           flete_prorrateado: it.flete_prorrateado,
           costo_final_unitario: it.costo_final_unitario,
           subtotal: it.subtotal,
+          es_ajuste_redondeo: false,
         }))
       )
+
+      // Si hay ajuste de redondeo, insertar ítem especial que documenta la diferencia
+      if (montoAjustado !== undefined && montoAjustado !== subtotalArticulos) {
+        const ajuste = Math.round((montoAjustado - subtotalArticulos) * 100) / 100
+        await supabase.from('orden_compra_items').insert({
+          orden_compra_id: ordenId,
+          articulo_id: null,
+          cantidad_facturada: 1,
+          cantidad_recibida: 0,
+          precio_unitario_sin_iva: ajuste,
+          flete_prorrateado: 0,
+          costo_final_unitario: 0,
+          subtotal: ajuste,
+          es_ajuste_redondeo: true,
+        })
+      }
 
       // Movimiento de MERCADERÍA — se genera siempre que el monto sea > 0,
       // sea Borrador o Confirmada. Si el usuario eligió "Ajustar automáticamente"
