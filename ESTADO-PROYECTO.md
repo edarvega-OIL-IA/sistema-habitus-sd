@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 30/06/2026 — Sesión 14 (producción en vivo + unificación sandbox/producción completada)
-**Estado general:** 🟢 Sistema en producción real desde 29/06. Sandbox y producción unificados (Tarea 3 cerrada).
-**Próxima acción concreta:** Conteo físico de stock (Ariel) → UPDATE articulo_stock en producción
+**Última actualización:** 30/06/2026 — Sesión 15 (Compras reescrito: movimientos al guardar + validación comprobante + stock inicial cargado)
+**Estado general:** 🟢 Sistema en producción real. Operación paralela con Cover desde 01/07/2026.
+**Próxima acción concreta:** Control físico de stock (casos con dudas) → limpiar movimientos/caja de junio en producción → replicar cambios de Compras en sandbox
 
 ---
 
@@ -59,8 +59,10 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 ## 5. Infraestructura Supabase
 
 - Organización: **Camino Doce Doce - IT**
-- Proyecto activo: **habitus-sd-sandbox** (AWS sa-east-1, plan Free)
-- Proyecto producción: pendiente
+- **Producción:** habitus-sd-production (ref: lfscdxrhwjpkkirxzhwt, AWS sa-east-1, Pro ~USD25/mes) — en uso real desde 29/06/2026
+- **Sandbox:** habitus-sd-sandbox (AWS sa-east-1, plan Free) — usado para pruebas, con drift periódico respecto a producción
+- `.env.local` → producción | `.env.development.local` → sandbox
+- **Deploy:** https://sistema-habitus-sd.vercel.app (GitHub, auto-deploy en push)
 
 ---
 
@@ -122,6 +124,12 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 - `orden_compra_items`: NO tiene campo `descuento_pct`
 - `transportistas`: tabla nueva (id, nombre, activo) — Andreani, Correo Argentino, VIA CARGO + particulares
 - `historico_precios`: tabla nueva (id, articulo_id, fecha, tipo, costo_sin_iva, precio_local, precio_web, precio_mayorista, precio_oferta_web, tasa_iva_id, origen_id, usuario_id, creado_en)
+- `movimientos.origen_subtipo`: TEXT — `'mercaderia'` | `'flete'` (agregado sesión 15, reemplaza distinción por texto en observaciones)
+- `ordenes_compra.flete_fecha`: DATE — fecha real de pago del flete, separada de `fecha_orden` (agregado sesión 15)
+- `ordenes_compra.monto_comprobante`: NUMERIC(12,2) — total según comprobante del proveedor (agregado sesión 15)
+- `ordenes_compra.medio_pago_id`: INTEGER FK medios_pago — medio de pago de la mercadería (agregado sesión 15)
+- `orden_compra_items.articulo_id`: nullable (agregado sesión 15, era NOT NULL) — permite ítem de ajuste por redondeo
+- `orden_compra_items.es_ajuste_redondeo`: BOOLEAN DEFAULT false (agregado sesión 15)
 
 ---
 
@@ -222,8 +230,88 @@ Diagnóstico completo vía SELECT cruzados entre ambos entornos. Divergencias id
 
 **Pendiente sesión futura (no bloqueante):** evaluar `DROP COLUMN articulo_id, cantidad, sucursal_destino_id` en `movimientos_stock` (cabecera) de producción — quedan obsoletas y siempre NULL bajo el modelo vigente, una vez confirmado que ningún código las referencia.
 
-### Próximos pasos (en orden)
+### Próximos pasos (en orden) — al cierre de sesión 14
 1. Conteo físico de stock (Ariel, 30/06) → Excel → `UPDATE articulo_stock` en producción
 2. Borrar datos de prueba de producción (cierres de turno y movimientos de prueba previos al 29/06)
 3. Actualizar `HABITUS_SD_PRODUCCION_COMPLETO.sql` consolidando todos los cambios de la sesión
 4. Evaluar limpieza de columnas obsoletas en `movimientos_stock`
+
+---
+
+## 11. Sesión 15 (30/06/2026) — Compras reescrito + stock inicial cargado + arranque operación paralela
+
+### Contexto de la sesión
+Ariel hizo un pedido real a Disfit por $485.456,03 (transferencia), pagado el mismo día del pedido, con flete a pagar recién cuando llegue la mercadería. Este caso de uso expuso que el sistema solo generaba el movimiento financiero de una Orden de Compra al **Confirmar**, nunca al **Guardar como Borrador** — dejando la caja real desalineada del sistema durante todo el tiempo que la mercadería está en tránsito.
+
+### Decisión de diseño acordada con Ariel
+> "Cuando cargo la OC (Borrador o Confirmada) se debe generar el movimiento de pago. Cuando se confirma la OC se actualiza el stock y se genera movimiento del flete (si existe)."
+
+Reglas finales:
+- El disparador de generar/actualizar un movimiento es **monto > 0** en cada campo (mercadería, flete), no el estado de la orden.
+- El flete **nunca** se carga sin haber sido pagado (regla de negocio de Ariel: "lo cargo cuando lo pago").
+- Si el monto baja a $0 en una edición → se permite eliminar el movimiento, pero pide confirmación explícita.
+- Stock, costo y `historico_precios` se actualizan **solo al Confirmar**, nunca en Borrador.
+- Si se agrega flete después de que la orden ya estaba Confirmada (flete era $0): se recalcula `costo_final_unitario` en `historico_precios` siempre; solo se pisa `articulos.costo_sin_iva` si esa orden es la compra más reciente del artículo (si hay compras posteriores del mismo artículo, no se debe corromper el costo actual — solo se corrige el histórico).
+
+### Validación de monto contra comprobante — nueva funcionalidad
+A raíz de una diferencia real de $0,05 entre el total calculado por el sistema (suma de ítems redondeados individualmente) y el total real de la factura del proveedor, se agregó:
+- Campo **"Monto según comprobante"** en la sección "Tiene comprobante".
+- Al guardar, el sistema compara `monto_comprobante` vs `subtotalArticulos`:
+  - Diferencia **≥ $500** (umbral fijo, aprox. el costo del artículo más barato del catálogo — sugiere que falta cargar un ítem completo) → **bloquea el guardado** con mensaje explícito.
+  - Diferencia **< $500** → aviso ámbar no bloqueante con dos opciones: **"Ajustar automáticamente"** (el movimiento de mercadería usa el monto del comprobante; se inserta un ítem `es_ajuste_redondeo=true` en `orden_compra_items` documentando la diferencia; el `total` de la orden queda igual al comprobante) o **"Corrijo yo manualmente"** (el usuario ajusta algún precio/cantidad y vuelve a intentar).
+- Principio acordado con Ariel (background de 15 años en contabilidad de seguros): *"En movimientos de dinero tiene que ser el monto exacto del pago. En la orden de compra, si hay diferencia en la suma de los totales, se hace un registro de redondeo, y el total final de la OC debe coincidir con lo pagado."* — de ahí que el ajuste se registre como **ítem visible** en `orden_compra_items` (no como campo oculto en `ordenes_compra`), para que quede trazable en cualquier auditoría futura.
+
+### Cambios en BD — producción (pendiente replicar en sandbox)
+
+**Nuevas columnas:**
+- `movimientos.origen_subtipo TEXT` — `'mercaderia'` | `'flete'`. Reemplaza la práctica anterior de distinguir movimientos de una misma orden por texto libre en `observaciones` (fue decisión explícita de Ariel: "Nunca con texto, agreguemos columna").
+- `ordenes_compra.flete_fecha DATE` — fecha real de pago del flete, separada de `fecha_orden` (el flete se paga días después, al recibir la mercadería).
+- `ordenes_compra.monto_comprobante NUMERIC(12,2)`.
+- `ordenes_compra.medio_pago_id INTEGER FK medios_pago` — medio de pago de la mercadería (existía `flete_medio_pago_id` para el flete pero faltaba el de mercadería).
+- `orden_compra_items.es_ajuste_redondeo BOOLEAN DEFAULT false`.
+
+**Modificación de constraint:**
+- `orden_compra_items.articulo_id` → cambiado a **nullable** (era `NOT NULL`) para permitir el ítem especial de ajuste por redondeo (sin artículo real asociado).
+
+**RLS corregidas (bloqueaban silenciosamente el guardado de órdenes):**
+- `ordenes_compra` tenía solo política SELECT — se agregaron INSERT y UPDATE.
+- `orden_compra_items` tenía solo política SELECT — se agregaron INSERT, UPDATE y DELETE.
+
+**Backfill:**
+- Movimientos existentes de órdenes de compra clasificados en `origen_subtipo` según `concepto_gasto_id` (33→mercadería, 44→flete).
+
+### Archivos reescritos (producción)
+- `compras/nueva/page.tsx` — genera movimiento de mercadería y flete al guardar (Borrador o Confirmada), valida contra `monto_comprobante`, guarda `medio_pago_id`.
+- `compras/[id]/page.tsx` — misma lógica + función `sincronizarMovimiento()` que crea/actualiza/elimina cada movimiento por `origen_subtipo` sin duplicar nunca; recalcula histórico de costo al agregar flete post-confirmación respetando la regla de "no pisar costo si hay compra más reciente".
+- `compras/page.tsx` — listado: muestra el ítem de ajuste por redondeo como fila ámbar diferenciada ("Ajuste por redondeo") en el detalle expandido de cada orden.
+
+### Bug de proceso detectado y corregido durante la sesión
+Al copiar los archivos entregados, el contenido de `compras/[id]/page.tsx` quedó pegado por error en `compras/nueva/page.tsx` (mismo nombre `page.tsx` en ambas carpetas generó la confusión). Síntoma: título "Editar orden de compra #NaN" al intentar crear una orden nueva, y la orden nunca se guardaba. Se corrigió re-entregando los archivos con nombres de descarga bien diferenciados (`PARA_CARPETA_nueva.tsx` / `PARA_CARPETA_id_corchetes.tsx`) para futuras entregas de archivos que compartan el mismo nombre final.
+
+### Orden real cargada en producción
+- **Orden #2** — Disfit, 30/06/2026, Borrador, Transferencia, 5 artículos (Omega 3, Creatina Neutro, Creatina Fruit Punch, Magnesium Mega, Glicinato de Magnesio).
+- Comprobante N°00230000, monto $485.456,03. Diferencia de $0,05 contra la suma de ítems → resuelta con "Ajustar automáticamente".
+- Movimiento id=28: Egreso $485.456,03, fecha 30/06, Transferencia, `origen_subtipo='mercaderia'`, `origen_id=2`.
+- **Pendiente:** cuando llegue la mercadería, editar la orden, cargar flete_monto + flete_fecha + transportista, y Confirmar (dispara actualización de stock y costos de los 5 artículos).
+
+### Stock inicial ajustado (conteo físico 30/06)
+- Excel `Habitus_Conteo_Stock_20260630_EAV.xlsx` — 126 artículos contados, 65 con diferencia entre stock sistema y stock real.
+- Script `stock_ajuste_final.sql` ejecutado en producción: 65 `UPDATE articulo_stock` directos (sin movimientos de ajuste — decisión de Ariel, ya que los datos de movimientos/caja de junio se van a borrar antes del arranque del 01/07).
+- Reporte de diferencias por rubro entregado (mayor faltante neto: Barras de proteína -69 unidades, Geles -27, Geles Cafeína -5).
+- Casos especiales:
+  - id=1071 (Nitrogain Frutilla Xtrenght): vencido → `stock=0` + `disponible_local=false`.
+  - id=964 (Hydromax Doypack 1320Gr Manzana) e id=1256 (Classic Whey Protein Vainilla One Fit): artículos que ya existían en catálogo con `disponible_local=false` — activados a `true` con stock inicial.
+  - id=1049 (Creatina Monohidrato 300G Dp Neutra Star Nutrition): ajustado a mano restando 1 unidad sobre lo que decía el conteo, por una venta ocurrida después del conteo físico.
+- **Pendiente:** Ariel va a re-controlar personalmente varios artículos con lecturas dudosas de la planilla manual antes de dar el conteo por definitivo (algunas cifras del papel fueron difíciles de leer a distancia en fotos).
+
+### Arranque de operación paralela
+- 01/07/2026: inicio oficial del uso simultáneo del sistema propio + Cover.
+- Objetivo uso exclusivo del sistema propio: 06/07/2026.
+- Objetivo baja de Cover: 12/07/2026.
+
+### Próximos pasos (en orden)
+1. Control físico de stock por Ariel (turno mañana 01/07) — validar casos dudosos del conteo del 30/06.
+2. Limpiar movimientos y datos de caja de junio en producción (arranque limpio del 01/07).
+3. Ejecutar `agregar_origen_subtipo.sql` en sandbox (ya aplicado en producción) — agrega `origen_subtipo`, `flete_fecha`, `monto_comprobante`.
+4. Replicar manualmente en sandbox los tres archivos de Compras reescritos (sandbox no tiene API routes para este módulo, es Client Component directo a Supabase, igual que Ventas).
+5. MVP v2 (sin fecha): modificar ventas Guardadas, Nota de Crédito, fiscalización AFIP/ARCA vía Facturama.

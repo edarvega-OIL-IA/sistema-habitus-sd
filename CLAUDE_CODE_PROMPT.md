@@ -68,7 +68,7 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - Fechas DATE: mostrar con .substring(0,10).split('-').reverse().join('/'), NUNCA new Date()
 - Horas (TIMESTAMPTZ): new Date(s).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })
 
-## FUENTE DE VERDAD DE BD — producción al 29/06/2026
+## FUENTE DE VERDAD DE BD — producción al 30/06/2026 (sesión 15)
 **REGLA: Nunca documentar columnas sin verificar con SELECT en producción.**
 
 ### Catálogo
@@ -89,9 +89,10 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 ### Movimientos financieros
 - categorias_gasto: id, nombre, tipo(Ingreso/Egreso/Ambos/Sistema), creado_en — NO tiene activo
 - conceptos_gasto: id, categoria_gasto_id, nombre, tipo, creado_en
-- movimientos: id, sucursal_id, cuenta_id(nullable), categoria_gasto_id, concepto_gasto_id, tipo, monto, fecha_utc(DATE), mes_contable(DATE), entidad_tipo_id, entidad_id, origen_tipo, origen_id, estado_cobro_id, medio_pago_id, turno_id, usuario_id, observaciones, anulado, creado_en
+- movimientos: id, sucursal_id, cuenta_id(nullable), categoria_gasto_id, concepto_gasto_id, tipo, monto, fecha_utc(DATE), mes_contable(DATE), entidad_tipo_id, entidad_id, origen_tipo, origen_id, origen_subtipo(TEXT, sesión 15 — 'mercaderia'|'flete'), estado_cobro_id, medio_pago_id, turno_id, usuario_id, observaciones, anulado, creado_en
 - Compras: categoria_gasto_id=1, concepto_gasto_id=33 | Flete: concepto_gasto_id=44
 - Caja ingreso: categoria_gasto_id=13, concepto_gasto_id=43 | Caja retiro: concepto_gasto_id=41
+- **Distinguir movimientos del mismo origen (ej. mercadería vs flete de una orden) usar SIEMPRE `origen_subtipo`, nunca texto libre en `observaciones`.**
 
 ### Stock
 - articulo_stock: id, articulo_id, sucursal_id, stock_actual, stock_min, stock_max, actualizado_en
@@ -102,8 +103,10 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 
 ### Compras
 - proveedores: id, nombre_comercial(NO nombre), cuit, razon_social, domicilio, cbu_alias, telefono, email, notas, activo, creado_en
-- ordenes_compra: id, numero_orden, proveedor_id, sucursal_id, deposito_id, usuario_id, tipo_orden_compra_id, estado_orden_compra_id, tiene_comprobante, numero_factura_proveedor, numero_remito_proveedor, numero_pedido_externo, fecha_factura, fecha_remito, fecha_orden, descuento_pct, flete_monto, flete_medio_pago_id, flete_transportista_id, subtotal, total, observaciones, creado_en
-- orden_compra_items: id, orden_compra_id, articulo_id, cantidad_facturada, cantidad_recibida, precio_unitario_sin_iva, flete_prorrateado, costo_final_unitario, subtotal, creado_en
+- ordenes_compra: id, numero_orden, proveedor_id, sucursal_id, deposito_id, usuario_id, tipo_orden_compra_id, estado_orden_compra_id, tiene_comprobante, numero_factura_proveedor, numero_remito_proveedor, numero_pedido_externo, fecha_factura, fecha_remito, fecha_orden, descuento_pct, medio_pago_id, flete_monto, flete_fecha, flete_medio_pago_id, flete_transportista_id, monto_comprobante, subtotal, total, observaciones, creado_en
+- orden_compra_items: id, orden_compra_id, articulo_id(nullable — sesión 15), cantidad_facturada, cantidad_recibida, precio_unitario_sin_iva, flete_prorrateado, costo_final_unitario, subtotal, es_ajuste_redondeo(BOOLEAN, sesión 15), creado_en
+- **Lógica de movimientos (sesión 15):** el movimiento de mercadería y de flete se generan al GUARDAR la orden (Borrador o Confirmada), no solo al Confirmar — disparado por monto>0 en cada campo. Se distinguen por `movimientos.origen_subtipo` ('mercaderia'|'flete'), NUNCA por texto en observaciones. Stock/costo/historico_precios solo se tocan al Confirmar.
+- **Validación de comprobante (sesión 15):** campo `monto_comprobante` en la orden; diferencia ≥$500 bloquea guardado; diferencia <$500 ofrece ajuste automático que inserta un ítem `es_ajuste_redondeo=true` en `orden_compra_items` (nunca ajustar el precio unitario de un artículo real para forzar el cierre).
 
 ### Usuarios
 - usuarios: id(UUID), dni_cuit, rol_id, sucursal_id, estado_usuario_id, creado_en, nombre, apellido, email — NO nombre_completo
@@ -156,6 +159,9 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - NO usar stock_minimo/stock_maximo — son stock_min/stock_max
 - NO poner articulo_id/cantidad directamente en movimientos_stock — usar movimiento_stock_items
 - NO usar middleware.ts — es proxy.ts en Next.js 16
+- NO distinguir movimientos de un mismo origen por texto en observaciones — usar columna `origen_subtipo`
+- NO ajustar precios unitarios de artículos reales para forzar que un total cierre — usar un ítem de ajuste separado (`es_ajuste_redondeo`)
+- NO asumir que una tabla nueva tiene las 4 políticas RLS solo porque tiene SELECT — verificar INSERT/UPDATE/DELETE explícitamente
 
 ## Errores críticos aprendidos
 1. Joins anidados bloqueados por RLS — siempre query separada + merge por Map
@@ -169,3 +175,8 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 9. Schema cache de Supabase: `SELECT pg_notify('pgrst', 'reload schema')` después de ALTER TABLE
 10. Sandbox y producción divergen silenciosamente — fuente de verdad es SELECT en producción, no los SQLs
 11. precio_local en ArticuloForm: usar `?? 0` no `|| null` — null viola NOT NULL constraint
+12. RLS con solo política SELECT bloquea silenciosamente INSERT/UPDATE/DELETE — error genérico "row-level security policy" sin decir qué falta; siempre verificar las 4 políticas (SELECT/INSERT/UPDATE/DELETE) al crear o tocar una tabla nueva
+13. Nunca distinguir movimientos del mismo origen por texto en `observaciones` — usar columna dedicada (`origen_subtipo`), el texto libre es frágil para queries y auditoría
+14. Al entregar dos archivos con el mismo nombre final (`page.tsx` en carpetas distintas de Next.js), nombrar los archivos de descarga de forma bien diferenciada (ej. `PARA_CARPETA_nueva.tsx` / `PARA_CARPETA_id_corchetes.tsx`) — de lo contrario el usuario puede confundir cuál va en cada carpeta al copiar/pegar manualmente
+15. Nunca ajustar el precio unitario de un artículo real para forzar que un total cierre exacto contra un comprobante — el ajuste de redondeo debe ser un ítem separado y visible, no una alteración silenciosa del precio real del producto
+16. Movimientos financieros generados por una Orden de Compra deben dispararse por `monto > 0` en el guardado (Borrador o Confirmada), no solo al Confirmar — de lo contrario la caja real queda desalineada del sistema durante todo el tiempo que la orden permanece sin confirmar
