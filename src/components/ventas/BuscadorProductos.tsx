@@ -21,6 +21,15 @@ interface BuscadorProductosProps {
   onAgregarItem: (articulo: Articulo, cantidad: number) => void
 }
 
+// Quita acentos/diacríticos y pasa a minúsculas, para que la búsqueda
+// no dependa de tildes ni mayúsculas (ej: "creatina" encuentra "Creatína").
+function normalizar(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
 // Umbral de rebote: si llega el MISMO texto escaneado dos veces dentro de esta
 // ventana, se considera doble lectura de hardware (no una segunda venta real)
 // y se ignora. Un cajero re-escaneando el mismo producto a propósito (para
@@ -37,10 +46,8 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
   const [resultados, setResultados] = useState<Articulo[]>([])
   const [indiceFoco, setIndiceFoco] = useState<number>(-1)
   const [popup, setPopup] = useState<PopupCantidad | null>(null)
-  const [buscando, setBuscando] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const cantidadRef = useRef<HTMLInputElement>(null)
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
   const timerPopupRef = useRef<NodeJS.Timeout | null>(null)
   const codigoBarrasBuffer = useRef<string>('')
   const popupRef = useRef<PopupCantidad | null>(null)
@@ -48,9 +55,10 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
 
   // Anti-rebote de escaneos duplicados (mismo texto, disparado dos veces por el hardware)
   const ultimoEscaneo = useRef<{ valor: string; ts: number }>({ valor: '', ts: 0 })
-  // Token de búsqueda para ignorar respuestas de búsquedas viejas que llegan tarde
-  // (evita que una búsqueda anterior pise el resultado de una más reciente)
-  const searchToken = useRef(0)
+  // Catálogo completo cargado una sola vez al montar (igual que en Compras),
+  // se filtra en memoria sin ida y vuelta al servidor por cada tecla o escaneo.
+  const catalogoRef = useRef<Articulo[]>([])
+  const [catalogoListo, setCatalogoListo] = useState(false)
   // Detección de ráfaga de caracteres (lector) dentro del popup de cantidad
   const ultimoKeyPopupTs = useRef<number>(0)
   const enRafagaPopup = useRef<boolean>(false)
@@ -58,7 +66,25 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
 
   useEffect(() => { popupRef.current = popup }, [popup])
 
-  useEffect(() => { inputRef.current?.focus() }, [])
+  useEffect(() => {
+    inputRef.current?.focus()
+    cargarCatalogo()
+  }, [])
+
+  async function cargarCatalogo() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('articulos')
+      .select('id, nombre, codigo_interno, codigo_barra, precio_local, disponible_local, rubros(nombre), marcas(nombre)')
+      .eq('activo', true)
+      .eq('disponible_local', true)
+    catalogoRef.current = ((data as any[]) || []).map(a => ({
+      ...a,
+      _rubro: a.rubros?.nombre || '',
+      _marca: a.marcas?.nombre || '',
+    }))
+    setCatalogoListo(true)
+  }
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -100,28 +126,29 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
     return esDuplicado
   }
 
-  async function buscar(valor: string) {
-    if (!valor.trim()) { setResultados([]); return }
-    const miToken = ++searchToken.current
-    setBuscando(true)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('articulos')
-      .select('id, nombre, codigo_interno, codigo_barra, precio_local, disponible_local')
-      .eq('activo', true)
-      .eq('disponible_local', true)
-      .or(`nombre.ilike.%${valor}%,codigo_interno.ilike.%${valor}%,codigo_barra.ilike.%${valor}%`)
-      .limit(8)
+  // Filtro tokenizado e insensible a acentos sobre el catálogo ya cargado en memoria.
+  // Cada palabra escrita debe estar presente en algún lugar del texto buscable,
+  // sin importar el orden (ej: "whey one fit" encuentra "Classic Whey Protein... One Fit").
+  function filtrar(valor: string): Articulo[] {
+    const tokens = normalizar(valor).trim().split(/\s+/).filter(Boolean)
+    if (tokens.length === 0) return []
+    return catalogoRef.current
+      .filter(a => {
+        const haystack = normalizar(
+          [a.nombre, a.codigo_interno, a.codigo_barra, (a as any)._rubro, (a as any)._marca]
+            .filter(Boolean)
+            .join(' ')
+        )
+        return tokens.every(t => haystack.includes(t))
+      })
+      .slice(0, 8)
+  }
 
-    // Si mientras esperábamos la respuesta se disparó una búsqueda más nueva,
-    // esta respuesta ya es vieja — la ignoramos para no pisar el estado actual.
-    if (miToken !== searchToken.current) return
-
-    setResultados(data || [])
-    setBuscando(false)
-
-    if (data && data.length === 1) {
-      abrirPopup(data[0])
+  function buscar(valor: string) {
+    const encontrados = filtrar(valor)
+    setResultados(encontrados)
+    if (encontrados.length === 1) {
+      abrirPopup(encontrados[0])
       setResultados([])
     }
   }
@@ -129,8 +156,7 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
   function handleInput(e: React.ChangeEvent<HTMLInputElement>) {
     const valor = e.target.value
     setQuery(valor)
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => buscar(valor), 150)
+    buscar(valor)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -158,7 +184,6 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
         setQuery('')
         return
       }
-      if (timerRef.current) clearTimeout(timerRef.current)
       buscar(query)
     }
     if (e.key === 'Escape') { setQuery(''); setResultados([]) }
@@ -265,7 +290,7 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
           autoComplete="off"
         />
         <span className="absolute left-3 top-3 text-[#00a19a] text-base">🔍</span>
-        {buscando && <span className="absolute right-3 top-3 text-gray-400 text-xs">buscando...</span>}
+        {!catalogoListo && <span className="absolute right-3 top-3 text-gray-400 text-xs">cargando catálogo...</span>}
       </div>
 
       {/* Lista de resultados con navegación por teclado */}

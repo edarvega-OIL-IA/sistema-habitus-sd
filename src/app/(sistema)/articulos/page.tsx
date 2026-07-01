@@ -31,6 +31,15 @@ interface Marca {
   nombre: string
 }
 
+// Quita acentos/diacríticos y pasa a minúsculas, para que la búsqueda
+// no dependa de tildes ni de mayúsculas (ej: "creatina" encuentra "Creatína").
+function normalizar(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
 export default function ArticulosPage() {
   const [articulos, setArticulos] = useState<Articulo[]>([])
   const [rubros, setRubros] = useState<Rubro[]>([])
@@ -96,10 +105,18 @@ export default function ArticulosPage() {
   }
 
   const articulosFiltrados = articulos.filter(a => {
-    const termino = busqueda.toLowerCase().trim()
-    if (termino && !a.nombre.toLowerCase().includes(termino) &&
-        !a.codigo_interno?.toLowerCase().includes(termino) &&
-        !a.codigo_barra?.toLowerCase().includes(termino)) return false
+    // Búsqueda tokenizada e insensible a acentos/mayúsculas: cada palabra
+    // escrita debe aparecer en algún lugar del texto buscable, sin importar
+    // el orden (ej: "whey one fit" encuentra "Classic Whey Protein... One Fit").
+    const tokens = normalizar(busqueda).trim().split(/\s+/).filter(Boolean)
+    if (tokens.length > 0) {
+      const haystack = normalizar(
+        [a.nombre, a.codigo_interno, a.codigo_barra, (a.rubros as any)?.nombre, (a.marcas as any)?.nombre]
+          .filter(Boolean)
+          .join(' ')
+      )
+      if (!tokens.every(t => haystack.includes(t))) return false
+    }
     if (rubroFiltro !== 'todos' && a.rubro_id?.toString() !== rubroFiltro) return false
     if (marcaFiltro !== 'todos' && a.marca_id?.toString() !== marcaFiltro) return false
     if (disponibilidadFiltro === 'local' && !a.disponible_local) return false
