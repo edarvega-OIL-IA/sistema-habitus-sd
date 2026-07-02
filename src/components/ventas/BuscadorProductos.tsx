@@ -34,8 +34,11 @@ function normalizar(s: string): string {
 // ventana, se considera doble lectura de hardware (no una segunda venta real)
 // y se ignora. Un cajero re-escaneando el mismo producto a propósito (para
 // sumar unidades) normalmente tarda bastante más que esto en volver a apretar
-// el gatillo del lector.
-const UMBRAL_REBOTE_MS = 400
+// el gatillo del lector — mover el producto y reapuntar ya lleva más de 1 seg.
+// Subido de 400ms a 1200ms (sesión 16): 400ms no alcanzaba a filtrar lectores
+// en modo de lectura continua, que repiten el mismo código cada ~200-400ms
+// mientras el gatillo queda apretado o el producto sigue frente al sensor.
+const UMBRAL_REBOTE_MS = 1200
 
 // Umbral para distinguir tecleo de lector (caracteres en milisegundos) de
 // tecleo humano manual en el campo de cantidad (bastante más lento).
@@ -116,13 +119,15 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
   useEffect(() => { setIndiceFoco(-1) }, [resultados])
 
   // Devuelve true si este mismo texto ya fue escaneado hace menos de UMBRAL_REBOTE_MS
-  // (rebote de hardware). Si no es duplicado, registra este escaneo como el último.
+  // (rebote de hardware o lectura continua sostenida). El timestamp de referencia
+  // se actualiza SIEMPRE (sea o no duplicado): así, mientras el lector siga
+  // mandando el mismo código en ráfaga, el bloqueo se mantiene, y recién se
+  // libera cuando hay un silencio real de más de UMBRAL_REBOTE_MS (se soltó
+  // el gatillo o se cambió de producto).
   function esEscaneoDuplicado(valor: string): boolean {
     const ahora = Date.now()
     const esDuplicado = valor === ultimoEscaneo.current.valor && (ahora - ultimoEscaneo.current.ts) < UMBRAL_REBOTE_MS
-    if (!esDuplicado) {
-      ultimoEscaneo.current = { valor, ts: ahora }
-    }
+    ultimoEscaneo.current = { valor, ts: ahora }
     return esDuplicado
   }
 
