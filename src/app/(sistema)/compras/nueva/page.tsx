@@ -389,7 +389,26 @@ export default function ComprasNuevaPage() {
   }
 
   function parsearMonto(v: string): number {
-    return parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0
+    const s = (v || '').trim()
+    if (!s) return 0
+    const lastComma = s.lastIndexOf(',')
+    const lastDot = s.lastIndexOf('.')
+    const lastSep = Math.max(lastComma, lastDot)
+    if (lastSep === -1) {
+      // sin separadores: solo dígitos
+      const n = parseFloat(s.replace(/[^\d]/g, ''))
+      return isNaN(n) ? 0 : n
+    }
+    const despuesDelSeparador = s.slice(lastSep + 1).replace(/[^\d]/g, '')
+    if (despuesDelSeparador.length === 1 || despuesDelSeparador.length === 2) {
+      // el último separador es decimal (coma o punto, da igual cuál)
+      const parteEntera = s.slice(0, lastSep).replace(/[.,]/g, '')
+      const n = parseFloat((parteEntera || '0') + '.' + despuesDelSeparador)
+      return isNaN(n) ? 0 : n
+    }
+    // 3 dígitos después (o 0, o 4+): se interpreta como separador de miles
+    const n = parseFloat(s.replace(/[.,]/g, ''))
+    return isNaN(n) ? 0 : n
   }
   function fmtInput(n: number): string {
     if (!n) return ''
