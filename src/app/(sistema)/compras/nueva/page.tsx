@@ -64,6 +64,12 @@ export default function ComprasNuevaPage() {
     diferencia: number; confirmarPendiente: boolean
   } | null>(null)
 
+  // Texto crudo en edición para inputs de monto (evita que se pierda el
+  // separador decimal mientras se tipea — ver actualizarMontoTexto)
+  const [montoComprobanteTexto, setMontoComprobanteTexto] = useState<string | null>(null)
+  const [fleteMontoTexto, setFleteMontoTexto] = useState<string | null>(null)
+  const [precioTexto, setPrecioTexto] = useState<Record<number, string>>({})
+
   // Buscador
   const [busqueda, setBusqueda] = useState('')
   const [resultados, setResultados] = useState<Articulo[]>([])
@@ -149,6 +155,16 @@ export default function ComprasNuevaPage() {
 
   function eliminarItem(index: number) {
     setItems(prev => prev.filter((_, i) => i !== index))
+    setPrecioTexto(prev => {
+      const next: Record<number, string> = {}
+      Object.entries(prev).forEach(([k, v]) => {
+        const i = Number(k)
+        if (i < index) next[i] = v
+        else if (i > index) next[i - 1] = v
+        // i === index se descarta (la fila fue eliminada)
+      })
+      return next
+    })
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -471,8 +487,15 @@ export default function ComprasNuevaPage() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Monto según comprobante</label>
-              <input type="text" inputMode="numeric" value={fmtInput(montoComprobante)}
-                onChange={e => setMontoComprobante(parsearMonto(e.target.value))}
+              <input type="text" inputMode="decimal"
+                value={montoComprobanteTexto !== null ? montoComprobanteTexto : fmtInput(montoComprobante)}
+                onFocus={e => e.target.select()}
+                onChange={e => {
+                  const raw = e.target.value
+                  setMontoComprobanteTexto(raw)
+                  setMontoComprobante(parsearMonto(raw))
+                }}
+                onBlur={() => setMontoComprobanteTexto(null)}
                 placeholder="Opcional — para validar contra los artículos"
                 className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
             </div>
@@ -588,9 +611,17 @@ export default function ComprasNuevaPage() {
                           className="w-full px-2 py-1 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-1 focus:ring-[#00a19a]" />
                       </td>
                       <td className="px-3 py-2">
-                        <input type="text" inputMode="numeric" value={fmtInput(item.precio_unitario)}
+                        <input type="text" inputMode="decimal"
+                          value={precioTexto[index] !== undefined ? precioTexto[index] : fmtInput(item.precio_unitario)}
                           onFocus={e => e.target.select()}
-                          onChange={e => actualizarItem(index, 'precio_unitario', parsearMonto(e.target.value))}
+                          onChange={e => {
+                            const raw = e.target.value
+                            setPrecioTexto(prev => ({ ...prev, [index]: raw }))
+                            actualizarItem(index, 'precio_unitario', parsearMonto(raw))
+                          }}
+                          onBlur={() => setPrecioTexto(prev => {
+                            const next = { ...prev }; delete next[index]; return next
+                          })}
                           className="w-full px-2 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-1 focus:ring-[#00a19a]" />
                       </td>
                       <td className="px-3 py-2">
@@ -631,9 +662,15 @@ export default function ComprasNuevaPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Monto</label>
-            <input type="text" inputMode="numeric"
-              value={fmtInput(fleteMonto)}
-              onChange={e => setFleteMonto(parsearMonto(e.target.value))}
+            <input type="text" inputMode="decimal"
+              value={fleteMontoTexto !== null ? fleteMontoTexto : fmtInput(fleteMonto)}
+              onFocus={e => e.target.select()}
+              onChange={e => {
+                const raw = e.target.value
+                setFleteMontoTexto(raw)
+                setFleteMonto(parsearMonto(raw))
+              }}
+              onBlur={() => setFleteMontoTexto(null)}
               placeholder="0,00"
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
           </div>

@@ -143,7 +143,7 @@ Reemplazar coverweb.com.ar por un sistema web propio, más simple y unificado, q
 - Solo cuando el cliente la pide explícitamente
 - Tipo C (monotributista)
 - Actualmente 1 solo cliente cargado
-- Pendiente confirmar: ¿servicio propio o tercero como Facturama?
+- Pendiente confirmar: proveedor de fiscalización AFIP/ARCA — candidato principal TusFacturasAPP (API REST homologada ARCA desde 2015), alternativas: Afip SDK, WSFEv1 directo. **Corrección (sesión 15): Facturama descartado por completo — es una plataforma exclusivamente mexicana (CFDI/SAT México), nunca sirvió para Argentina/AFIP-ARCA.**
 
 ### Otros campos relevantes de ventas
 - Descuento y recargo por venta: sí
@@ -300,7 +300,7 @@ Del documento `lecciones-aprendidas-v2.txt` (24 sesiones de desarrollo previo):
 
 - [ ] **Stack tecnológico** (backend, frontend, base de datos, hosting)
 - [ ] **Fiscalización**: ¿controladora fiscal física o AFIP directo?
-- [ ] **Facturación**: ¿servicio propio o tercero (Facturama, etc.)?
+- [ ] **Facturación**: ¿servicio propio o tercero (TusFacturasAPP, Afip SDK, WSFEv1 directo)? Facturama descartado (es mexicano, no sirve para Argentina).
 - [ ] **API Empretienda**: ¿disponible en el plan actual?
 - [ ] **Hosting / despliegue**
 - [ ] **Reportes adicionales** que puedan surgir del análisis
@@ -345,7 +345,7 @@ Del documento `lecciones-aprendidas-v2.txt` (24 sesiones de desarrollo previo):
 - **No hay controladora fiscal física** — todo es electrónico vía API
 - **PV 00003 ya habilitado para Web Services** — el sistema propio puede conectarse directamente a AFIP sin trámites adicionales
 - **Solo facturas C** — monotributista, sin IVA discriminado
-- **Integración:** WSFE (Web Service de Facturación Electrónica de AFIP) — directa o vía servicio intermediario (Facturama, AfipSDK, etc.)
+- **Integración:** WSFE (Web Service de Facturación Electrónica de AFIP) — directa o vía servicio intermediario argentino homologado (TusFacturasAPP, Afip SDK, etc.) — Facturama descartado, es exclusivamente mexicano.
 - **Pendiente decidir:** integración directa con AFIP vs servicio tercero
 
 ### Ahorro por reemplazar coverweb
@@ -1463,7 +1463,9 @@ esos campos se mueven a `comprobantes`.
 **Confirmado: la venta se cierra igual aunque AFIP esté caído; la factura
 queda "pendiente de CAE" y se reintenta en background.** Esto resuelve la
 tensión entre el objetivo de <10 segundos por venta (sección 28) y la
-fiscalización — el cajero nunca espera la respuesta de AFIP/Facturama.
+fiscalización — el cajero nunca espera la respuesta de AFIP/ARCA ni del
+proveedor de fiscalización elegido (ver corrección de proveedor más abajo,
+sección 41).
 
 ```sql
 estados_fiscales (id, nombre)
@@ -1488,13 +1490,13 @@ de Enzo Santiago Vega (PV 0007) a Ariel Vega (PV 0003) ya documentado en la
 sección 23 fue un cambio de titularidad histórico, no una operación
 multi-entidad simultánea. Se decide explícitamente **no modelar multi-tenant
 ni múltiples razones sociales** — la configuración fiscal (CUIT, condición
-de IVA del emisor, credenciales de Facturama) vive en una tabla de
+de IVA del emisor, credenciales del proveedor de fiscalización elegido) vive en una tabla de
 configuración única (`configuracion_fiscal`), no en una tabla `empresas`.
 Esta decisión queda documentada para que no sea un olvido sino una elección
 consciente, revisable si el contexto del negocio cambiara en el futuro.
 
 ### Decisión 4 — Log de intentos de fiscalización con respuesta cruda
-**Confirmado: se guarda la respuesta cruda de Facturama en cada intento,
+**Confirmado: se guarda la respuesta cruda del proveedor de fiscalización en cada intento,
 exitoso o fallido**, para auditoría.
 
 ```sql
@@ -1503,7 +1505,7 @@ intentos_fiscalizacion (
   numero_intento,
   fecha_hora,
   resultado (exito/error),
-  respuesta_cruda_json,    -- payload completo devuelto por Facturama
+  respuesta_cruda_json,    -- payload completo devuelto por el proveedor de fiscalización
   mensaje_error NULL
 )
 ```

@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 30/06/2026 — Sesión 15 (Compras reescrito: movimientos al guardar + validación comprobante + stock inicial cargado)
-**Estado general:** 🟢 Sistema en producción real. Operación paralela con Cover desde 01/07/2026.
-**Próxima acción concreta:** Control físico de stock (casos con dudas) → limpiar movimientos/caja de junio en producción → replicar cambios de Compras en sandbox
+**Última actualización:** 01/07/2026 — Sesión 16 completa: arranque real + 5 bugs corregidos + investigación fiscalización
+**Estado general:** 🟢 Sistema en producción real, primer día operativo. Scanner de código de barras verificado y funcionando en el local. Operación paralela con Cover.
+**Próxima acción concreta:** Uso real mañana en el local (turno mañana con Ariel) para confirmar en la práctica los fixes de hoy. Ariel evalúa TusFacturasAPP. Borrar página de diagnóstico (`/diagnostico`) una vez confirmado que el scanner quedó estable.
 
 ---
 
@@ -15,6 +15,8 @@ Documentos relacionados:
 - `HABITUS_UI_REGLAS.md` — reglas de UI confirmadas
 - `CLAUDE_CODE_PROMPT.md` — contexto para Claude Code (campos BD verificados, rutas, reglas)
 - `supabase/01_referencia.sql` ✅ al `supabase/08_cierre_turno.sql` ✅ — todos ejecutados
+- `supabase/agregar_origen_subtipo.sql` — ejecutado en producción, PENDIENTE en sandbox
+- `supabase/limpieza_arranque.sql` — ejecutado en producción (01/07)
 
 ---
 
@@ -33,7 +35,7 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 | Estilos / UI | Tailwind + shadcn/ui |
 | Formularios | React Hook Form + Zod |
 | Fechas | date-fns / date-fns-tz |
-| Facturación AFIP | Facturama |
+| Facturación AFIP | Pendiente definir — candidato: TusFacturasAPP (Facturama descartado, es mexicano) |
 | Pagos (MVP v2) | Mercado Pago (webhooks) |
 | Tipografía sistema | Inter (Google Fonts) — reemplaza Geist |
 | Modo offline | No contemplado |
@@ -78,7 +80,7 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 - [ ] Editar historial de cierres de caja (Admin, pantalla separada) — post-MVP
 - [ ] Indicador de rentabilidad caída en listado de artículos (rojo si margen bajó >5% desde última compra)
 - [ ] Pantalla masiva de actualización de precios (aumentar % por rubro/marca)
-- [ ] MVP v2: modificar ventas Guardadas, Nota de Crédito, fiscalización AFIP/ARCA vía Facturama
+- [ ] MVP v2: modificar ventas Guardadas, Nota de Crédito, fiscalización AFIP/ARCA vía TusFacturasAPP (a confirmar cuenta) — Facturama descartado, es mexicano
 
 ---
 
@@ -314,4 +316,97 @@ Al copiar los archivos entregados, el contenido de `compras/[id]/page.tsx` qued�
 2. Limpiar movimientos y datos de caja de junio en producción (arranque limpio del 01/07).
 3. Ejecutar `agregar_origen_subtipo.sql` en sandbox (ya aplicado en producción) — agrega `origen_subtipo`, `flete_fecha`, `monto_comprobante`.
 4. Replicar manualmente en sandbox los tres archivos de Compras reescritos (sandbox no tiene API routes para este módulo, es Client Component directo a Supabase, igual que Ventas).
-5. MVP v2 (sin fecha): modificar ventas Guardadas, Nota de Crédito, fiscalización AFIP/ARCA vía Facturama.
+5. MVP v2 (sin fecha): modificar ventas Guardadas, Nota de Crédito, fiscalización AFIP/ARCA vía TusFacturasAPP (Facturama descartado — es una plataforma mexicana, no sirve para Argentina; ver sección 12).
+
+---
+
+## 12. Fiscalización AFIP/ARCA — corrección de proveedor y estado de la investigación (01/07/2026)
+
+### Corrección crítica
+Todo el análisis funcional original (`HABITUS_SD_ANALISIS_SESION01.md`, sección 41) diseñó la máquina de estados de fiscalización asumiendo **Facturama** como proveedor. Se confirmó que **Facturama es una plataforma exclusivamente mexicana** (CFDI/SAT México) — nunca tuvo integración con AFIP/ARCA. El diseño de datos (tabla `comprobantes` separada de `ventas`, estados asíncronos, log de intentos con respuesta cruda) sigue siendo válido tal cual está documentado — solo cambia el nombre del proveedor en cada mención.
+
+### Bug relacionado detectado en producción
+El INSERT a `comprobantes` en `api/ventas/route.ts` falla silenciosamente: la tabla tiene `numero BIGINT NOT NULL` pero el código no lo incluye en el insert. Consecuencia: toda venta marcada "Fiscalizar" queda con `ventas.estado_venta_id=1` ("Pendiente fiscal") pero **sin ninguna fila en `comprobantes`** — no hay rastro del intento. No se corrige todavía porque depende de la decisión de proveedor real (no tiene sentido generar un número de comprobante "fantasma" sin CAE detrás). **Mientras tanto: seguir emitiendo la factura real desde Cover durante el período paralelo**, y en el sistema propio guardar esas ventas como "Guardada" (sin tocar el checkbox Fiscalizar) para no acumular ventas en estado pendiente sin salida.
+
+### Proveedor candidato: TusFacturasAPP
+- API REST, homologada por AFIP/ARCA desde 2015 (servicio WSFEv1), soporta tipos A/B/C/M/E + Factura de crédito electrónica
+- Prueba gratis: 30 días / 5 comprobantes de cualquier tipo
+- **Certificado:** TusFacturasAPP genera su propio certificado de enlace (no reutiliza el certificado que ya usa Cover). El enlace lo hace Ariel mismo con su CUIT + Clave Fiscal en el sitio de ARCA, siguiendo un instructivo que llega por mail — no más de 10 minutos.
+- **Convivencia con Cover confirmada:** ARCA permite delegar el mismo Web Service (WSFEv1) a varios sistemas autorizados en simultáneo. Cover puede seguir facturando sin interrupción mientras se prueba/activa TusFacturasAPP en paralelo.
+- **Pendiente de revisar:** el plan de API tiene precios separados del plan de uso manual vía su interfaz web (ver developers.tusfacturas.app → Planes API) — confirmar costo real antes de comprometerse.
+- Alternativas evaluadas: Afip SDK (librería que abstrae WSFEv1 sin intermediario de facturación), WSFEv1 directo (sin costo de plataforma, pero requiere manejar certificados/WSAA/SOAP por cuenta propia).
+
+### Estado de la decisión
+- Ariel: régimen Monotributista, emite exclusivamente Factura C — sin ambigüedad de tipo de comprobante (ya estaba anotado en el análisis original, sección 41, Decisión 5).
+- Certificado/Clave Fiscal ante ARCA: ya existe (el mismo que usa con Cover), no requiere trámite nuevo — solo el enlace específico con el proveedor que se elija.
+- Cuenta en TusFacturasAPP: todavía no creada — pendiente que Ariel revise el plan de API y decida si arranca la prueba gratuita.
+- Estados async confirmados (ya diseñados en el análisis original): Pendiente → Enviado → CAE_Recibido (equivale a "Fiscalizado" en Cover) → CAE_Rechazado / Reintentando.
+
+### Próximos pasos
+1. Ariel revisa planes de API de TusFacturasAPP y decide si crea la cuenta de prueba.
+2. Una vez creada la cuenta y hecho el enlace con ARCA, generar credenciales de API y arrancar la integración real (tabla `comprobantes`, `intentos_fiscalizacion`, fix del campo `numero` faltante).
+3. Hasta entonces: toda factura real sigue saliendo de Cover; el sistema propio no debe usarse para fiscalizar.
+
+---
+
+## 13. Sesión 16 (01/07/2026) — Primer día real, limpieza total y correcciones de arranque
+
+### Limpieza completa para arranque limpio
+Se ejecutó `limpieza_arranque.sql` en producción: se borraron todas las ventas, movimientos, la orden de compra de prueba, y 6 cierres de turno de prueba (id 5-10), dejando **solo el cierre de turno del día de hoy** (id=11, apertura $5.350). También se limpiaron `movimientos_stock` de prueba (26-27/06) que la limpieza inicial no había alcanzado. Numeración alineada manualmente con los últimos números reales de Cover: `numeracion_ventas.ultimo_numero=1313`, `numeracion_comprobantes.ultimo_numero=393`.
+
+**Aprendizaje:** el número de venta interno (`numero_venta`, incrementado por cada venta sin distinguir Guardada/Fiscalizada) nunca va a coincidir con el contador "Guardado" de Cover (que es independiente del contador "Fiscalizado") — son lógicas de numeración distintas por diseño, no un bug. Lo que sí importa que coincida es `numeracion_comprobantes`, que es el número fiscal real.
+
+### Corrección de stock — segunda pasada (columna "Ariel")
+El Excel de conteo recibió una columna adicional (`I: Ariel`) con la revisión personal del dueño sobre casos dudosos. Comparado contra el estado ya corregido en producción (no contra la columna "Stock Sistema" original, que ya estaba desactualizada), solo 4 artículos necesitaron un ajuste más: id=903, 922, 978, 980.
+
+### Bug: "Esperado en caja" duplicaba ventas en efectivo
+En `cierre-turno/page.tsx`, los widgets "Ventas efectivo" (desde `venta_pagos`) e "Ingresos efectivo" (desde `movimientos`) contaban la misma venta dos veces, porque toda venta genera automáticamente un movimiento de ingreso además de su registro de pago. Fix: "Ingresos efectivo" ahora excluye movimientos con `origen_tipo='venta'` (esos ya están contados en "Ventas efectivo"); solo debe mostrar ingresos de caja que no provengan de una venta.
+
+### Bug: scanner de código de barras duplicaba lecturas
+En `BuscadorProductos.tsx` (Ventas), un lector de código de barras que "rebota" (dispara la misma lectura dos veces por hardware) producía dos síntomas: productos duplicados en el carrito, o el código de barras completo terminando como cantidad (porque el popup de cantidad es un input numérico enfocado, y los dígitos del segundo escaneo caían ahí). Fix de dos partes:
+1. **Anti-rebote:** si el mismo texto se procesa dos veces en menos de 400ms, la segunda se ignora.
+2. **Blindaje del campo Cantidad:** mientras el popup está abierto, caracteres que llegan a velocidad de lector (menos de 30ms entre uno y otro) se bloquean para que no toquen el campo numérico visible, y solo se acumulan para detectar "este es el siguiente producto".
+
+Aprovechando el cambio, el buscador de Ventas pasó de consultar Supabase por cada tecla (async, con latencia de red) a cargar el catálogo completo una sola vez al entrar a la pantalla y filtrar en memoria — mismo patrón que ya usa Compras. Esto también eliminó de raíz una fuente de resultados "viejos" pisando a los más nuevos.
+
+### Búsqueda tokenizada y sin acentos — Artículos y Ventas
+Se aplicó el mismo patrón de búsqueda que ya tenía Compras (`creat ena` encuentra "Creatina... ENA") a las pantallas de Artículos y Ventas: cada palabra escrita se busca por separado sin importar el orden, y se ignoran tildes/mayúsculas. En Artículos, el texto buscable ahora también incluye rubro y marca.
+**Nota:** esto no resuelve búsquedas en idiomas distintos al del catálogo — ej. "proteina" (español) no encuentra "Protein" (como está cargado en inglés en el nombre del producto); son palabras distintas, no un problema de acentos.
+
+### RLS corregidas (bloqueaban guardado silenciosamente)
+- `ordenes_compra`: solo tenía SELECT — agregadas INSERT y UPDATE.
+- `orden_compra_items`: solo tenía SELECT — agregadas INSERT, UPDATE y DELETE.
+- `ordenes_compra.medio_pago_id`: columna faltante agregada (el medio de pago de la mercadería no se estaba guardando ni cargando en el formulario de edición).
+
+### Archivos modificados (producción)
+- `cierre-turno/page.tsx` — fix duplicación Ingresos efectivo
+- `dashboard/page.tsx` — mismo fix, banner de turno abierto
+- `components/ventas/BuscadorProductos.tsx` — reescrito en 3 vueltas: anti-rebote → ventana deslizante → foco fijo en buscador (fix definitivo) + catálogo en memoria + búsqueda tokenizada
+- `articulos/page.tsx` — búsqueda tokenizada sin acentos
+- `diagnostico/page.tsx` — herramienta temporal de diagnóstico, pendiente borrar
+
+### Pendientes al cierre de sesión 16
+1. Probar mañana en el local: búsqueda en Ventas, fix de Caja, fix de scanner con uso real.
+2. Ariel evalúa plan de API de TusFacturasAPP.
+3. Sandbox sigue sin los cambios de Compras de sesión 15 (pendiente desde ayer).
+4. Fix del campo `numero` faltante en `comprobantes` — pospuesto hasta definir proveedor de fiscalización real.
+
+### Bug: "Esperado en caja" duplicado también en el Dashboard
+El mismo bug de duplicación de ventas en efectivo (ver arriba) estaba replicado de forma independiente en `dashboard/page.tsx` — el banner de turno abierto mostraba un monto distinto al de la pantalla de Caja ($278.350 vs $153.350 en el caso real detectado). Mismo fix: excluir `origen_tipo='venta'` al sumar ingresos.
+
+### Corrección de datos: venta #1326 (comprobante Cover C0003-00000401)
+Un control cruzado contra el listado detallado de Cover detectó 3 errores de carga en una venta de 50 artículos: un sabor equivocado (Cupcake Keto Chocolate cargado en vez de Vainilla), una cantidad mal cargada (Banana Split ENA: 4 en vez de 2), y un ítem completo faltante (Barra Frutillas a la Crema ENA, 2 unidades). El total de la venta coincidía por pura casualidad (los errores se compensaban en unidades totales), lo que ocultaba el problema a simple vista. Se corrigió con SQL transaccional: ajuste de `venta_items` + ajuste relativo de `articulo_stock` en los 4 artículos afectados (no absoluto, para no pisar movimientos de stock posteriores). El descuento de cabecera (8,38%) no requirió tocarse porque el efecto neto sobre el subtotal fue $0.
+**Aprendizaje:** Cover reparte el descuento de una venta prorrateándolo en cada línea (precio unitario ya con descuento aplicado); nuestro sistema lo guarda como un único `descuento_pct` sobre el total de la cabecera. Ambos son válidos y dan el mismo total final — no es un bug, hay que tenerlo en cuenta al comparar precios unitarios entre los dos sistemas.
+
+### Bug del scanner — historia completa de la sesión (3 vueltas hasta la causa real)
+El bug de cantidades erráticas al escanear resultó tener **dos causas distintas superpuestas**, resueltas en pasos sucesivos:
+
+1. **Primera vuelta:** anti-rebote con ventana fija de 400ms — insuficiente.
+2. **Segunda vuelta:** se sospechó "modo de lectura continua" del hardware (el lector sigue mandando el código mientras el gatillo está apretado). Se subió el umbral a 1.200ms y se cambió a ventana deslizante (se reinicia mientras sigan llegando lecturas del mismo código, solo se libera con silencio real). Mejora parcial, pero el síntoma persistía con patrones raros (cantidades tipo 5, 5, 8).
+3. **Diagnóstico con herramienta dedicada:** se creó una página temporal (`/diagnostico`) que registra cada `Enter` recibido con su timestamp exacto, sin ninguna lógica de negocio de por medio. Confirmó el patrón real: **una sola pasada del lector transmite el código completo dos veces, separadas por ~150ms** — no rebote de milisegundos aislado, no lectura continua indefinida.
+4. **Causa raíz real encontrada:** al abrir el popup de cantidad, el foco del teclado saltaba del buscador a ese campo. Esa transición no es instantánea (depende del ciclo de render de React) — si la segunda transmisión del lector llegaba justo en esa ventana de transición, caía en tierra de nadie entre dos piezas de lógica distintas (una para el buscador, otra para el popup), cada una con su propia protección, ninguna cubriendo el caso de foco "en tránsito". Era una condición de carrera (race condition), no un problema de calibración de umbrales.
+5. **Fix definitivo:** el foco del teclado **nunca se mueve automáticamente** al campo de cantidad — se queda siempre en el buscador principal, sea cual sea el estado del popup. El campo de cantidad pasa a ser una pantalla (display) que solo se vuelve editable si el cajero hace clic ahí con el mouse (intención real, algo que un lector de código nunca puede disparar). Sumado a un chequeo extra: si hay un popup abierto y llega el mismo código de barras/interno de ese artículo, se ignora sin importar cuánto tiempo pasó.
+
+Verificado con el lector real en el local: 3 escaneos de productos distintos, cada uno quedó en cantidad 1 correctamente.
+
+**Pendiente:** borrar la carpeta `src/app/(sistema)/diagnostico/` (herramienta temporal, ya cumplió su función) una vez que el uso real de mañana confirme que el fix es estable.
