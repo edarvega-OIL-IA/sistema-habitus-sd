@@ -78,7 +78,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   useEffect(() => {
     if (costoSinIva && precioLocal && costoSinIva > 0) {
       const precioSinIva = precioLocal / (1 + tasaPct / 100)
-      setUtilidad(((precioSinIva - costoSinIva) / costoSinIva * 100).toFixed(2))
+      setUtilidad(((precioSinIva - costoSinIva) / costoSinIva * 100).toFixed(2).replace('.', ','))
     } else {
       setUtilidad('')
     }
@@ -86,7 +86,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
 
   useEffect(() => {
     if (costoSinIva && costoSinIva > 0) {
-      setCostoConIva((costoSinIva * (1 + tasaPct / 100)).toFixed(2))
+      setCostoConIva((costoSinIva * (1 + tasaPct / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
     } else {
       setCostoConIva('')
     }
@@ -207,6 +207,13 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   function fmtInput(n: number | null | undefined): string {
     if (n === null || n === undefined || n === 0) return ''
     return n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
+  }
+  // Para costos: siempre 2 decimales, para que "Costo sin IVA" y
+  // "Costo con IVA" se vean con el mismo formato (evita la mezcla
+  // "9.917,8" / "12000.54" que resultaba confusa)
+  function fmtMoney(n: number | null | undefined): string {
+    if (n === null || n === undefined || n === 0) return ''
+    return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   }
 
   function handleCostoSinIvaChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -424,7 +431,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Costo sin IVA</label>
                   <input
                     type="text" inputMode="decimal"
-                    value={costoSinIvaTexto !== null ? costoSinIvaTexto : fmtInput(costoSinIva)}
+                    value={costoSinIvaTexto !== null ? costoSinIvaTexto : fmtMoney(costoSinIva)}
                     onFocus={e => e.target.select()}
                     onChange={handleCostoSinIvaChange}
                     onBlur={handleCostoSinIvaBlur}
@@ -483,7 +490,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
               <p className="text-xs text-gray-500 mt-1">
                 Se actualiza al cambiar precio local
                 {diferenciaPorcentualWeb !== 0 && (
-                  <span className="ml-1">({diferenciaPorcentualWeb > 0 ? '+' : ''}{diferenciaPorcentualWeb.toFixed(2)}%)</span>
+                  <span className="ml-1">({diferenciaPorcentualWeb > 0 ? '+' : ''}{diferenciaPorcentualWeb.toFixed(2).replace('.', ',')}%)</span>
                 )}
               </p>
             </div>
