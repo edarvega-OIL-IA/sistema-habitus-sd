@@ -107,6 +107,42 @@ export async function POST(request: NextRequest) {
 
     if (pagosError) throw new Error('Error al guardar pagos: ' + pagosError.message)
 
+    // Descontar stock: cabecera (movimientos_stock, tipo Egreso=2) + un
+    // detalle por artículo (movimiento_stock_items). El trigger
+    // fn_aplicar_item_stock descuenta articulo_stock automáticamente al
+    // insertar cada fila de detalle — mismo mecanismo que ya usa Compras.
+    // BUG CORREGIDO (02/07/2026): este bloque no existía; ninguna venta
+    // desde el arranque (01/07) había descontado stock.
+    const { data: movStock, error: movStockError } = await supabase
+      .from('movimientos_stock')
+      .insert({
+        sucursal_id: usuarioSistema.sucursal_id || 1,
+        tipo_movimiento_stock_id: 2, // Egreso
+        estado_movimiento_stock_id: 2, // Confirmado
+        origen_tipo: 'venta',
+        origen_id: venta.id,
+        observaciones: `Venta #${numeracion}`,
+        fecha_utc: fechaHoy,
+      })
+      .select('id')
+      .single()
+
+    if (movStockError) {
+      console.error('Error al crear movimiento de stock para venta', venta.id, ':', movStockError.message)
+    } else {
+      const { error: stockItemsError } = await supabase
+        .from('movimiento_stock_items')
+        .insert(items.map((item: any) => ({
+          movimiento_stock_id: movStock.id,
+          articulo_id: item.articulo_id,
+          cantidad: item.cantidad,
+        })))
+
+      if (stockItemsError) {
+        console.error('Error al descontar stock de venta', venta.id, ':', stockItemsError.message)
+      }
+    }
+
     const { error: movError } = await supabase
       .from('movimientos')
       .insert({
