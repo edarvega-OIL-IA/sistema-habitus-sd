@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 interface MovimientoStock {
   id: number
   fecha_utc: string
+  origen_tipo: string | null
   tipo_movimiento_stock: { nombre: string }
   subtipo_movimiento_stock: { nombre: string } | null
   deportista: { nombre: string; apellido: string } | null
@@ -30,12 +31,17 @@ export default function StockPage() {
     const { data } = await supabase
       .from('movimientos_stock')
       .select(`
-        id, fecha_utc, observaciones,
+        id, fecha_utc, observaciones, origen_tipo,
         tipo_movimiento_stock:tipos_movimiento_stock(nombre),
         subtipo_movimiento_stock:subtipos_movimiento_stock(nombre),
         deportista:deportistas(nombre, apellido),
         movimiento_stock_items(cantidad, articulo:articulos(nombre))
       `)
+      // Esta pantalla es solo para movimientos manuales (Consumo interno,
+      // Merma, Sponsoreo). Ventas y Compras generan sus propios movimientos
+      // de stock automáticamente (con origen_tipo='venta'/'compra') y tienen
+      // sus propias pantallas — no deben listarse ni editarse acá.
+      .is('origen_tipo', null)
       .order('fecha_utc', { ascending: false })
       .limit(100)
 
@@ -43,7 +49,8 @@ export default function StockPage() {
     setCargando(false)
   }
 
-  async function eliminar(id: number) {
+  async function eliminar(id: number, origenTipo: string | null) {
+    if (origenTipo) return // traba defensiva: nunca debería llegar acá un movimiento automático
     if (!confirm('¿Eliminar este movimiento? El stock de todos los artículos será revertido.')) return
     setEliminando(id)
     const supabase = createClient()
@@ -73,11 +80,10 @@ export default function StockPage() {
     return matchTipo && matchTexto
   })
 
+  // fecha_utc es tipo DATE (sin hora) — nunca usar new Date() sobre este
+  // valor, corre un día para atrás por conversión de huso horario.
   function formatFecha(fecha: string) {
-    return new Date(fecha).toLocaleDateString('es-AR', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    })
+    return fecha.split('-').reverse().join('/')
   }
 
   function colorTipo(nombre: string) {
@@ -145,6 +151,7 @@ export default function StockPage() {
                 const resumen = items.length === 1
                   ? `${items[0].articulo?.nombre} (${items[0].cantidad})`
                   : `${items.length} artículos`
+                const esManual = !m.origen_tipo
 
                 return (
                   <React.Fragment key={m.id}>
@@ -172,13 +179,14 @@ export default function StockPage() {
                       </td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex gap-3 justify-center">
-                          <button onClick={() => router.push(`/stock/${m.id}`)}
-                            className="text-xs text-[#00a19a] hover:underline">
+                          <button onClick={() => esManual && router.push(`/stock/${m.id}`)}
+                            disabled={!esManual}
+                            className="text-xs text-[#00a19a] hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed">
                             Editar
                           </button>
-                          <button onClick={() => eliminar(m.id)}
-                            disabled={eliminando === m.id}
-                            className="text-xs text-red-500 hover:underline disabled:opacity-50">
+                          <button onClick={() => eliminar(m.id, m.origen_tipo)}
+                            disabled={!esManual || eliminando === m.id}
+                            className="text-xs text-red-500 hover:underline disabled:opacity-50 disabled:cursor-not-allowed">
                             {eliminando === m.id ? '...' : 'Eliminar'}
                           </button>
                         </div>
