@@ -40,19 +40,46 @@ export default function NuevoMovimientoPage() {
   const [conceptos, setConceptos] = useState<Concepto[]>([])
   const [conceptosFiltrados, setConceptosFiltrados] = useState<Concepto[]>([])
   const [mediosPago, setMediosPago] = useState<{id: number, nombre: string}[]>([])
-  const [montoDisplay, setMontoDisplay] = useState<string>('')
+  // Texto crudo en edición del campo Monto — sin esto, la coma/punto decimal
+  // se pierde apenas se tipea (el input queda controlado por el número ya
+  // reformateado en cada tecla). Mismo patrón que Compras y Artículos.
+  const [montoTexto, setMontoTexto] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  function handleMontoChange(raw: string) {
-    const soloDigitos = raw.replace(/\D/g, '')
-    if (!soloDigitos) {
-      setMontoDisplay('')
-      setValue('monto', 0)
-      return
+  // Interpreta texto tipeado como monto: si después del último separador
+  // (coma o punto) hay 1 o 2 dígitos, es decimal; si hay 3, es separador de
+  // miles. Acepta coma o punto indistintamente como decimal. (misma lógica
+  // ya usada en Compras > Nueva orden y en Artículos > Precios)
+  function parsearMonto(v: string): number {
+    const s = (v || '').trim()
+    if (!s) return 0
+    const lastComma = s.lastIndexOf(',')
+    const lastDot = s.lastIndexOf('.')
+    const lastSep = Math.max(lastComma, lastDot)
+    if (lastSep === -1) {
+      const n = parseFloat(s.replace(/[^\d]/g, ''))
+      return isNaN(n) ? 0 : n
     }
-    const num = parseInt(soloDigitos, 10)
-    setMontoDisplay(num.toLocaleString('es-AR'))
-    setValue('monto', num, { shouldValidate: true })
+    const despuesDelSeparador = s.slice(lastSep + 1).replace(/[^\d]/g, '')
+    if (despuesDelSeparador.length === 1 || despuesDelSeparador.length === 2) {
+      const parteEntera = s.slice(0, lastSep).replace(/[.,]/g, '')
+      const n = parseFloat((parteEntera || '0') + '.' + despuesDelSeparador)
+      return isNaN(n) ? 0 : n
+    }
+    const n = parseFloat(s.replace(/[.,]/g, ''))
+    return isNaN(n) ? 0 : n
+  }
+  function fmtInput(n: number | null | undefined): string {
+    if (n === null || n === undefined || n === 0) return ''
+    return n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
+  }
+
+  function handleMontoChange(raw: string) {
+    setMontoTexto(raw)
+    setValue('monto', raw.trim() === '' ? 0 : parsearMonto(raw), { shouldValidate: true })
+  }
+  function handleMontoBlur() {
+    setMontoTexto(null)
   }
 
   const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm<MovimientoFormData>({
@@ -65,6 +92,7 @@ export default function NuevoMovimientoPage() {
 
   const tipo = watch('tipo')
   const categoriaId = watch('categoria_id')
+  const monto = watch('monto')
 
   const categoriasFiltradas = categorias.filter(c => c.tipo === tipo || c.tipo === 'Ambos')
 
@@ -208,8 +236,11 @@ export default function NuevoMovimientoPage() {
           <label className="block text-sm font-medium text-gray-700 mb-2">Monto <span className="text-red-500">*</span></label>
           <div className="relative">
             <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-3xl font-bold text-gray-400">$</span>
-            <input type="text" inputMode="numeric" value={montoDisplay}
+            <input type="text" inputMode="decimal"
+              value={montoTexto !== null ? montoTexto : fmtInput(monto)}
+              onFocus={e => e.target.select()}
               onChange={e => handleMontoChange(e.target.value)}
+              onBlur={handleMontoBlur}
               placeholder="0"
               className={`w-full pl-12 pr-4 py-4 border-2 rounded-lg text-3xl font-bold text-[#3c3c3b] focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-transparent ${
                 errors.monto ? 'border-red-300' : 'border-gray-300'
