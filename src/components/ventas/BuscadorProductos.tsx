@@ -30,19 +30,25 @@ function normalizar(s: string): string {
     .toLowerCase()
 }
 
-// Umbral de rebote: si llega el MISMO texto escaneado dos veces dentro de esta
-// ventana, se considera doble lectura de hardware (no una segunda venta real)
-// y se ignora. Un cajero re-escaneando el mismo producto a propósito (para
-// sumar unidades) normalmente tarda bastante más que esto en volver a apretar
-// el gatillo del lector — mover el producto y reapuntar ya lleva más de 1 seg.
-// Subido de 400ms a 1200ms (sesión 16): 400ms no alcanzaba a filtrar lectores
-// en modo de lectura continua, que repiten el mismo código cada ~200-400ms
-// mientras el gatillo queda apretado o el producto sigue frente al sensor.
-const UMBRAL_REBOTE_MS = 1200
-
-// Umbral para distinguir tecleo de lector (caracteres en milisegundos) de
-// tecleo humano manual en el campo de cantidad (bastante más lento).
-const UMBRAL_VELOCIDAD_ESCANEO_MS = 30
+// ============================================================
+// DISEÑO (sesión 16, tercera vuelta)
+// ------------------------------------------------------------
+// Causa real del bug de cantidades erráticas: al abrir el popup de
+// cantidad, el foco del teclado saltaba del buscador a ese campo. Esa
+// transición no es instantánea — durante esa ventana breve, si el
+// lector mandaba una segunda transmisión completa del mismo código
+// (confirmado con diagnóstico: ~150ms después de la primera), esos
+// caracteres podían caer en cualquiera de los dos campos según el
+// instante exacto, y ninguno de los dos manejaba bien ese caso.
+//
+// Fix: el foco JAMÁS se mueve automáticamente al campo de cantidad.
+// Ese campo es una pantalla (se actualiza por estado), y solo se vuelve
+// realmente editable si el cajero hace clic ahí con el mouse — un gesto
+// que un lector de código nunca puede disparar por sí solo. Todo lo que
+// venga del lector, sea el primer escaneo o una transmisión repetida,
+// entra siempre por el mismo lugar: el buscador, que nunca pierde el foco
+// mientras haya actividad de escaneo.
+// ============================================================
 
 export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosProps) {
   const [query, setQuery] = useState('')
@@ -52,20 +58,18 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
   const inputRef = useRef<HTMLInputElement>(null)
   const cantidadRef = useRef<HTMLInputElement>(null)
   const timerPopupRef = useRef<NodeJS.Timeout | null>(null)
-  const codigoBarrasBuffer = useRef<string>('')
   const popupRef = useRef<PopupCantidad | null>(null)
   const listaRef = useRef<HTMLDivElement>(null)
 
-  // Anti-rebote de escaneos duplicados (mismo texto, disparado dos veces por el hardware)
-  const ultimoEscaneo = useRef<{ valor: string; ts: number }>({ valor: '', ts: 0 })
-  // Catálogo completo cargado una sola vez al montar (igual que en Compras),
-  // se filtra en memoria sin ida y vuelta al servidor por cada tecla o escaneo.
+  // Catálogo completo cargado una sola vez, filtrado en memoria.
   const catalogoRef = useRef<Articulo[]>([])
   const [catalogoListo, setCatalogoListo] = useState(false)
-  // Detección de ráfaga de caracteres (lector) dentro del popup de cantidad
-  const ultimoKeyPopupTs = useRef<number>(0)
-  const enRafagaPopup = useRef<boolean>(false)
-  const cantidadAntesDeRafaga = useRef<number>(1)
+
+  // Anti-rebote con ventana deslizante: mientras sigan llegando lecturas
+  // del mismo código, el bloqueo se mantiene; se libera recién con un
+  // silencio real de más de UMBRAL_REBOTE_MS.
+  const ultimoEscaneo = useRef<{ valor: string; ts: number }>({ valor: '', ts: 0 })
+  const UMBRAL_REBOTE_MS = 1200
 
   useEffect(() => { popupRef.current = popup }, [popup])
 
@@ -78,52 +82,24 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
     const supabase = createClient()
     const { data } = await supabase
       .from('articulos')
-      .select('id, nombre, codigo_interno, codigo_barra, precio_local, disponible_local, rubros(nombre), marcas(nombre)')
+      .select('id, nombre, codigo_interno, codigo_barra, precio_local, disponible_local')
       .eq('activo', true)
       .eq('disponible_local', true)
-    catalogoRef.current = ((data as any[]) || []).map(a => ({
-      ...a,
-      _rubro: a.rubros?.nombre || '',
-      _marca: a.marcas?.nombre || '',
-    }))
+    catalogoRef.current = (data as Articulo[]) || []
     setCatalogoListo(true)
   }
 
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.ctrlKey && e.key === 'b') {
-        e.preventDefault()
-        cerrarPopup()
-        inputRef.current?.focus()
-        inputRef.current?.select()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  function filtrar(valor: string): Articulo[] {
+    const tokens = normalizar(valor).trim().split(/\s+/).filter(Boolean)
+    if (tokens.length === 0) return []
+    return catalogoRef.current
+      .filter(a => {
+        const haystack = normalizar([a.nombre, a.codigo_interno, a.codigo_barra].filter(Boolean).join(' '))
+        return tokens.every(t => haystack.includes(t))
+      })
+      .slice(0, 8)
+  }
 
-  useEffect(() => {
-    if (popup) {
-      cantidadRef.current?.focus()
-      cantidadRef.current?.select()
-      timerPopupRef.current = setTimeout(() => confirmarPopupRef(), 2000)
-      // Reset de detección de ráfaga al abrir popup para un producto (nuevo o el mismo)
-      ultimoKeyPopupTs.current = 0
-      enRafagaPopup.current = false
-      cantidadAntesDeRafaga.current = popup.cantidad
-    }
-    return () => { if (timerPopupRef.current) clearTimeout(timerPopupRef.current) }
-  }, [popup?.articulo.id])
-
-  // Reset índice de foco cuando cambian los resultados
-  useEffect(() => { setIndiceFoco(-1) }, [resultados])
-
-  // Devuelve true si este mismo texto ya fue escaneado hace menos de UMBRAL_REBOTE_MS
-  // (rebote de hardware o lectura continua sostenida). El timestamp de referencia
-  // se actualiza SIEMPRE (sea o no duplicado): así, mientras el lector siga
-  // mandando el mismo código en ráfaga, el bloqueo se mantiene, y recién se
-  // libera cuando hay un silencio real de más de UMBRAL_REBOTE_MS (se soltó
-  // el gatillo o se cambió de producto).
   function esEscaneoDuplicado(valor: string): boolean {
     const ahora = Date.now()
     const esDuplicado = valor === ultimoEscaneo.current.valor && (ahora - ultimoEscaneo.current.ts) < UMBRAL_REBOTE_MS
@@ -131,41 +107,16 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
     return esDuplicado
   }
 
-  // Filtro tokenizado e insensible a acentos sobre el catálogo ya cargado en memoria.
-  // Cada palabra escrita debe estar presente en algún lugar del texto buscable,
-  // sin importar el orden (ej: "whey one fit" encuentra "Classic Whey Protein... One Fit").
-  function filtrar(valor: string): Articulo[] {
-    const tokens = normalizar(valor).trim().split(/\s+/).filter(Boolean)
-    if (tokens.length === 0) return []
-    return catalogoRef.current
-      .filter(a => {
-        const haystack = normalizar(
-          [a.nombre, a.codigo_interno, a.codigo_barra, (a as any)._rubro, (a as any)._marca]
-            .filter(Boolean)
-            .join(' ')
-        )
-        return tokens.every(t => haystack.includes(t))
-      })
-      .slice(0, 8)
-  }
-
-  // Actualiza SOLO la lista de sugerencias mientras se tipea/escanea — nunca
-  // abre el popup de cantidad acá. Si se abriera con el código a medio escanear,
-  // los dígitos restantes del código real terminan cayendo parcialmente en el
-  // campo de Cantidad antes de que la protección anti-ráfaga llegue a actuar.
-  // La decisión de "hay un solo resultado, abrir popup" se toma únicamente en
-  // el Enter (handleKeyDown), que es cuando el texto ya está completo.
+  // Actualiza SOLO la lista de sugerencias mientras se tipea — nunca abre
+  // el popup acá (eso queda reservado al Enter, con el texto completo).
   function actualizarSugerencias(valor: string) {
     setResultados(filtrar(valor))
   }
 
-  // Busca de forma definitiva (se usa solo al confirmar con Enter, con el
-  // texto ya completo) y decide si corresponde abrir el popup automáticamente.
   function buscar(valor: string) {
     const encontrados = filtrar(valor)
     if (encontrados.length === 1) {
       abrirPopup(encontrados[0])
-      setResultados([])
     } else {
       setResultados(encontrados)
     }
@@ -196,23 +147,43 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
       }
     }
     if (e.key === 'Enter' && query.trim()) {
+      const texto = query.trim()
+
       // Filtro anti-rebote: si es el mismo texto que se acaba de procesar
-      // hace instantes, es una doble lectura del scanner — se ignora.
-      if (esEscaneoDuplicado(query.trim())) {
+      // hace instantes (o mientras sigue llegando en ráfaga), se ignora.
+      if (esEscaneoDuplicado(texto)) {
         setQuery('')
         return
       }
-      buscar(query)
+
+      // Resguardo extra: si hay un popup abierto y el código escaneado ahora
+      // corresponde exactamente al MISMO artículo que ya está esperando
+      // confirmación, es sin dudas una transmisión repetida del lector —
+      // se ignora sin importar el tiempo transcurrido.
+      if (popup) {
+        const art = popup.articulo
+        const coincideConElAbierto =
+          texto === art.codigo_barra || texto === art.codigo_interno
+        if (coincideConElAbierto) {
+          setQuery('')
+          return
+        }
+      }
+
+      buscar(texto)
     }
     if (e.key === 'Escape') { setQuery(''); setResultados([]) }
   }
 
   function abrirPopup(articulo: Articulo) {
     if (timerPopupRef.current) clearTimeout(timerPopupRef.current)
-    codigoBarrasBuffer.current = ''
     setPopup({ articulo, cantidad: 1 })
     setQuery('')
     setResultados([])
+    // El foco se queda en el buscador — nunca salta al campo de cantidad.
+    // Así, cualquier transmisión adicional del lector (incluso si llega en
+    // el peor momento posible) sigue entrando siempre por el mismo lugar.
+    setTimeout(() => { inputRef.current?.focus() }, 0)
   }
 
   function confirmarPopupRef() {
@@ -234,64 +205,47 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
 
   function cerrarPopup() {
     if (timerPopupRef.current) clearTimeout(timerPopupRef.current)
-    codigoBarrasBuffer.current = ''
     setPopup(null)
     setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select() }, 50)
   }
 
-  function handlePopupKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      const buffer = codigoBarrasBuffer.current
-      codigoBarrasBuffer.current = ''
-      enRafagaPopup.current = false
-      if (buffer.length > 4) {
-        // Es un escaneo de otro producto mientras el popup seguía abierto.
-        // Aplicar el mismo filtro anti-rebote que en el buscador principal.
-        if (esEscaneoDuplicado(buffer)) return
-        confirmarPopup()
-        setTimeout(() => buscar(buffer), 100)
-      } else {
-        confirmarPopup()
-      }
-      return
-    }
-    if (e.key === 'Escape') { cerrarPopup(); return }
-
-    if (e.key.length === 1) {
-      const ahora = Date.now()
-      const delta = ahora - ultimoKeyPopupTs.current
-      ultimoKeyPopupTs.current = ahora
-
-      if (delta < UMBRAL_VELOCIDAD_ESCANEO_MS) {
-        // Caracteres llegando a velocidad de lector: bloquear que toquen
-        // el campo visible de cantidad (que es type="number") y solo
-        // acumularlos en el buffer para detectar el próximo producto.
+  useEffect(() => {
+    function handleGlobalKeyDown(e: KeyboardEvent) {
+      if (e.ctrlKey && e.key === 'b') {
         e.preventDefault()
-        if (!enRafagaPopup.current) {
-          // El primer carácter de esta ráfaga ya se filtró al campo antes
-          // de que pudiéramos detectar que era un escaneo — se revierte.
-          enRafagaPopup.current = true
-          setPopup(p => (p ? { ...p, cantidad: cantidadAntesDeRafaga.current } : p))
-        }
-        codigoBarrasBuffer.current += e.key
-      } else {
-        // Tecleo lento = edición manual real del cajero. No es un escaneo:
-        // se deja pasar normalmente y no se acumula en el buffer de código.
-        enRafagaPopup.current = false
-        codigoBarrasBuffer.current = ''
+        cerrarPopup()
+        inputRef.current?.focus()
+        inputRef.current?.select()
       }
     }
-  }
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [])
 
+  useEffect(() => {
+    if (popup) {
+      timerPopupRef.current = setTimeout(() => confirmarPopupRef(), 2000)
+    }
+    return () => { if (timerPopupRef.current) clearTimeout(timerPopupRef.current) }
+  }, [popup?.articulo.id])
+
+  useEffect(() => { setIndiceFoco(-1) }, [resultados])
+
+  // El campo de cantidad se edita a mano SOLO si el cajero hace clic ahí
+  // (foco real por intención real). Un lector nunca puede disparar un
+  // clic de mouse, así que no necesita ninguna protección anti-ráfaga.
   function handleCantidadChange(e: React.ChangeEvent<HTMLInputElement>) {
     const val = parseInt(e.target.value)
     if (popup && val > 0) {
       if (timerPopupRef.current) clearTimeout(timerPopupRef.current)
       timerPopupRef.current = setTimeout(() => confirmarPopupRef(), 2000)
       setPopup({ ...popup, cantidad: val })
-      cantidadAntesDeRafaga.current = val
     }
+  }
+
+  function handleCantidadKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') { e.preventDefault(); confirmarPopup() }
+    if (e.key === 'Escape') { e.preventDefault(); cerrarPopup() }
   }
 
   return (
@@ -307,7 +261,7 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
           className="w-full h-11 pl-10 pr-4 border-2 border-[#00a19a] rounded-lg text-sm focus:outline-none bg-white"
           autoComplete="off"
         />
-        <span className="absolute left-3 top-3 text-[#00a19a] text-base">🔍</span>
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#00a19a] text-base">🔍</span>
         {!catalogoListo && <span className="absolute right-3 top-3 text-gray-400 text-xs">cargando catálogo...</span>}
       </div>
 
@@ -339,7 +293,7 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
         </div>
       )}
 
-      {/* Popup de cantidad */}
+      {/* Popup de cantidad — el foco del teclado NO se mueve acá automáticamente */}
       {popup && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
           <div className="bg-white rounded-xl shadow-xl p-6 w-80">
@@ -355,7 +309,8 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
                 min="1"
                 value={popup.cantidad}
                 onChange={handleCantidadChange}
-                onKeyDown={handlePopupKeyDown}
+                onKeyDown={handleCantidadKeyDown}
+                onFocus={e => e.target.select()}
                 className="w-24 h-12 text-center text-2xl font-bold border-2 border-[#00a19a] rounded-lg focus:outline-none"
               />
               <div className="text-sm text-gray-500">
@@ -366,6 +321,8 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
             </div>
             <div className="text-xs text-gray-400 mb-4">
               Enter para confirmar · Esc para cancelar · Escanear = siguiente producto
+              <br />
+              <span className="text-gray-300">Para cambiar la cantidad a mano, hacé clic en el número.</span>
             </div>
             <div className="h-1 bg-gray-100 rounded overflow-hidden">
               <div className="h-full bg-[#00a19a] animate-[shrink_2s_linear_forwards]" />
