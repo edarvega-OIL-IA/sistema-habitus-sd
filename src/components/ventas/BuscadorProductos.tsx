@@ -149,19 +149,32 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
       .slice(0, 8)
   }
 
+  // Actualiza SOLO la lista de sugerencias mientras se tipea/escanea — nunca
+  // abre el popup de cantidad acá. Si se abriera con el código a medio escanear,
+  // los dígitos restantes del código real terminan cayendo parcialmente en el
+  // campo de Cantidad antes de que la protección anti-ráfaga llegue a actuar.
+  // La decisión de "hay un solo resultado, abrir popup" se toma únicamente en
+  // el Enter (handleKeyDown), que es cuando el texto ya está completo.
+  function actualizarSugerencias(valor: string) {
+    setResultados(filtrar(valor))
+  }
+
+  // Busca de forma definitiva (se usa solo al confirmar con Enter, con el
+  // texto ya completo) y decide si corresponde abrir el popup automáticamente.
   function buscar(valor: string) {
     const encontrados = filtrar(valor)
-    setResultados(encontrados)
     if (encontrados.length === 1) {
       abrirPopup(encontrados[0])
       setResultados([])
+    } else {
+      setResultados(encontrados)
     }
   }
 
   function handleInput(e: React.ChangeEvent<HTMLInputElement>) {
     const valor = e.target.value
     setQuery(valor)
-    buscar(valor)
+    actualizarSugerencias(valor)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
