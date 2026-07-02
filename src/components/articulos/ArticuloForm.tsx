@@ -50,6 +50,11 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   const [utilidad, setUtilidad] = useState<string>('')
   const [diferenciaPorcentualWeb, setDiferenciaPorcentualWeb] = useState<number>(0)
   const [costoConIva, setCostoConIva] = useState<string>('')
+  // Texto crudo en edición para inputs que muestran directamente el número
+  // del formulario (sin esto, la coma/punto decimal se borra al tipear)
+  const [costoSinIvaTexto, setCostoSinIvaTexto] = useState<string | null>(null)
+  const [precioLocalTexto, setPrecioLocalTexto] = useState<string | null>(null)
+  const [precioWebTexto, setPrecioWebTexto] = useState<string | null>(null)
   const [tasaPct, setTasaPct] = useState<number>(21)
   const [idTasa21, setIdTasa21] = useState<number | null>(null)
   const [idUnidadDefault, setIdUnidadDefault] = useState<number | null>(null)
@@ -172,9 +177,45 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
     } catch (error) {}
   }
 
+  // Interpreta texto tipeado como monto: si después del último separador
+  // (coma o punto) hay 1 o 2 dígitos, es decimal; si hay 3, es separador de
+  // miles. Acepta coma o punto indistintamente como decimal. (misma lógica
+  // ya probada en Compras > Nueva orden)
+  function parsearMonto(v: string): number {
+    const raw = (v || '').trim()
+    if (!raw) return 0
+    const negativo = raw.startsWith('-')
+    const s = negativo ? raw.slice(1) : raw
+    const lastComma = s.lastIndexOf(',')
+    const lastDot = s.lastIndexOf('.')
+    const lastSep = Math.max(lastComma, lastDot)
+    let n: number
+    if (lastSep === -1) {
+      n = parseFloat(s.replace(/[^\d]/g, ''))
+    } else {
+      const despuesDelSeparador = s.slice(lastSep + 1).replace(/[^\d]/g, '')
+      if (despuesDelSeparador.length === 1 || despuesDelSeparador.length === 2) {
+        const parteEntera = s.slice(0, lastSep).replace(/[.,]/g, '')
+        n = parseFloat((parteEntera || '0') + '.' + despuesDelSeparador)
+      } else {
+        n = parseFloat(s.replace(/[.,]/g, ''))
+      }
+    }
+    if (isNaN(n)) return 0
+    return negativo ? -n : n
+  }
+  function fmtInput(n: number | null | undefined): string {
+    if (n === null || n === undefined || n === 0) return ''
+    return n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
+  }
+
   function handleCostoSinIvaChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const val = parseFloat(e.target.value)
-    setValue('costo_sin_iva', isNaN(val) ? null : val)
+    const raw = e.target.value
+    setCostoSinIvaTexto(raw)
+    setValue('costo_sin_iva', raw.trim() === '' ? null : parsearMonto(raw))
+  }
+  function handleCostoSinIvaBlur() {
+    setCostoSinIvaTexto(null)
   }
 
   function handleCostoConIvaChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -182,8 +223,8 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   }
 
   function handleCostoConIvaBlur() {
-    const val = parseFloat(costoConIva)
-    if (!isNaN(val) && val > 0) {
+    const val = parsearMonto(costoConIva)
+    if (val > 0) {
       const sinIva = val / (1 + tasaPct / 100)
       setValue('costo_sin_iva', parseFloat(sinIva.toFixed(2)))
     }
@@ -194,8 +235,8 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   }
 
   function handleUtilidadBlur() {
-    const nuevaUtilidad = parseFloat(utilidad)
-    if (costoSinIva && !isNaN(nuevaUtilidad)) {
+    const nuevaUtilidad = parsearMonto(utilidad)
+    if (costoSinIva && utilidad.trim() !== '') {
       const precioSinIva = costoSinIva * (1 + nuevaUtilidad / 100)
       const precioConIva = precioSinIva * (1 + tasaPct / 100)
       setValue('precio_local', parseFloat(precioConIva.toFixed(2)))
@@ -203,9 +244,11 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   }
 
   function handlePrecioLocalChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const nuevoPrecioLocal = parseFloat(e.target.value)
-    setValue('precio_local', isNaN(nuevoPrecioLocal) ? null : nuevoPrecioLocal)
-    if (!isNaN(nuevoPrecioLocal) && nuevoPrecioLocal > 0) {
+    const raw = e.target.value
+    setPrecioLocalTexto(raw)
+    const nuevoPrecioLocal = raw.trim() === '' ? null : parsearMonto(raw)
+    setValue('precio_local', nuevoPrecioLocal)
+    if (nuevoPrecioLocal && nuevoPrecioLocal > 0) {
       if (diferenciaPorcentualWeb !== 0) {
         setValue('precio_web', parseFloat((nuevoPrecioLocal * (1 + diferenciaPorcentualWeb / 100)).toFixed(2)))
       } else if (precioWeb && precioLocal) {
@@ -215,13 +258,21 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
       }
     }
   }
+  function handlePrecioLocalBlur() {
+    setPrecioLocalTexto(null)
+  }
 
   function handlePrecioWebChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const nuevoPrecioWeb = parseFloat(e.target.value)
-    setValue('precio_web', isNaN(nuevoPrecioWeb) ? null : nuevoPrecioWeb)
-    if (!isNaN(nuevoPrecioWeb) && precioLocal && precioLocal > 0) {
+    const raw = e.target.value
+    setPrecioWebTexto(raw)
+    const nuevoPrecioWeb = raw.trim() === '' ? null : parsearMonto(raw)
+    setValue('precio_web', nuevoPrecioWeb)
+    if (nuevoPrecioWeb && precioLocal && precioLocal > 0) {
       setDiferenciaPorcentualWeb(((nuevoPrecioWeb - precioLocal) / precioLocal) * 100)
     }
+  }
+  function handlePrecioWebBlur() {
+    setPrecioWebTexto(null)
   }
 
   // Bloquea Enter en todo el formulario excepto en botones
@@ -372,17 +423,20 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Costo sin IVA</label>
                   <input
-                    type="text" inputMode="numeric"
-                    value={costoSinIva ?? ''}
+                    type="text" inputMode="decimal"
+                    value={costoSinIvaTexto !== null ? costoSinIvaTexto : fmtInput(costoSinIva)}
+                    onFocus={e => e.target.select()}
                     onChange={handleCostoSinIvaChange}
+                    onBlur={handleCostoSinIvaBlur}
                     className={inputClass}
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Costo con IVA</label>
                   <input
-                    type="text" inputMode="numeric"
+                    type="text" inputMode="decimal"
                     value={costoConIva}
+                    onFocus={e => e.target.select()}
                     onChange={handleCostoConIvaChange}
                     onBlur={handleCostoConIvaBlur}
                     className={inputClass}
@@ -408,18 +462,22 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Precio local</label>
               <input
-                type="text" inputMode="numeric"
-                value={precioLocal ?? ''}
+                type="text" inputMode="decimal"
+                value={precioLocalTexto !== null ? precioLocalTexto : fmtInput(precioLocal)}
+                onFocus={e => e.target.select()}
                 onChange={handlePrecioLocalChange}
+                onBlur={handlePrecioLocalBlur}
                 className={inputClass}
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Precio web</label>
               <input
-                type="text" inputMode="numeric"
-                value={precioWeb ?? ''}
+                type="text" inputMode="decimal"
+                value={precioWebTexto !== null ? precioWebTexto : fmtInput(precioWeb)}
+                onFocus={e => e.target.select()}
                 onChange={handlePrecioWebChange}
+                onBlur={handlePrecioWebBlur}
                 className={inputClass}
               />
               <p className="text-xs text-gray-500 mt-1">
@@ -431,11 +489,15 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Precio mayorista</label>
-              <input {...register('precio_mayorista', { setValueAs: v => parseFloat(String(v).replace(/\./g,'').replace(',','.')) || 0 })} type="text" inputMode="numeric" className={inputClass} />
+              <input {...register('precio_mayorista', { setValueAs: v => parsearMonto(String(v)) })}
+                onFocus={e => e.target.select()}
+                type="text" inputMode="decimal" className={inputClass} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Precio oferta web</label>
-              <input {...register('precio_oferta_web', { setValueAs: v => parseFloat(String(v).replace(/\./g,'').replace(',','.')) || 0 })} type="text" inputMode="numeric" className={inputClass} />
+              <input {...register('precio_oferta_web', { setValueAs: v => parsearMonto(String(v)) })}
+                onFocus={e => e.target.select()}
+                type="text" inputMode="decimal" className={inputClass} />
             </div>
           </div>
         )}
@@ -482,7 +544,8 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Peso (kg)</label>
-              <input {...register('peso_kg', { setValueAs: v => parseFloat(String(v).replace(/\./g,'').replace(',','.')) || 0 })} type="text" inputMode="numeric" className={inputClass} />
+              <input {...register('peso_kg', { setValueAs: v => parsearMonto(String(v)) })}
+                type="text" inputMode="decimal" className={inputClass} />
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
