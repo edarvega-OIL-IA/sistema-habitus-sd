@@ -34,17 +34,21 @@ export default function RegistroVentasPage() {
   const [medioPago, setMedioPago] = useState('todos')
   const [estadoFiltro, setEstadoFiltro] = useState('todos')
   const [turnoFiltro, setTurnoFiltro] = useState('todos')
+  const [cierreActivoId, setCierreActivoId] = useState<number | null>(null)
 
   useEffect(() => {
     async function detectarTurno() {
       const supabase = createClient()
       const { data } = await supabase
         .from('cierres_turno')
-        .select('turno_id')
+        .select('id, turno_id')
         .eq('sucursal_id', 1)
         .eq('estado_cierre_turno_id', 1)
         .maybeSingle()
-      if (data?.turno_id) setTurnoFiltro(data.turno_id.toString())
+      if (data) {
+        setCierreActivoId(data.id)
+        if (data.turno_id) setTurnoFiltro(data.turno_id.toString())
+      }
     }
     detectarTurno()
     cargarVentas()
@@ -72,24 +76,45 @@ export default function RegistroVentasPage() {
     setAnulando(ventaId)
     try {
       const supabase = createClient()
+
+      // Revertir stock: movimiento de Ingreso compensatorio con los mismos
+      // artículos/cantidades de la venta original. El trigger
+      // fn_aplicar_item_stock hace el ajuste real sobre articulo_stock —
+      // reemplaza el UPDATE directo anterior, que revertía el número pero
+      // no dejaba rastro en movimientos_stock (rompía la trazabilidad).
       const { data: items } = await supabase
         .from('venta_items')
         .select('articulo_id, cantidad')
         .eq('venta_id', ventaId)
 
-      for (const item of items || []) {
-        const { data: stock } = await supabase
-          .from('articulo_stock')
-          .select('stock_actual')
-          .eq('articulo_id', item.articulo_id)
-          .eq('sucursal_id', 1)
-          .maybeSingle()
-        if (stock) {
-          await supabase
-            .from('articulo_stock')
-            .update({ stock_actual: stock.stock_actual + item.cantidad, actualizado_en: new Date().toISOString() })
-            .eq('articulo_id', item.articulo_id)
-            .eq('sucursal_id', 1)
+      if (items && items.length > 0) {
+        const { data: movStock, error: movStockError } = await supabase
+          .from('movimientos_stock')
+          .insert({
+            sucursal_id: 1,
+            tipo_movimiento_stock_id: 1, // Ingreso (reversión)
+            estado_movimiento_stock_id: 2, // Confirmado
+            origen_tipo: 'venta',
+            origen_id: ventaId,
+            observaciones: `Reversión por anulación de venta #${ventaId}`,
+            fecha_utc: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }),
+          })
+          .select('id')
+          .single()
+
+        if (movStockError) {
+          console.error('Error al revertir stock de venta', ventaId, ':', movStockError.message)
+        } else {
+          const { error: stockItemsError } = await supabase
+            .from('movimiento_stock_items')
+            .insert(items.map(item => ({
+              movimiento_stock_id: movStock.id,
+              articulo_id: item.articulo_id,
+              cantidad: item.cantidad,
+            })))
+          if (stockItemsError) {
+            console.error('Error al revertir items de stock de venta', ventaId, ':', stockItemsError.message)
+          }
         }
       }
 
@@ -351,7 +376,7 @@ export default function RegistroVentasPage() {
                     <span className="w-32 flex justify-start">{estadoChip}</span>
                     <span className="w-32 text-right font-bold text-[#3c3c3b] text-sm">{fmt(v.total)}</span>
                     <span className="w-10 flex justify-end">
-                      {v.estado_venta_id !== 3 && (
+                      {v.estado_venta_id === 2 && v.cierre_turno_id !== null && v.cierre_turno_id === cierreActivoId && (
                         confirmando === v.id ? (
                           <div className="flex items-center gap-1">
                             <button
@@ -370,7 +395,7 @@ export default function RegistroVentasPage() {
                           <button
                             onClick={e => { e.stopPropagation(); setConfirmando(v.id) }}
                             className="text-gray-300 hover:text-red-500 transition-colors"
-                            title="Anular venta"
+                            title="Anular venta (solo Guardada, turno activo)"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
