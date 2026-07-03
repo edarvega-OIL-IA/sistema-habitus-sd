@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 01/07/2026 — Sesión 16 completa: arranque real + 5 bugs corregidos + investigación fiscalización
-**Estado general:** 🟢 Sistema en producción real, primer día operativo. Scanner de código de barras verificado y funcionando en el local. Operación paralela con Cover.
-**Próxima acción concreta:** Uso real mañana en el local (turno mañana con Ariel) para confirmar en la práctica los fixes de hoy. Ariel evalúa TusFacturasAPP. Borrar página de diagnóstico (`/diagnostico`) una vez confirmado que el scanner quedó estable.
+**Última actualización:** 03/07/2026 — Sesión larga (02-03/07): bug crítico de stock en Ventas (nunca descontaba desde el arranque) + causa raíz real (permisos GRANT faltantes, no solo RLS) + auditoría completa del esquema + diseño de corrección de ventas mal cargadas (Caso A/B)
+**Estado general:** 🟢 Sistema en producción real. Bug de stock en Ventas resuelto y validado end-to-end (carga + anulación). Fixes de decimales en Compras/Artículos/Movimientos aplicados. Ventas de prueba limpiadas, numeración realineada a 1334.
+**Próxima acción concreta:** Construir pantalla "Editar ítems" (Caso A: corregir artículo/cantidad en venta Guardada, mismo turno) en ruta `/ventas/registro/[id]`. Pendiente sin fecha: pantalla "Correcciones" para admin (turnos cerrados).
 
 ---
 
@@ -45,16 +45,17 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 ## 4. Módulos confirmados (orden de prioridad)
 
 1. Artículos / Inventario ✅
-2. Órdenes de Compra simplificadas ✅ (nueva, editar, listado con detalle)
-3. Movimientos de Stock ✅ (incluyendo edición)
-4. Ventas (carrito, modo POS, multi-pago) ✅
-5. Movimientos financieros (ledger único) ✅
-6. **Caja** (ex Cierre de turno) ✅
-7. **Dashboard** ← próximo
-8. Reportes
-9. Facturación AFIP automática
-10. Vitrina web propia (reemplaza Empretienda)
-11. Team Habitus (sponsoreo a deportistas, a costo)
+2. Órdenes de Compra ✅ (nueva, editar, listado con detalle)
+3. Movimientos de Stock ✅ (incluyendo edición; excluye ventas/compras — solo movimientos manuales)
+4. Ventas (carrito, modo POS, multi-pago) ✅ — descuenta stock correctamente (fix 02-03/07)
+5. Registro de Ventas ✅ (anulación segura con reversión trazable, gateada por turno activo)
+6. Movimientos financieros (ledger único) ✅
+7. **Caja** (ex Cierre de turno) ✅
+8. **Dashboard** ✅
+9. Reportes — pendiente
+10. Facturación AFIP automática — pendiente (ver sección 12)
+11. Vitrina web propia (reemplaza Empretienda) — post-MVP
+12. Team Habitus (sponsoreo a deportistas, a costo) — post-MVP
 
 ---
 
@@ -70,9 +71,12 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 
 ## 6. Decisiones pendientes
 
-- [ ] Hosting / despliegue concreto
+- [ ] Pantalla "Editar ítems" (Caso A) en `/ventas/registro/[id]` — corregir artículo/cantidad de una venta Guardada, mismo turno del cajero
+- [ ] Pantalla "Correcciones" (admin, rol_id=1) para ventas de turnos ya cerrados — usa columnas `corregido_por_usuario_id`, `corregido_en`, `motivo_correccion` (ya en producción)
+- [ ] Circuito de Nota de Crédito (Caso B: venta ya fiscalizada con diferencia de dinero) — depende de tener fiscalización real activa
+- [ ] Auditar el resto de tablas con triggers `SECURITY DEFINER=false` por el mismo patrón de GRANT faltante (ver sección 14) — auditoría inicial ya hecha, resultado limpio salvo `orden_compra_items` (corregido)
+- [ ] Limpiar políticas RLS duplicadas restantes si aparecen nuevas (ya se limpiaron `movimientos_stock` y `venta_items`)
 - [ ] Tipografías web: licenciar Antique Olive Nord D + Futura MD BT, o alternativas Google Fonts
-- [ ] Producción Supabase: plan Pro vs pausar sistema-turnos-lnt
 - [ ] Reemplazar `alert()` en confirmación de venta POS por notificación UI (los demás módulos ya lo tienen)
 - [ ] Migrar datos históricos MOVIMIENTOS_HISTORICO_UNIFICADO.xlsx (2 filas amarillas: −$28.000 del 30/06/2026)
 - [ ] Pantalla de ABM de Categorías y Conceptos de movimientos (post-MVP)
@@ -80,7 +84,9 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 - [ ] Editar historial de cierres de caja (Admin, pantalla separada) — post-MVP
 - [ ] Indicador de rentabilidad caída en listado de artículos (rojo si margen bajó >5% desde última compra)
 - [ ] Pantalla masiva de actualización de precios (aumentar % por rubro/marca)
-- [ ] MVP v2: modificar ventas Guardadas, Nota de Crédito, fiscalización AFIP/ARCA vía TusFacturasAPP (a confirmar cuenta) — Facturama descartado, es mexicano
+- [ ] Sandbox sigue sin los cambios de Compras de sesión 15 y sin las tablas/columnas nuevas de esta sesión
+- [ ] Borrar `src/app/(sistema)/diagnostico/` (herramienta temporal del bug del scanner, ya resuelto) una vez confirmado que no hace falta más
+- [ ] MVP v2: fiscalización AFIP/ARCA vía TusFacturasAPP (cuenta todavía no creada) — Facturama descartado, es mexicano
 
 ---
 
@@ -132,6 +138,11 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 - `ordenes_compra.medio_pago_id`: INTEGER FK medios_pago — medio de pago de la mercadería (agregado sesión 15)
 - `orden_compra_items.articulo_id`: nullable (agregado sesión 15, era NOT NULL) — permite ítem de ajuste por redondeo
 - `orden_compra_items.es_ajuste_redondeo`: BOOLEAN DEFAULT false (agregado sesión 15)
+- `ventas.corregido_por_usuario_id`: UUID NULL FK → usuarios(id) — agregado sesión 03/07, preparado para pantalla "Correcciones"
+- `ventas.corregido_en`: TIMESTAMPTZ NULL — agregado sesión 03/07
+- `ventas.motivo_correccion`: TEXT NULL — agregado sesión 03/07
+- `movimientos_stock`: tiene columnas `articulo_id` y `cantidad` a nivel cabecera, pero están **obsoletas y siempre NULL** bajo el modelo vigente (cabecera + `movimiento_stock_items`) — no usar, candidatas a `DROP` en el futuro
+- **IMPORTANTE:** política RLS permisiva ≠ permiso de tabla (GRANT). Antes de asumir que una tabla está bien protegida, verificar AMBAS cosas por separado — ver sección 14 para el caso real que esto causó
 
 ---
 
@@ -410,3 +421,86 @@ El bug de cantidades erráticas al escanear resultó tener **dos causas distinta
 Verificado con el lector real en el local: 3 escaneos de productos distintos, cada uno quedó en cantidad 1 correctamente.
 
 **Pendiente:** borrar la carpeta `src/app/(sistema)/diagnostico/` (herramienta temporal, ya cumplió su función) una vez que el uso real de mañana confirme que el fix es estable.
+
+---
+
+## 14. Sesión 02-03/07/2026 — Bug crítico de stock en Ventas, causa raíz real, y diseño de corrección de ventas
+
+### Bug crítico: Ventas nunca descontaba stock
+Detectado por Ariel comparando stock esperado vs. real en un artículo puntual (id=982). Investigación reveló que `api/ventas/route.ts` nunca insertaba en `movimientos_stock`/`movimiento_stock_items` desde el arranque (29/06-01/07) — **ninguna venta había descontado stock**. Afectaba 15 ventas, 88 unidades.
+
+**Fix aplicado:** se agregó a `route.ts` el bloque que inserta cabecera (`movimientos_stock`, tipo Egreso=2, `origen_tipo='venta'`, `origen_id=venta.id`) + detalle (`movimiento_stock_items`, uno por artículo), dejando que el trigger `fn_aplicar_item_stock` descuente `articulo_stock` automáticamente — mismo mecanismo que ya usa Compras. Backfill ejecutado para las 15 ventas afectadas.
+
+### Causa raíz real (más profunda de lo que parecía al principio)
+El primer backfill se hizo por SQL Editor de Supabase (bypasea RLS) y pareció funcionar, pero al confirmarse con una venta real desde la app, seguía sin descontar. Diagnóstico con consola del navegador (F12) reveló `permission denied for table articulo_stock` y `permission denied for table movimientos`.
+
+**Explicación técnica:** el trigger `fn_aplicar_item_stock` tiene `prosecdef=false` (corre con los permisos del usuario real, no con privilegios elevados). Al intentar `UPDATE` sobre `articulo_stock`, chocaba con falta de **GRANT de tabla** (no de política RLS — la política de UPDATE existía y era permisiva, pero el permiso de tabla subyacente nunca se había otorgado; son dos cosas independientes en Postgres). Al fallar el trigger `AFTER INSERT`, **toda la transacción se revertía**, incluido el `INSERT` en `movimiento_stock_items` que la disparó — por eso las cabeceras de venta quedaban creadas pero sin items, dando falsa apariencia de éxito parcial.
+
+**Fix aplicado (producción):**
+```sql
+GRANT INSERT, UPDATE, DELETE ON articulo_stock TO authenticated;
+CREATE POLICY movimientos_delete ON movimientos FOR DELETE TO authenticated USING (true);
+GRANT DELETE ON movimientos TO authenticated;
+```
+Backfill de items faltantes para ventas #1329-#1333 (cabeceras ya existían sin items) vía `INSERT ... WHERE NOT EXISTS`, dejando que el trigger (ya con permisos corregidos) descuente el stock real. Verificado con columna `actualizado_en` de `articulo_stock` (timestamp coincide con el backfill).
+
+**Validado end-to-end en producción:** venta de prueba #1335 + anulación, sin errores de permisos — Egreso e Ingreso de reversión generados correctamente, stock correcto, movimiento financiero eliminado en la anulación.
+
+### Lección clave para todo el proyecto
+Verificar RLS ya no alcanza con revisar `pg_policies` — hay que verificar TAMBIÉN los GRANT reales de tabla vía `information_schema.role_table_grants` para el rol `authenticated`. Una política permisiva sin el GRANT subyacente da el mismo "permission denied" y es indistinguible sin este chequeo extra.
+
+### Auditoría completa de GRANTs vs RLS (todo el esquema public)
+Comparando `information_schema.role_table_grants` contra `pg_policies` para el rol `authenticated`, sobre 70+ combinaciones tabla+acción. Resultado: **un solo hallazgo real** — `orden_compra_items` tenía política de UPDATE (agregada en sesión 15) pero sin el GRANT correspondiente, mismo patrón. Nunca se había detectado porque la Orden #2 (Disfit) sigue en Borrador y nunca se editó un ítem existente en producción.
+
+**Fix aplicado y verificado:** `GRANT UPDATE ON orden_compra_items TO authenticated;`
+
+**Triggers `SECURITY DEFINER=false` revisados** (candidatos a este mismo problema): `fn_aplicar_item_stock` (ya cubierta), `fn_articulos_default_precio_web` (solo toca su propia fila, sin riesgo), `fn_validar_entidad_movimiento` / `fn_validar_origen_movimiento` (aparentemente solo `SELECT` de validación, sin riesgo aparente — no se confirmó definición exacta).
+
+**Limpieza menor:** se encontraron y eliminaron 2 políticas RLS duplicadas (`select_all` en `movimientos_stock` y en `venta_items`, redundantes con políticas ya nombradas específicamente).
+
+### Bug relacionado: `anularVenta` revertía stock sin trazabilidad
+Al revisar el flujo de anulación (`ventas/registro/page.tsx`), se encontró que revertía `articulo_stock` con `UPDATE` directo, sin generar ningún `movimiento_stock` de reversión — rompía la trazabilidad reforzada por el fix principal. **Fix:** ahora inserta un movimiento de Ingreso compensatorio (mismo mecanismo de trigger), dejando ambos movimientos (Egreso original + Ingreso de reversión) visibles y auditables.
+
+### Corrección de ventas mal cargadas — diseño acordado (Caso A/B)
+A raíz de un caso real (venta #1326: se facturó un producto pero se entregó otro), se definió:
+- **Caso A — venta Guardada (no fiscalizada):** se puede corregir por sistema. Diseño: pantalla "Editar ítems" en `/ventas/registro/[id]`, reemplaza ítem sin borrar el original (rastro de qué se cargó mal), genera movimiento de stock de reversión + nuevo descuento, recalcula total y muestra diferencia de cobro sin forzarla.
+- **Caso B — venta ya fiscalizada (CAE recibido):** si no hay diferencia de dinero, alcanza con un ajuste de stock con nota (sin tocar la factura). Si hay diferencia de dinero, requiere Nota de Crédito + nueva Factura — depende de tener fiscalización real activa (TusFacturasAPP).
+
+**Separación de roles para Editar/Anular en Registro Ventas:**
+- Cajero, en el momento: solo ventas Guardadas de **su propio cierre de turno activo** (no turnos ya cerrados, no otro turno del mismo día).
+- Admin, corrección posterior: pantalla separada "Correcciones" (no construida todavía), única con permiso de tocar ventas de cierres ya cerrados, con motivo obligatorio y rastro propio (columnas `corregido_por_usuario_id`, `corregido_en`, `motivo_correccion`, ya en producción) — para que nunca se vea igual que una edición normal del cajero.
+
+**Implementado en `registro/page.tsx`:**
+1. `anularVenta` corregida (revierte stock vía movimiento trazable, ver arriba).
+2. Botón Anular gateado: solo visible si `estado_venta_id=2` (Guardada) **y** `cierre_turno_id` de la venta = cierre activo ahora (se agregó `cierreActivoId` al estado, antes solo se guardaba `turno_id`).
+3. Columnas nuevas en `ventas` (producción, verificadas): `corregido_por_usuario_id`, `corregido_en`, `motivo_correccion` — preparadas para la pantalla de Correcciones, todavía sin UI.
+
+**Pendiente (próxima etapa):** pantalla "Editar ítems" (Caso A) y pantalla "Correcciones" (admin) — ninguna de las dos está construida todavía, solo diseñadas y con la base de datos lista.
+
+### Fix de decimales en inputs de monto (3 pantallas)
+Bug repetido con causas distintas en cada pantalla: `Compras/nueva` (input controlado sin buffer de texto — la coma/punto se borraba al tipear), `ArticuloForm.tsx` (mezcla de `parseFloat` nativo que no entiende coma + regex vieja que trataba cualquier punto como separador de miles), `Movimientos/nuevo` (filtro que descartaba directamente cualquier carácter no numérico, diseñado solo para pesos enteros).
+
+**Fix unificado:** función `parsearMonto` (coma o punto se interpreta como decimal si hay 1-2 dígitos después del separador, como separador de miles si hay 3) + buffer de texto en edición (muestra literalmente lo tipeado hasta perder el foco) + `inputMode="decimal"`. Mismo patrón aplicado en los 3 archivos. En `ArticuloForm.tsx` también se unificó el formato visual (antes mezclaba números crudos de JS con formato argentino en la misma pantalla).
+
+**Pendiente:** auditar el resto de pantallas con inputs de monto por si tienen el mismo problema (no se hizo una revisión exhaustiva de todo el sistema, solo se corrigieron las 3 reportadas).
+
+### Limpieza de ventas de prueba
+Se usaron ventas de prueba (#1334, #1335) para validar el circuito de descuento/reversión de stock tras el fix de GRANTs. Se eliminaron completamente (venta, items, pagos, movimientos_stock, movimiento_stock_items) y se renumeró la venta real que había quedado como #1336 hacia #1334, retrocediendo `numeracion_ventas` a 1334, para no dejar huecos en la numeración interna. Confirmado que no se había entregado ningún comprobante con el número 1336 antes de renumerar (venta estaba Guardada, no fiscalizada). Próxima venta real numera 1335 automáticamente.
+
+### Stock de Movimientos (pantalla `/stock`) — corrección de alcance
+El fix principal de Ventas hizo que las ventas empezaran a aparecer en la pantalla de Movimientos de Stock, que estaba pensada exclusivamente para movimientos manuales (Consumo interno, Merma, Sponsoreo) — nunca para ventas ni compras. **Fix:** la pantalla ahora filtra `.is('origen_tipo', null)`, excluyendo automáticamente cualquier movimiento generado por Ventas o (en el futuro) Compras, sin necesidad de enumerar cada valor posible de `origen_tipo`. Se agregó también una traba defensiva (Editar/Eliminar deshabilitados si `origen_tipo` no es nulo) y se corrigió un bug de fecha (`new Date(fecha_utc)` corría un día para atrás por huso horario — reemplazado por `.split('-').reverse().join('/')`).
+
+### Archivos modificados esta sesión (producción)
+- `api/ventas/route.ts` — fix principal: genera movimiento de stock al confirmar venta
+- `ventas/registro/page.tsx` — `anularVenta` con reversión trazable, gateo por turno+estado
+- `compras/nueva/page.tsx` — fix decimales (`parsearMonto` + buffer de texto)
+- `components/articulos/ArticuloForm.tsx` — fix decimales + unificación de formato visual
+- `movimientos/nuevo/page.tsx` — fix decimales (reemplaza filtro de solo-enteros)
+- `stock/page.tsx` — excluye ventas/compras, fix de fecha, traba defensiva
+
+### Próximos pasos (en orden)
+1. Pantalla "Editar ítems" (Caso A) en `/ventas/registro/[id]`.
+2. Pantalla "Correcciones" (admin) para ventas de turnos cerrados.
+3. Auditar el resto de pantallas con inputs de monto (no se revisó todo el sistema).
+4. Replicar en sandbox todos los cambios de esta sesión (sigue desincronizado desde sesión 15).
+5. Definir circuito de Nota de Crédito (Caso B) cuando la fiscalización esté activa.

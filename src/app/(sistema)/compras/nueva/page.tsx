@@ -193,7 +193,11 @@ export default function ComprasNuevaPage() {
   function costoConFlete(item: ItemOrden): number | null {
     if (!distribuirFlete || fleteMonto === 0 || subtotalArticulos === 0) return null
     const prop = item.subtotal / subtotalArticulos
-    return (item.subtotal + fleteMonto * prop) / item.cant_recibida / getDivisorIva(item.tasa_iva_id)
+    // Costo por unidad CON IVA (misma base que "Precio Unit. (c/IVA)"), para
+    // que se vea claramente que el flete SUMA al costo, nunca resta. El valor
+    // sin IVA que se persiste como costo_sin_iva al confirmar la orden se
+    // calcula aparte, en handleGuardar — esta función es solo para mostrar.
+    return (item.subtotal + fleteMonto * prop) / item.cant_recibida
   }
 
   function validar(): string | null {
@@ -603,7 +607,7 @@ export default function ComprasNuevaPage() {
                   <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-20">Desc. %</th>
                   <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-32">Subtotal</th>
                   {distribuirFlete && fleteMonto > 0 && (
-                    <th className="text-right px-3 py-2 text-xs text-gray-500 font-semibold w-32">Costo c/flete</th>
+                    <th className="text-right px-3 py-2 text-xs text-gray-500 font-semibold w-32">Costo c/flete (c/IVA)</th>
                   )}
                   <th className="w-10"></th>
                 </tr>
