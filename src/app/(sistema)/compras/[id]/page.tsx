@@ -68,6 +68,12 @@ export default function ComprasEditarPage() {
     diferencia: number; confirmarPendiente: boolean
   } | null>(null)
 
+  // Texto crudo en edición para inputs de monto (evita que se pierda el
+  // separador decimal mientras se tipea)
+  const [montoComprobanteTexto, setMontoComprobanteTexto] = useState<string | null>(null)
+  const [fleteMontoTexto, setFleteMontoTexto] = useState<string | null>(null)
+  const [precioTexto, setPrecioTexto] = useState<Record<number, string>>({})
+
   // Buscador
   const [busqueda, setBusqueda] = useState('')
   const [resultados, setResultados] = useState<Articulo[]>([])
@@ -209,6 +215,15 @@ export default function ComprasEditarPage() {
 
   function eliminarItem(index: number) {
     setItems(prev => prev.filter((_, i) => i !== index))
+    setPrecioTexto(prev => {
+      const next: Record<number, string> = {}
+      Object.entries(prev).forEach(([k, v]) => {
+        const i = Number(k)
+        if (i < index) next[i] = v
+        else if (i > index) next[i - 1] = v
+      })
+      return next
+    })
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -237,7 +252,11 @@ export default function ComprasEditarPage() {
   function costoConFlete(item: ItemOrden): number | null {
     if (!distribuirFlete || fleteMonto === 0 || subtotalArticulos === 0) return null
     const prop = item.subtotal / subtotalArticulos
-    return (item.subtotal + fleteMonto * prop) / item.cant_recibida / getDivisorIva(item.tasa_iva_id)
+    // Costo por unidad CON IVA (misma base que "Precio Unit. (c/IVA)"), para
+    // que se vea claramente que el flete SUMA al costo, nunca resta. El valor
+    // sin IVA que se persiste como costo_sin_iva al confirmar se calcula
+    // aparte, en guardar() — esta función es solo para mostrar.
+    return (item.subtotal + fleteMonto * prop) / item.cant_recibida
   }
 
   function validar(): string | null {
@@ -384,7 +403,7 @@ export default function ComprasEditarPage() {
       })
 
       // Actualizar orden
-      await supabase.from('ordenes_compra').update({
+      const { error: ordenUpdateError } = await supabase.from('ordenes_compra').update({
         proveedor_id: proveedorId,
         fecha_orden: fechaOrden,
         tipo_orden_compra_id: tieneComprobante ? 2 : 1,
@@ -405,8 +424,10 @@ export default function ComprasEditarPage() {
         usuario_id: usuarioData.id,
       }).eq('id', ordenId)
 
+      if (ordenUpdateError) throw new Error('Error al actualizar la orden: ' + ordenUpdateError.message)
+
       // Insertar nuevos items (artículos reales)
-      await supabase.from('orden_compra_items').insert(
+      const { error: itemsInsertError } = await supabase.from('orden_compra_items').insert(
         itemsConFlete.map(it => ({
           orden_compra_id: ordenId,
           articulo_id: it.articulo_id,
@@ -419,6 +440,8 @@ export default function ComprasEditarPage() {
           es_ajuste_redondeo: false,
         }))
       )
+
+      if (itemsInsertError) throw new Error('Error al guardar los artículos: ' + itemsInsertError.message)
 
       // Si hay ajuste de redondeo, insertar ítem especial que documenta la diferencia
       if (montoAjustado !== undefined && montoAjustado !== subtotalArticulos) {
@@ -532,7 +555,27 @@ export default function ComprasEditarPage() {
   }
 
   function parsearMonto(v: string): number {
-    return parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0
+    const raw = (v || '').trim()
+    if (!raw) return 0
+    const negativo = raw.startsWith('-')
+    const s = negativo ? raw.slice(1) : raw
+    const lastComma = s.lastIndexOf(',')
+    const lastDot = s.lastIndexOf('.')
+    const lastSep = Math.max(lastComma, lastDot)
+    let n: number
+    if (lastSep === -1) {
+      n = parseFloat(s.replace(/[^\d]/g, ''))
+    } else {
+      const despuesDelSeparador = s.slice(lastSep + 1).replace(/[^\d]/g, '')
+      if (despuesDelSeparador.length === 1 || despuesDelSeparador.length === 2) {
+        const parteEntera = s.slice(0, lastSep).replace(/[.,]/g, '')
+        n = parseFloat((parteEntera || '0') + '.' + despuesDelSeparador)
+      } else {
+        n = parseFloat(s.replace(/[.,]/g, ''))
+      }
+    }
+    if (isNaN(n)) return 0
+    return negativo ? -n : n
   }
   function fmtInput(n: number): string {
     if (!n) return ''
@@ -648,9 +691,16 @@ export default function ComprasEditarPage() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Monto según comprobante</label>
-              <input type="text" inputMode="numeric" value={fmtInput(montoComprobante)}
+              <input type="text" inputMode="decimal"
+                value={montoComprobanteTexto !== null ? montoComprobanteTexto : fmtInput(montoComprobante)}
                 disabled={esAnulada}
-                onChange={e => setMontoComprobante(parsearMonto(e.target.value))}
+                onFocus={e => e.target.select()}
+                onChange={e => {
+                  const raw = e.target.value
+                  setMontoComprobanteTexto(raw)
+                  setMontoComprobante(parsearMonto(raw))
+                }}
+                onBlur={() => setMontoComprobanteTexto(null)}
                 placeholder="Opcional — para validar contra los artículos"
                 className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
             </div>
@@ -743,7 +793,7 @@ export default function ComprasEditarPage() {
                   <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-20">Desc. %</th>
                   <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-32">Subtotal</th>
                   {distribuirFlete && fleteMonto > 0 && (
-                    <th className="text-right px-3 py-2 text-xs text-gray-500 font-semibold w-32">Costo c/flete</th>
+                    <th className="text-right px-3 py-2 text-xs text-gray-500 font-semibold w-32">Costo c/flete (c/IVA)</th>
                   )}
                   {!esAnulada && <th className="w-10"></th>}
                 </tr>
@@ -770,9 +820,17 @@ export default function ComprasEditarPage() {
                           className="w-full px-2 py-1 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-1 focus:ring-[#00a19a] disabled:bg-gray-50" />
                       </td>
                       <td className="px-3 py-2">
-                        <input type="text" inputMode="numeric" value={fmtInput(item.precio_unitario)}
+                        <input type="text" inputMode="decimal"
+                          value={precioTexto[index] !== undefined ? precioTexto[index] : fmtInput(item.precio_unitario)}
                           disabled={esAnulada} onFocus={e => e.target.select()}
-                          onChange={e => actualizarItem(index, 'precio_unitario', parsearMonto(e.target.value))}
+                          onChange={e => {
+                            const raw = e.target.value
+                            setPrecioTexto(prev => ({ ...prev, [index]: raw }))
+                            actualizarItem(index, 'precio_unitario', parsearMonto(raw))
+                          }}
+                          onBlur={() => setPrecioTexto(prev => {
+                            const next = { ...prev }; delete next[index]; return next
+                          })}
                           className="w-full px-2 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-1 focus:ring-[#00a19a] disabled:bg-gray-50" />
                       </td>
                       <td className="px-3 py-2">
@@ -813,9 +871,16 @@ export default function ComprasEditarPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Monto</label>
-            <input type="text" inputMode="numeric" value={fmtInput(fleteMonto)}
+            <input type="text" inputMode="decimal"
+              value={fleteMontoTexto !== null ? fleteMontoTexto : fmtInput(fleteMonto)}
               disabled={esAnulada}
-              onChange={e => setFleteMonto(parsearMonto(e.target.value))}
+              onFocus={e => e.target.select()}
+              onChange={e => {
+                const raw = e.target.value
+                setFleteMontoTexto(raw)
+                setFleteMonto(parsearMonto(raw))
+              }}
+              onBlur={() => setFleteMontoTexto(null)}
               placeholder="0,00"
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
           </div>
