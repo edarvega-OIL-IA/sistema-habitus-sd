@@ -443,6 +443,19 @@ export default function ComprasEditarPage() {
 
       if (itemsInsertError) throw new Error('Error al guardar los artículos: ' + itemsInsertError.message)
 
+      // Marcar como visible en salón todo artículo que quede en la orden,
+      // sin importar si sigue en Borrador o se confirma — así no hace falta
+      // ir a activarlo a mano en Artículos después de cada edición.
+      const articuloIds = itemsConFlete.map(it => it.articulo_id).filter((id): id is number => id !== null)
+      if (articuloIds.length > 0) {
+        const { error: visibleError } = await supabase
+          .from('articulos')
+          .update({ disponible_local: true })
+          .in('id', articuloIds)
+          .eq('disponible_local', false)
+        if (visibleError) console.error('Error al marcar artículos como visibles:', visibleError.message)
+      }
+
       // Si hay ajuste de redondeo, insertar ítem especial que documenta la diferencia
       if (montoAjustado !== undefined && montoAjustado !== subtotalArticulos) {
         const ajuste = Math.round((montoAjustado - subtotalArticulos) * 100) / 100
