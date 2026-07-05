@@ -317,6 +317,9 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
     const supabase = createClient()
     try {
       if (cobrar) {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) throw new Error('Usuario no autenticado')
+
         const { error } = await supabase.from('venta_pagos').insert({
           venta_id: ventaId,
           medio_pago_id: pasoDiferencia.medioPagoId,
@@ -324,6 +327,28 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
           referencia: 'Ajuste por edición de venta',
         })
         if (error) throw new Error('Error al registrar el ajuste de pago: ' + error.message)
+
+        // El ledger financiero (movimientos) es lo que alimenta Caja y
+        // Dashboard — sin este insert, "Esperado en caja" queda desalineado
+        // de lo que realmente entró o salió.
+        const fechaHoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+        const esDevolucion = pasoDiferencia.diferencia < 0
+
+        // TODO — verificar contra producción: categoria_gasto_id/concepto_gasto_id
+        // correctos para "Egreso por devolución a cliente". Por ahora reutiliza
+        // los mismos que Ingreso (10/35) — INCORRECTO para el caso Egreso,
+        // corregir antes de usar esta rama en un caso real de devolución.
+        const { error: movError } = await supabase.from('movimientos').insert({
+          sucursal_id: 1,
+          tipo: esDevolucion ? 'Egreso' : 'Ingreso',
+          categoria_gasto_id: 10, concepto_gasto_id: 35, // Venta local — revisar para el caso Egreso
+          monto: Math.abs(pasoDiferencia.diferencia), medio_pago_id: pasoDiferencia.medioPagoId,
+          fecha_utc: fechaHoy, mes_contable: fechaHoy.slice(0, 7) + '-01',
+          origen_tipo: 'venta', origen_id: ventaId,
+          observaciones: `Ajuste por edición de venta #${numeroVenta}${esDevolucion ? ' (devolución)' : ''}`,
+          usuario_id: user.id,
+        })
+        if (movError) throw new Error('Error al registrar el movimiento de la diferencia: ' + movError.message)
       }
       onSaved()
     } catch (e: any) {
