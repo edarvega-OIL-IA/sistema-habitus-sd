@@ -310,20 +310,23 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
     }
   }
 
-  async function registrarDiferenciaPago(cobrar: boolean) {
+  // resolucion: 'cobrar' | 'devolver' -> movimiento real de plata (venta_pagos + movimientos)
+  //             'ajuste'              -> sin movimiento real, se resuelve como descuento/recargo
+  //                                       en ventas.ajuste_edicion_monto/tipo
+  async function registrarDiferenciaPago(resolucion: 'cobrar' | 'devolver' | 'ajuste') {
     if (!pasoDiferencia) return
     setGuardando(true)
     setErrorMsg(null)
     const supabase = createClient()
     try {
-      if (cobrar) {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) throw new Error('Usuario no autenticado')
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Usuario no autenticado')
 
+      if (resolucion === 'cobrar' || resolucion === 'devolver') {
         const { error } = await supabase.from('venta_pagos').insert({
           venta_id: ventaId,
           medio_pago_id: pasoDiferencia.medioPagoId,
-          monto: pasoDiferencia.diferencia,
+          monto: pasoDiferencia.diferencia, // negativo si es devolución
           referencia: 'Ajuste por edición de venta',
         })
         if (error) throw new Error('Error al registrar el ajuste de pago: ' + error.message)
@@ -332,7 +335,6 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
         // Dashboard — sin este insert, "Esperado en caja" queda desalineado
         // de lo que realmente entró o salió.
         const fechaHoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
-        const esDevolucion = pasoDiferencia.diferencia < 0
 
         // TODO — verificar contra producción: categoria_gasto_id/concepto_gasto_id
         // correctos para "Egreso por devolución a cliente". Por ahora reutiliza
@@ -340,15 +342,36 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
         // corregir antes de usar esta rama en un caso real de devolución.
         const { error: movError } = await supabase.from('movimientos').insert({
           sucursal_id: 1,
-          tipo: esDevolucion ? 'Egreso' : 'Ingreso',
+          tipo: resolucion === 'devolver' ? 'Egreso' : 'Ingreso',
           categoria_gasto_id: 10, concepto_gasto_id: 35, // Venta local — revisar para el caso Egreso
           monto: Math.abs(pasoDiferencia.diferencia), medio_pago_id: pasoDiferencia.medioPagoId,
           fecha_utc: fechaHoy, mes_contable: fechaHoy.slice(0, 7) + '-01',
           origen_tipo: 'venta', origen_id: ventaId,
-          observaciones: `Ajuste por edición de venta #${numeroVenta}${esDevolucion ? ' (devolución)' : ''}`,
+          observaciones: `Ajuste por edición de venta #${numeroVenta}${resolucion === 'devolver' ? ' (devolución)' : ''}`,
           usuario_id: user.id,
         })
         if (movError) throw new Error('Error al registrar el movimiento de la diferencia: ' + movError.message)
+      } else {
+        // Ajuste contable puro: no entra/sale plata real. El total de la
+        // venta se corrige para que vuelva a coincidir con lo YA cobrado —
+        // queda registrado como descuento (si no se cobró de más) o recargo
+        // (si no se devolvió el excedente), sin tocar descuento_pct/recargo_pct
+        // (esos reflejan solo la venta original, este es un concepto aparte).
+        const tipoAjuste: 'descuento' | 'recargo' = pasoDiferencia.diferencia > 0 ? 'descuento' : 'recargo'
+        const { data: ventaActual, error: ventaFetchError } = await supabase
+          .from('ventas').select('total').eq('id', ventaId).single()
+        if (ventaFetchError) throw new Error('Error al leer la venta: ' + ventaFetchError.message)
+
+        const nuevoTotalConAjuste = ventaActual.total - pasoDiferencia.diferencia
+        const { error: ajusteError } = await supabase
+          .from('ventas')
+          .update({
+            ajuste_edicion_monto: -pasoDiferencia.diferencia, // negativo=descuento, positivo=recargo
+            ajuste_edicion_tipo: tipoAjuste,
+            total: nuevoTotalConAjuste,
+          })
+          .eq('id', ventaId)
+        if (ajusteError) throw new Error('Error al registrar el ajuste: ' + ajusteError.message)
       }
       onSaved()
     } catch (e: any) {
@@ -381,26 +404,36 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
                 </p>
               </div>
             </div>
-            {pasoDiferencia.diferencia > 0 && (
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Medio de pago para la diferencia</label>
-                <select value={pasoDiferencia.medioPagoId}
-                  onChange={e => setPasoDiferencia(prev => prev ? { ...prev, medioPagoId: Number(e.target.value) } : prev)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
-                  {MEDIOS_PAGO.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-                </select>
-              </div>
-            )}
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Medio de pago (solo si {pasoDiferencia.diferencia > 0 ? 'se cobra' : 'se devuelve'} ahora)
+              </label>
+              <select value={pasoDiferencia.medioPagoId}
+                onChange={e => setPasoDiferencia(prev => prev ? { ...prev, medioPagoId: Number(e.target.value) } : prev)}
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
+                {MEDIOS_PAGO.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+              </select>
+            </div>
+
             {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
-            <div className="flex gap-2 justify-end pt-2">
-              <button onClick={() => registrarDiferenciaPago(false)} disabled={guardando}
-                className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
-                Dejar sin cobrar la diferencia
-              </button>
-              <button onClick={() => registrarDiferenciaPago(true)} disabled={guardando}
-                className="px-4 py-2 bg-[#00a19a] text-white rounded text-sm hover:bg-[#008f89] disabled:opacity-50">
-                {guardando ? 'Guardando...' : (pasoDiferencia.diferencia > 0 ? 'Cobrar diferencia ahora' : 'Registrar devolución')}
-              </button>
+
+            <div className="space-y-2 pt-2 border-t border-gray-200">
+              <p className="text-xs text-gray-500">
+                {pasoDiferencia.diferencia > 0
+                  ? 'Si no se le cobra al cliente, la diferencia se registra como descuento (no mueve plata real).'
+                  : 'Si no se le devuelve al cliente, la diferencia se registra como recargo (no mueve plata real).'}
+              </p>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => registrarDiferenciaPago('ajuste')} disabled={guardando}
+                  className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                  {guardando ? 'Guardando...' : (pasoDiferencia.diferencia > 0 ? 'No cobrar — registrar como descuento' : 'No devolver — registrar como recargo')}
+                </button>
+                <button onClick={() => registrarDiferenciaPago(pasoDiferencia.diferencia > 0 ? 'cobrar' : 'devolver')} disabled={guardando}
+                  className="px-4 py-2 bg-[#00a19a] text-white rounded text-sm hover:bg-[#008f89] disabled:opacity-50">
+                  {guardando ? 'Guardando...' : (pasoDiferencia.diferencia > 0 ? 'Cobrar diferencia ahora' : 'Devolver ahora')}
+                </button>
+              </div>
             </div>
           </div>
         ) : (
