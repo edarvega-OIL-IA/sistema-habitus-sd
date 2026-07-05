@@ -38,6 +38,12 @@ const MEDIOS_PAGO = [
   { id: 4, nombre: 'Transferencia' },
   { id: 5, nombre: 'QR Mercado Pago' },
 ]
+const MEDIOS_CON_EMISOR = ['Débito', 'Crédito']
+
+interface EmisorPago {
+  id: number
+  nombre: string
+}
 
 // Quita acentos/mayúsculas para búsqueda tokenizada (mismo criterio que
 // Artículos y Compras)
@@ -93,7 +99,10 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
   const [precioTexto, setPrecioTexto] = useState<Record<number, string>>({})
 
   // Paso de confirmación tras guardar, si el nuevo total difiere de lo cobrado
-  const [pasoDiferencia, setPasoDiferencia] = useState<{ diferencia: number; medioPagoId: number } | null>(null)
+  const [pasoDiferencia, setPasoDiferencia] = useState<{
+    diferencia: number; medioPagoId: number; emisorPagoId: number; referencia: string
+  } | null>(null)
+  const [emisores, setEmisores] = useState<EmisorPago[]>([])
 
   useEffect(() => { cargarDatos() }, [])
 
@@ -112,7 +121,7 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
   async function cargarDatos() {
     setCargando(true)
     const supabase = createClient()
-    const [itemsRes, pagosRes, catalogoRes] = await Promise.all([
+    const [itemsRes, pagosRes, catalogoRes, emisoresRes] = await Promise.all([
       supabase.from('venta_items')
         .select('articulo_id, cantidad, precio_unitario, descuento_pct, subtotal, articulos(nombre)')
         .eq('venta_id', ventaId),
@@ -120,7 +129,9 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
       supabase.from('articulos')
         .select('id, nombre, codigo_interno, codigo_barra, precio_local, rubros(nombre), marcas(nombre)')
         .eq('activo', true).order('nombre'),
+      supabase.from('emisores_pago').select('id, nombre').eq('activo', true).order('nombre'),
     ])
+    setEmisores(emisoresRes.data || [])
 
     const itemsCargados: ItemEditable[] = (itemsRes.data || []).map((it: any) => ({
       articulo_id: it.articulo_id,
@@ -298,7 +309,7 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
       // 5) Si el nuevo total difiere de lo ya cobrado, preguntar qué hacer
       const diferenciaPago = Math.round((nuevoTotal - totalPagado) * 100) / 100
       if (Math.abs(diferenciaPago) >= 1) {
-        setPasoDiferencia({ diferencia: diferenciaPago, medioPagoId: 1 })
+        setPasoDiferencia({ diferencia: diferenciaPago, medioPagoId: 1, emisorPagoId: 0, referencia: '' })
         setGuardando(false)
         return
       }
@@ -315,6 +326,16 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
   //                                       en ventas.ajuste_edicion_monto/tipo
   async function registrarDiferenciaPago(resolucion: 'cobrar' | 'devolver' | 'ajuste') {
     if (!pasoDiferencia) return
+
+    if (resolucion !== 'ajuste') {
+      const medioNombre = MEDIOS_PAGO.find(m => m.id === pasoDiferencia.medioPagoId)?.nombre ?? ''
+      const requiereEmisor = MEDIOS_CON_EMISOR.includes(medioNombre)
+      if (requiereEmisor && !pasoDiferencia.emisorPagoId) {
+        setErrorMsg('Seleccioná el emisor (Visa, Master, etc.)')
+        return
+      }
+    }
+
     setGuardando(true)
     setErrorMsg(null)
     const supabase = createClient()
@@ -326,8 +347,9 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
         const { error } = await supabase.from('venta_pagos').insert({
           venta_id: ventaId,
           medio_pago_id: pasoDiferencia.medioPagoId,
+          emisor_pago_id: pasoDiferencia.emisorPagoId || null,
           monto: pasoDiferencia.diferencia, // negativo si es devolución
-          referencia: 'Ajuste por edición de venta',
+          referencia: pasoDiferencia.referencia.trim() || 'Ajuste por edición de venta',
         })
         if (error) throw new Error('Error al registrar el ajuste de pago: ' + error.message)
 
@@ -410,10 +432,29 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
                 Medio de pago (solo si {pasoDiferencia.diferencia > 0 ? 'se cobra' : 'se devuelve'} ahora)
               </label>
               <select value={pasoDiferencia.medioPagoId}
-                onChange={e => setPasoDiferencia(prev => prev ? { ...prev, medioPagoId: Number(e.target.value) } : prev)}
+                onChange={e => setPasoDiferencia(prev => prev ? { ...prev, medioPagoId: Number(e.target.value), emisorPagoId: 0 } : prev)}
                 className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
                 {MEDIOS_PAGO.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
               </select>
+            </div>
+
+            {MEDIOS_CON_EMISOR.includes(MEDIOS_PAGO.find(m => m.id === pasoDiferencia.medioPagoId)?.nombre ?? '') && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Emisor</label>
+                <select value={pasoDiferencia.emisorPagoId}
+                  onChange={e => setPasoDiferencia(prev => prev ? { ...prev, emisorPagoId: Number(e.target.value) } : prev)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
+                  <option value={0}>Seleccionar emisor...</option>
+                  {emisores.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Nro. de operación (opcional)</label>
+              <input type="text" value={pasoDiferencia.referencia}
+                onChange={e => setPasoDiferencia(prev => prev ? { ...prev, referencia: e.target.value } : prev)}
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
             </div>
 
             {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
