@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Filter, ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
+import { Filter, ChevronDown, ChevronRight, Trash2, Pencil } from 'lucide-react'
+import EditarItemsVentaModal from '@/components/ventas/EditarItemsVentaModal'
 
 interface Venta {
   id: number
@@ -25,6 +26,7 @@ export default function RegistroVentasPage() {
   const [expandida, setExpandida] = useState<number | null>(null)
   const [anulando, setAnulando] = useState<number | null>(null)
   const [confirmando, setConfirmando] = useState<number | null>(null)
+  const [editando, setEditando] = useState<{ id: number; numero_venta: number; descuento_pct: number } | null>(null)
 
   // Filtros
   const [modoPeriodo, setModoPeriodo] = useState<'dia' | 'mes' | 'anio' | 'libre' | 'todos'>('dia')
@@ -375,31 +377,40 @@ export default function RegistroVentasPage() {
                     </span>
                     <span className="w-32 flex justify-start">{estadoChip}</span>
                     <span className="w-32 text-right font-bold text-[#3c3c3b] text-sm">{fmt(v.total)}</span>
-                    <span className="w-10 flex justify-end">
+                    <span className="w-16 flex justify-end gap-2">
                       {v.estado_venta_id === 2 && v.cierre_turno_id !== null && v.cierre_turno_id === cierreActivoId && (
-                        confirmando === v.id ? (
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={e => { e.stopPropagation(); anularVenta(v.id) }}
-                              disabled={anulando === v.id}
-                              className="text-xs bg-red-500 text-white px-2 py-0.5 rounded hover:bg-red-600 disabled:opacity-50"
-                            >
-                              {anulando === v.id ? '...' : 'Confirmar'}
-                            </button>
-                            <button
-                              onClick={e => { e.stopPropagation(); setConfirmando(null) }}
-                              className="text-xs text-gray-400 hover:text-gray-600 px-1"
-                            >✕</button>
-                          </div>
-                        ) : (
+                        <>
                           <button
-                            onClick={e => { e.stopPropagation(); setConfirmando(v.id) }}
-                            className="text-gray-300 hover:text-red-500 transition-colors"
-                            title="Anular venta (solo Guardada, turno activo)"
+                            onClick={e => { e.stopPropagation(); setEditando({ id: v.id, numero_venta: v.numero_venta, descuento_pct: v.descuento_pct }) }}
+                            className="text-gray-300 hover:text-[#00a19a] transition-colors"
+                            title="Editar ítems (solo Guardada, turno activo)"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Pencil className="w-4 h-4" />
                           </button>
-                        )
+                          {confirmando === v.id ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={e => { e.stopPropagation(); anularVenta(v.id) }}
+                                disabled={anulando === v.id}
+                                className="text-xs bg-red-500 text-white px-2 py-0.5 rounded hover:bg-red-600 disabled:opacity-50"
+                              >
+                                {anulando === v.id ? '...' : 'Confirmar'}
+                              </button>
+                              <button
+                                onClick={e => { e.stopPropagation(); setConfirmando(null) }}
+                                className="text-xs text-gray-400 hover:text-gray-600 px-1"
+                              >✕</button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={e => { e.stopPropagation(); setConfirmando(v.id) }}
+                              className="text-gray-300 hover:text-red-500 transition-colors"
+                              title="Anular venta (solo Guardada, turno activo)"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </>
                       )}
                     </span>
                   </div>
@@ -456,6 +467,16 @@ export default function RegistroVentasPage() {
             })}
           </div>
         </div>
+      )}
+
+      {editando && (
+        <EditarItemsVentaModal
+          ventaId={editando.id}
+          numeroVenta={editando.numero_venta}
+          descuentoPctGeneral={editando.descuento_pct}
+          onClose={() => setEditando(null)}
+          onSaved={() => { setEditando(null); cargarVentas() }}
+        />
       )}
     </div>
   )
