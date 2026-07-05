@@ -9,7 +9,10 @@ interface Venta {
   id: number
   numero_venta: number
   total: number
+  subtotal: number
   descuento_pct: number
+  ajuste_edicion_monto: number | null
+  ajuste_edicion_tipo: string | null
   fecha_utc: string
   creado_en: string
   estado_venta_id: number
@@ -62,7 +65,8 @@ export default function RegistroVentasPage() {
     const { data } = await supabase
       .from('ventas')
       .select(`
-        id, numero_venta, total, descuento_pct, fecha_utc, creado_en, estado_venta_id, cierre_turno_id,
+        id, numero_venta, total, subtotal, descuento_pct, ajuste_edicion_monto, ajuste_edicion_tipo,
+        fecha_utc, creado_en, estado_venta_id, cierre_turno_id,
         estados_venta ( nombre ),
         cierres_turno ( turno_id, turnos(nombre) ),
         venta_items ( cantidad, precio_unitario, descuento_pct, subtotal, articulos(nombre) ),
@@ -437,8 +441,18 @@ export default function RegistroVentasPage() {
                           ))}
                         </tbody>
                       </table>
+                      <div className="flex justify-between text-xs text-gray-400 mb-1">
+                        <span>Subtotal artículos</span>
+                        <span>{fmt(v.subtotal)}</span>
+                      </div>
                       {v.descuento_pct > 0 && (
-                        <p className="text-xs text-gray-400 mb-3">Descuento general: {v.descuento_pct}%</p>
+                        <p className="text-xs text-gray-400 mb-1">Descuento general: {v.descuento_pct}%</p>
+                      )}
+                      {v.ajuste_edicion_monto !== null && v.ajuste_edicion_monto !== 0 && (
+                        <p className={`text-xs mb-3 ${v.ajuste_edicion_tipo === 'descuento' ? 'text-red-500' : 'text-amber-600'}`}>
+                          {v.ajuste_edicion_tipo === 'descuento' ? 'Descuento' : 'Recargo'} por edición de venta:{' '}
+                          {v.ajuste_edicion_tipo === 'descuento' ? '−' : '+'}{fmt(Math.abs(v.ajuste_edicion_monto))}
+                        </p>
                       )}
                       <div className="flex justify-end border-t border-gray-200 pt-3">
                         <div className="min-w-64">
