@@ -358,14 +358,15 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
         // de lo que realmente entró o salió.
         const fechaHoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
 
-        // TODO — verificar contra producción: categoria_gasto_id/concepto_gasto_id
-        // correctos para "Egreso por devolución a cliente". Por ahora reutiliza
-        // los mismos que Ingreso (10/35) — INCORRECTO para el caso Egreso,
-        // corregir antes de usar esta rama en un caso real de devolución.
+        // Ingreso (cobrar) -> categoría "Ventas" / concepto "Venta local" (10/35).
+        // Egreso (devolver) -> categoría "Devoluciones" / concepto "Devolución
+        // a cliente" (14/45), creados en producción el 06/07/2026.
+        const categoriaGastoId = resolucion === 'devolver' ? 14 : 10
+        const conceptoGastoId = resolucion === 'devolver' ? 45 : 35
         const { error: movError } = await supabase.from('movimientos').insert({
           sucursal_id: 1,
           tipo: resolucion === 'devolver' ? 'Egreso' : 'Ingreso',
-          categoria_gasto_id: 10, concepto_gasto_id: 35, // Venta local — revisar para el caso Egreso
+          categoria_gasto_id: categoriaGastoId, concepto_gasto_id: conceptoGastoId,
           monto: Math.abs(pasoDiferencia.diferencia), medio_pago_id: pasoDiferencia.medioPagoId,
           fecha_utc: fechaHoy, mes_contable: fechaHoy.slice(0, 7) + '-01',
           origen_tipo: 'venta', origen_id: ventaId,
