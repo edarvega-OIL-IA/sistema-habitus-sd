@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 03/07/2026 — Sesión larga (02-03/07): bug crítico de stock en Ventas (nunca descontaba desde el arranque) + causa raíz real (permisos GRANT faltantes, no solo RLS) + auditoría completa del esquema + diseño de corrección de ventas mal cargadas (Caso A/B)
-**Estado general:** 🟢 Sistema en producción real. Bug de stock en Ventas resuelto y validado end-to-end (carga + anulación). Fixes de decimales en Compras/Artículos/Movimientos aplicados. Ventas de prueba limpiadas, numeración realineada a 1334.
-**Próxima acción concreta:** Construir pantalla "Editar ítems" (Caso A: corregir artículo/cantidad en venta Guardada, mismo turno) en ruta `/ventas/registro/[id]`. Pendiente sin fecha: pantalla "Correcciones" para admin (turnos cerrados).
+**Última actualización:** 05/07/2026 — Pantalla "Editar ítems" (Caso A) construida y validada end-to-end en producción real
+**Estado general:** 🟢 Sistema en producción real. Corrección de ventas Guardadas (Caso A) completa: edición de artículos/cantidades con reversión de stock por delta, historial de auditoría, diferencia de cobro (mover plata real o ajuste contable de descuento/recargo), Emisor/Nro. de operación replicados de Ventas POS.
+**Próxima acción concreta:** Pantalla "Correcciones" para admin (ventas de turnos cerrados) — todavía no construida, solo con la base de datos lista (`corregido_por_usuario_id`, `corregido_en`, `motivo_correccion`). Resolver también el `TODO` pendiente en el código: `concepto_gasto_id` correcto para "Egreso por devolución a cliente" (bloquea solo el caso de devolución real con movimiento de plata).
 
 ---
 
@@ -71,10 +71,9 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 
 ## 6. Decisiones pendientes
 
-- [ ] Pantalla "Editar ítems" (Caso A) en `/ventas/registro/[id]` — corregir artículo/cantidad de una venta Guardada, mismo turno del cajero
 - [ ] Pantalla "Correcciones" (admin, rol_id=1) para ventas de turnos ya cerrados — usa columnas `corregido_por_usuario_id`, `corregido_en`, `motivo_correccion` (ya en producción)
+- [ ] `concepto_gasto_id` correcto para "Egreso por devolución a cliente" — no existe hoy en `conceptos_gasto`, bloquea el caso de devolución real con movimiento de plata en el modal de Editar ítems
 - [ ] Circuito de Nota de Crédito (Caso B: venta ya fiscalizada con diferencia de dinero) — depende de tener fiscalización real activa
-- [ ] Auditar el resto de tablas con triggers `SECURITY DEFINER=false` por el mismo patrón de GRANT faltante (ver sección 14) — auditoría inicial ya hecha, resultado limpio salvo `orden_compra_items` (corregido)
 - [ ] Limpiar políticas RLS duplicadas restantes si aparecen nuevas (ya se limpiaron `movimientos_stock` y `venta_items`)
 - [ ] Tipografías web: licenciar Antique Olive Nord D + Futura MD BT, o alternativas Google Fonts
 - [ ] Reemplazar `alert()` en confirmación de venta POS por notificación UI (los demás módulos ya lo tienen)
@@ -84,9 +83,10 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 - [ ] Editar historial de cierres de caja (Admin, pantalla separada) — post-MVP
 - [ ] Indicador de rentabilidad caída en listado de artículos (rojo si margen bajó >5% desde última compra)
 - [ ] Pantalla masiva de actualización de precios (aumentar % por rubro/marca)
-- [ ] Sandbox sigue sin los cambios de Compras de sesión 15 y sin las tablas/columnas nuevas de esta sesión
+- [ ] Sandbox sigue sin los cambios de Compras de sesión 15 y sin las tablas/columnas nuevas de las sesiones siguientes
 - [ ] Borrar `src/app/(sistema)/diagnostico/` (herramienta temporal del bug del scanner, ya resuelto) una vez confirmado que no hace falta más
 - [ ] MVP v2: fiscalización AFIP/ARCA vía TusFacturasAPP (cuenta todavía no creada) — Facturama descartado, es mexicano
+- [ ] Auditar el resto de pantallas con inputs de monto por si tienen el mismo problema de decimales (no se hizo una revisión exhaustiva de todo el sistema)
 
 ---
 
@@ -504,3 +504,52 @@ El fix principal de Ventas hizo que las ventas empezaran a aparecer en la pantal
 3. Auditar el resto de pantallas con inputs de monto (no se revisó todo el sistema).
 4. Replicar en sandbox todos los cambios de esta sesión (sigue desincronizado desde sesión 15).
 5. Definir circuito de Nota de Crédito (Caso B) cuando la fiscalización esté activa.
+
+---
+
+## 15. Sesión 05/07/2026 — Pantalla "Editar ítems" (Caso A) completa y validada
+
+### Componentes nuevos
+- `src/components/ventas/EditarItemsVentaModal.tsx` — modal de edición de ítems de una venta Guardada.
+- Botón "Editar" (ícono lápiz) agregado en `ventas/registro/page.tsx`, al lado de "Anular", mismo gateo: solo `estado_venta_id=2` y `cierre_turno_id` = cierre activo del cajero.
+
+### Diseño de la edición
+- No hay límite de ítems a editar por venta ni restricción de qué se puede tocar: artículo, cantidad y precio, todos editables.
+- Mecánica: "eliminar línea + agregar línea nueva" (no swap in-place) — mismo criterio que ya usa Compras. Sin motivo obligatorio (esa exigencia es solo para la futura pantalla Correcciones de admin).
+- Búsqueda de artículos tokenizada, mismo patrón que Compras/Artículos.
+
+### Mecánica de stock — delta neto, no reversión total
+Se calcula la diferencia neta por artículo entre el carrito original y el editado (no se revierte toda la venta y se vuelve a cargar entera). Genera un movimiento `Egreso` con los artículos que subieron/se agregaron y un movimiento `Ingreso` con los que bajaron/se sacaron — mismo mecanismo de trigger (`fn_aplicar_item_stock`) que ya usan Ventas y Compras. Validado con prueba real: venta con 2 artículos → editada agregando 1, sacando 1 y subiendo cantidad del tercero → deltas y stock final exactos en los 3 casos.
+
+### Trazabilidad
+Antes de reemplazar `venta_items`, se copia el estado actual a la nueva tabla `venta_items_historial` (snapshot con `editado_por_usuario_id`, `editado_en`). Se eligió esta tabla aparte (en vez de una columna `vigente` en `venta_items`) para no tener que auditar y tocar todas las consultas existentes del sistema (Stock, Reportes, Dashboard) que hoy leen `venta_items` sin filtro de vigencia — menor riesgo en un sistema ya en producción real.
+
+**Permisos agregados (producción):**
+```sql
+CREATE POLICY venta_items_delete ON venta_items FOR DELETE TO authenticated USING (true);
+GRANT DELETE ON venta_items TO authenticated;
+CREATE TABLE venta_items_historial (...);
+GRANT SELECT, INSERT ON venta_items_historial TO authenticated;
+```
+
+### Diferencia de cobro — dos vías, no mezcladas
+Si el nuevo total difiere de lo ya cobrado, el modal ofrece dos caminos separados, decisión explícita de Ariel:
+
+1. **Mover plata real** — "Cobrar ahora" / "Devolver ahora": inserta en `venta_pagos` + `movimientos` (ledger financiero), con selector de medio de pago, y Emisor + Nro. de operación replicados exactamente del patrón de `PanelPagos.tsx` (Ventas POS) — Emisor visible solo si el medio es Débito o Crédito.
+2. **Ajuste contable puro, sin mover plata** — "No cobrar → descuento" / "No devolver → recargo": usa 2 columnas nuevas en `ventas` (`ajuste_edicion_monto NUMERIC`, `ajuste_edicion_tipo TEXT` 'descuento'|'recargo'), **nunca toca** `descuento_pct`/`recargo_pct` (esas reflejan solo la venta original, son un concepto aparte a propósito, decisión explícita de Ariel). Fórmula: `total = subtotal × (1 - descuento_pct/100) × (1 + recargo_pct/100) + ajuste_edicion_monto`.
+
+**Columnas agregadas (producción):**
+```sql
+ALTER TABLE ventas ADD COLUMN ajuste_edicion_monto NUMERIC(12,2) NULL;
+ALTER TABLE ventas ADD COLUMN ajuste_edicion_tipo TEXT NULL;
+```
+
+El detalle expandido de Registro Ventas se actualizó para mostrar explícitamente "Subtotal artículos" → "Descuento/Recargo por edición de venta" → "Total", en vez de solo el resultado final sin desglose.
+
+### Bug propio corregido en la misma sesión
+Al construir el paso de "Cobrar ahora", el primer intento solo insertaba en `venta_pagos` — no en `movimientos` (el ledger financiero real que alimenta Dashboard y Reportes). No afectaba el arqueo de Caja (que suma directo desde `venta_pagos`), pero sí subcontaba los Ingresos del mes. Corregido antes de la validación final.
+
+### Pendiente
+1. `concepto_gasto_id`/`categoria_gasto_id` correctos para "Egreso por devolución a cliente" — no existe ningún concepto que calce en `conceptos_gasto` hoy. Marcado con `TODO` explícito en el código. Bloquea solo el caso real de devolución con movimiento de plata (no el de ajuste contable "recargo", que no mueve plata y ya funciona).
+2. Pantalla "Correcciones" (admin, rol_id=1, para ventas de turnos ya cerrados) — sigue sin construir, solo con la base de datos lista.
+3. Limpieza de todas las ventas de prueba de la sesión (múltiples rondas, incluyendo un cierre de turno de prueba) — completada y verificada al cierre de esta sesión, stock y numeración restaurados exactos.

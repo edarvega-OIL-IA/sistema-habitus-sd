@@ -67,6 +67,10 @@ export default function ComprasEditarPage() {
   const [diferenciaPendiente, setDiferenciaPendiente] = useState<{
     diferencia: number; confirmarPendiente: boolean
   } | null>(null)
+  // Ítem de ajuste por redondeo ya existente en la orden (si lo hay) — se
+  // guarda aparte de `items` para que no se mezcle con los artículos
+  // editables (nunca debe aparecer como fila en la tabla de productos).
+  const [ajusteExistente, setAjusteExistente] = useState<{ subtotal: number } | null>(null)
 
   // Texto crudo en edición para inputs de monto (evita que se pierda el
   // separador decimal mientras se tipea)
@@ -115,7 +119,7 @@ export default function ComprasEditarPage() {
           monto_comprobante, observaciones,
           orden_compra_items (
             articulo_id, cantidad_facturada, cantidad_recibida,
-            precio_unitario_sin_iva, subtotal,
+            precio_unitario_sin_iva, subtotal, es_ajuste_redondeo,
             articulos ( nombre, tasa_iva_id, precio_local, precio_web, precio_mayorista, precio_oferta_web )
           )
         `).eq('id', ordenId).single(),
@@ -150,9 +154,16 @@ export default function ComprasEditarPage() {
       setMontoComprobante(o.monto_comprobante || 0)
       setObservaciones(o.observaciones || '')
 
-      // Poblar items — precio_unitario en pantalla es con IVA
+      // Poblar items — precio_unitario en pantalla es con IVA.
+      // El ítem de ajuste por redondeo (es_ajuste_redondeo=true) NUNCA se
+      // mezcla con los artículos editables — se guarda aparte para no
+      // perder su marca especial al volver a guardar la orden.
       const tasas: TasaIva[] = tasasRes.data || []
-      const itemsCargados: ItemOrden[] = (o.orden_compra_items || []).map((it: any) => {
+      const itemsReales = (o.orden_compra_items || []).filter((it: any) => !it.es_ajuste_redondeo)
+      const itemAjuste = (o.orden_compra_items || []).find((it: any) => it.es_ajuste_redondeo)
+      setAjusteExistente(itemAjuste ? { subtotal: itemAjuste.subtotal } : null)
+
+      const itemsCargados: ItemOrden[] = itemsReales.map((it: any) => {
         const tasa = tasas.find(t => t.id === it.articulos?.tasa_iva_id)
         const divisor = tasa ? 1 + tasa.porcentaje / 100 : 1.21
         const precioConIva = Math.round(it.precio_unitario_sin_iva * divisor * 100) / 100
@@ -419,7 +430,9 @@ export default function ComprasEditarPage() {
         flete_transportista_id: fleteMonto > 0 && fleteTransportistaId ? fleteTransportistaId : null,
         monto_comprobante: tieneComprobante && montoComprobante > 0 ? montoComprobante : null,
         subtotal: subtotalArticulos,
-        total: montoAjustado !== undefined ? montoAjustado + fleteMonto : totalGeneral,
+        total: montoAjustado !== undefined
+          ? montoAjustado + fleteMonto
+          : totalGeneral + (ajusteExistente?.subtotal || 0),
         observaciones: observaciones || null,
         usuario_id: usuarioData.id,
       }).eq('id', ordenId)
@@ -456,7 +469,10 @@ export default function ComprasEditarPage() {
         if (visibleError) console.error('Error al marcar artículos como visibles:', visibleError.message)
       }
 
-      // Si hay ajuste de redondeo, insertar ítem especial que documenta la diferencia
+      // Si hay ajuste de redondeo NUEVO (se acaba de resolver una diferencia
+      // contra el comprobante en este guardado), insertar el ítem especial.
+      // Si no hay uno nuevo pero YA existía uno de una edición anterior,
+      // se reinserta tal cual — nunca se pierde silenciosamente.
       if (montoAjustado !== undefined && montoAjustado !== subtotalArticulos) {
         const ajuste = Math.round((montoAjustado - subtotalArticulos) * 100) / 100
         await supabase.from('orden_compra_items').insert({
@@ -468,6 +484,18 @@ export default function ComprasEditarPage() {
           flete_prorrateado: 0,
           costo_final_unitario: 0,
           subtotal: ajuste,
+          es_ajuste_redondeo: true,
+        })
+      } else if (ajusteExistente) {
+        await supabase.from('orden_compra_items').insert({
+          orden_compra_id: ordenId,
+          articulo_id: null,
+          cantidad_facturada: 1,
+          cantidad_recibida: 0,
+          precio_unitario_sin_iva: ajusteExistente.subtotal,
+          flete_prorrateado: 0,
+          costo_final_unitario: 0,
+          subtotal: ajusteExistente.subtotal,
           es_ajuste_redondeo: true,
         })
       }
@@ -945,9 +973,15 @@ export default function ComprasEditarPage() {
             <span className="text-gray-600">Flete:</span>
             <span className="font-semibold text-[#3c3c3b]">{fmt(fleteMonto)}</span>
           </div>
+          {ajusteExistente && (
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600 italic">Ajuste por redondeo:</span>
+              <span className="font-semibold text-amber-600 italic">{fmt(ajusteExistente.subtotal)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-lg pt-2 border-t border-gray-200">
             <span className="font-bold text-[#3c3c3b]">Total:</span>
-            <span className="font-bold text-[#00a19a]">{fmt(totalGeneral)}</span>
+            <span className="font-bold text-[#00a19a]">{fmt(totalGeneral + (ajusteExistente?.subtotal || 0))}</span>
           </div>
         </div>
       </div>
