@@ -60,6 +60,7 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
   const timerPopupRef = useRef<NodeJS.Timeout | null>(null)
   const popupRef = useRef<PopupCantidad | null>(null)
   const listaRef = useRef<HTMLDivElement>(null)
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   // Catálogo completo cargado una sola vez, filtrado en memoria.
   const catalogoRef = useRef<Articulo[]>([])
@@ -231,6 +232,15 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
 
   useEffect(() => { setIndiceFoco(-1) }, [resultados])
 
+  // Al navegar con las flechas, el foco de teclado se queda siempre en el
+  // input (a propósito, ver diseño arriba), así que el navegador no hace
+  // scroll automático hacia el ítem resaltado. Lo forzamos a mano acá.
+  useEffect(() => {
+    if (indiceFoco >= 0) {
+      itemRefs.current[indiceFoco]?.scrollIntoView({ block: 'nearest' })
+    }
+  }, [indiceFoco])
+
   // El campo de cantidad se edita a mano SOLO si el cajero hace clic ahí
   // (foco real por intención real). Un lector nunca puede disparar un
   // clic de mouse, así que no necesita ninguna protección anti-ráfaga.
@@ -271,6 +281,7 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
           {resultados.map((a, idx) => (
             <button
               key={a.id}
+              ref={el => { itemRefs.current[idx] = el }}
               onClick={() => abrirPopup(a)}
               className={`w-full text-left px-4 py-3 border-b border-gray-100 last:border-0 ${
                 indiceFoco === idx ? 'bg-[#00a19a] text-white' : 'hover:bg-[#e8f7f6]'
