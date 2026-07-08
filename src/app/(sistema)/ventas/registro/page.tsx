@@ -305,6 +305,7 @@ export default function RegistroVentasPage() {
               <option value="2">Guardada</option>
               <option value="3">Anulada</option>
               <option value="4">Fiscalizada</option>
+              <option value="5">Fiscalizado externamente</option>
             </select>
           </div>
         </div>
@@ -356,6 +357,8 @@ export default function RegistroVentasPage() {
                 ? <span className="px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-700">Pend. fiscal</span>
                 : v.estado_venta_id === 4
                 ? <span className="px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700">Fiscalizada</span>
+                : v.estado_venta_id === 5
+                ? <span className="px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">Fiscal. externa</span>
                 : <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">Guardada</span>
 
               return (
