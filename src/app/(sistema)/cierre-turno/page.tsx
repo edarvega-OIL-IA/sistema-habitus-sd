@@ -189,7 +189,10 @@ export default function CierreTurnoPage() {
       setVentasEfectivo((pagosData as any[]).map(p => ({
         numero_venta: p.ventas.numero_venta,
         total_efectivo: p.monto,
-        fecha_utc: p.ventas.fecha_utc,
+        // fecha_utc de ventas es tipo DATE (sin hora) — para mostrar la hora
+        // real hay que usar creado_en (TIMESTAMPTZ), igual que ya hacen
+        // egresos/ingresos más abajo.
+        fecha_utc: p.ventas.creado_en,
       })))
     }
 
