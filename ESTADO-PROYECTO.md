@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 05/07/2026 — Pantalla "Editar ítems" (Caso A) construida y validada end-to-end en producción real
-**Estado general:** 🟢 Sistema en producción real. Corrección de ventas Guardadas (Caso A) completa: edición de artículos/cantidades con reversión de stock por delta, historial de auditoría, diferencia de cobro (mover plata real o ajuste contable de descuento/recargo), Emisor/Nro. de operación replicados de Ventas POS.
-**Próxima acción concreta:** Pantalla "Correcciones" para admin (ventas de turnos cerrados) — todavía no construida, solo con la base de datos lista (`corregido_por_usuario_id`, `corregido_en`, `motivo_correccion`). Resolver también el `TODO` pendiente en el código: `concepto_gasto_id` correcto para "Egreso por devolución a cliente" (bloquea solo el caso de devolución real con movimiento de plata).
+**Última actualización:** 08/07/2026 — Corrección de venta #1338 (artículo mal cargado), creación del estado `estados_venta.id=5 "Fiscalizado externamente"` y backfill de 19 ventas facturadas en Cover durante el período paralelo, `TODO` de "devolución a cliente" resuelto en `EditarItemsVentaModal.tsx`, `MAPA-ARCHIVOS.md` creado y agregado a la lista de documentos de referencia, fix de scroll en `BuscadorProductos.tsx`
+**Estado general:** 🟢 Sistema en producción real. Módulo Compras estable. Pantalla "Editar ítems" (Caso A) 100% completa. Estado de ventas fiscales ahora distingue correctamente entre lo que factura el sistema propio y lo que se facturó por fuera (Cover u otro medio externo a futuro).
+**Próxima acción concreta:** Pantalla "Correcciones" para admin (ventas de turnos cerrados) — sigue sin construir, base de datos lista y ya usada manualmente hoy como precedente (venta #1338). En paralelo: replicar en sandbox todos los cambios acumulados desde sesión 15 (Compras, Editar ítems, nuevo estado `Fiscalizado externamente`).
 
 ---
 
@@ -14,6 +14,7 @@ Documentos relacionados:
 - `HABITUS_SD_ANALISIS_SESION01.md` — análisis funcional completo (41 secciones)
 - `HABITUS_UI_REGLAS.md` — reglas de UI confirmadas
 - `CLAUDE_CODE_PROMPT.md` — contexto para Claude Code (campos BD verificados, rutas, reglas)
+- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto (creado 07/07, actualizar al cierre de cada sesión cuando cambien archivos)
 - `supabase/01_referencia.sql` ✅ al `supabase/08_cierre_turno.sql` ✅ — todos ejecutados
 - `supabase/agregar_origen_subtipo.sql` — ejecutado en producción, PENDIENTE en sandbox
 - `supabase/limpieza_arranque.sql` — ejecutado en producción (01/07)
@@ -72,9 +73,11 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 ## 6. Decisiones pendientes
 
 - [ ] Pantalla "Correcciones" (admin, rol_id=1) para ventas de turnos ya cerrados — usa columnas `corregido_por_usuario_id`, `corregido_en`, `motivo_correccion` (ya en producción)
-- [ ] `concepto_gasto_id` correcto para "Egreso por devolución a cliente" — no existe hoy en `conceptos_gasto`, bloquea el caso de devolución real con movimiento de plata en el modal de Editar ítems
+- [x] ~~`concepto_gasto_id` correcto para "Egreso por devolución a cliente"~~ — resuelto: `categorias_gasto` id=14 (Devoluciones), `conceptos_gasto` id=45 (Devolución a cliente)
 - [ ] Circuito de Nota de Crédito (Caso B: venta ya fiscalizada con diferencia de dinero) — depende de tener fiscalización real activa
 - [ ] Limpiar políticas RLS duplicadas restantes si aparecen nuevas (ya se limpiaron `movimientos_stock` y `venta_items`)
+- [ ] Confirmar los 4 archivos marcados `[?]` en `MAPA-ARCHIVOS.md`: `configuracion/page.tsx`, `reportes/page.tsx`, `page.tsx` raíz, `lib/utils.ts`
+- [ ] Borrar `compras/[id]/page_compras_id_old.tsx` (backup viejo, no forma parte del build) y `src/app/(sistema)/diagnostico/` (herramienta temporal del bug del scanner, ya resuelto) una vez confirmado que no hacen falta
 - [ ] Tipografías web: licenciar Antique Olive Nord D + Futura MD BT, o alternativas Google Fonts
 - [ ] Reemplazar `alert()` en confirmación de venta POS por notificación UI (los demás módulos ya lo tienen)
 - [ ] Migrar datos históricos MOVIMIENTOS_HISTORICO_UNIFICADO.xlsx (2 filas amarillas: −$28.000 del 30/06/2026)
@@ -83,8 +86,7 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 - [ ] Editar historial de cierres de caja (Admin, pantalla separada) — post-MVP
 - [ ] Indicador de rentabilidad caída en listado de artículos (rojo si margen bajó >5% desde última compra)
 - [ ] Pantalla masiva de actualización de precios (aumentar % por rubro/marca)
-- [ ] Sandbox sigue sin los cambios de Compras de sesión 15 y sin las tablas/columnas nuevas de las sesiones siguientes
-- [ ] Borrar `src/app/(sistema)/diagnostico/` (herramienta temporal del bug del scanner, ya resuelto) una vez confirmado que no hace falta más
+- [ ] Sandbox sigue sin los cambios de Compras de sesión 15 y sin las tablas/columnas nuevas de las sesiones siguientes; también validar ahí el fix de Emisor/Nro. de operación (pendiente #3, considerado resuelto sin testeo en producción)
 - [ ] MVP v2: fiscalización AFIP/ARCA vía TusFacturasAPP (cuenta todavía no creada) — Facturama descartado, es mexicano
 - [ ] Auditar el resto de pantallas con inputs de monto por si tienen el mismo problema de decimales (no se hizo una revisión exhaustiva de todo el sistema)
 
@@ -130,6 +132,8 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 - `retiros_caja`: usa `cierre_turno_id` + `concepto`
 - `turnos`: 1=Mañana, 2=Tarde (General eliminado)
 - `orden_compra_items`: NO tiene campo `descuento_pct`
+- `estados_venta`: **corrección sobre CLAUDE_CODE_PROMPT.md** — el nombre real en producción es `1=Fiscal` (NO "Pendiente fiscal" como estaba documentado), `2=Guardado` (NO "Guardada"), `3=Anulada`, `4=Fiscalizada`, `5=Fiscalizado externamente` (agregado sesión 08/07 — ver sección 17)
+- `estados_venta`: la secuencia (`pg_get_serial_sequence`) puede desincronizarse del `MAX(id)` real si en algún momento se insertaron filas con `id` puesto a mano — verificar con `setval(pg_get_serial_sequence(...), (SELECT MAX(id) FROM tabla))` antes de un INSERT si da error de PK duplicada
 - `transportistas`: tabla nueva (id, nombre, activo) — Andreani, Correo Argentino, VIA CARGO + particulares
 - `historico_precios`: tabla nueva (id, articulo_id, fecha, tipo, costo_sin_iva, precio_local, precio_web, precio_mayorista, precio_oferta_web, tasa_iva_id, origen_id, usuario_id, creado_en)
 - `movimientos.origen_subtipo`: TEXT — `'mercaderia'` | `'flete'` (agregado sesión 15, reemplaza distinción por texto en observaciones)
@@ -549,7 +553,141 @@ El detalle expandido de Registro Ventas se actualizó para mostrar explícitamen
 ### Bug propio corregido en la misma sesión
 Al construir el paso de "Cobrar ahora", el primer intento solo insertaba en `venta_pagos` — no en `movimientos` (el ledger financiero real que alimenta Dashboard y Reportes). No afectaba el arqueo de Caja (que suma directo desde `venta_pagos`), pero sí subcontaba los Ingresos del mes. Corregido antes de la validación final.
 
-### Pendiente
-1. `concepto_gasto_id`/`categoria_gasto_id` correctos para "Egreso por devolución a cliente" — no existe ningún concepto que calce en `conceptos_gasto` hoy. Marcado con `TODO` explícito en el código. Bloquea solo el caso real de devolución con movimiento de plata (no el de ajuste contable "recargo", que no mueve plata y ya funciona).
+### Pendiente al cierre de esta sección (ver sección 16 para actualización)
+1. ~~`concepto_gasto_id`/`categoria_gasto_id` correctos para "Egreso por devolución a cliente"~~ — **resuelto en Conversa 11**, ver sección 16.
 2. Pantalla "Correcciones" (admin, rol_id=1, para ventas de turnos ya cerrados) — sigue sin construir, solo con la base de datos lista.
 3. Limpieza de todas las ventas de prueba de la sesión (múltiples rondas, incluyendo un cierre de turno de prueba) — completada y verificada al cierre de esta sesión, stock y numeración restaurados exactos.
+
+---
+
+## 16. Sesión 06-07/07/2026 — Cierre de pendientes de Editar ítems, 2 bugs nuevos en Compras, limpieza y documentación
+
+Esta semana el trabajo se dividió en 2 chats en paralelo (Conversa 10 y Conversa 11); esta sección consolida ambos.
+
+### Bug: movimiento financiero huérfano por limpieza incompleta
+El 06/07, primer día real de caja abierta tras el cierre de la sesión anterior, "Ingresos" del mes ($1.148.300) no coincidía con "Ventas del mes" ($1.145.300) — diferencia exacta de $3.000. Causa: la limpieza de la primera ronda de ventas de prueba (03/07, venta interna id=35) había borrado la venta, sus ítems y sus pagos, pero el script puntual de esa limpieza no incluyó `DELETE FROM movimientos` — quedó un Ingreso de $3.000 huérfano sin venta asociada. Corregido (`DELETE FROM movimientos WHERE id=54`), verificado que ambos totales vuelven a coincidir.
+
+**Lección para todas las limpiezas futuras:** el checklist de tablas a limpiar al borrar una venta/orden de prueba SIEMPRE debe incluir `movimientos` (ledger financiero), además de `venta_items`/`venta_pagos`/`movimientos_stock`/`movimiento_stock_items` — no asumir que ya está cubierto solo porque otras rondas de limpieza sí lo incluyeron.
+
+### Bug: "Costo c/flete" en Compras confundía sin IVA con con IVA
+En `compras/nueva/page.tsx` y `compras/[id]/page.tsx`, la columna "Costo c/flete" dividía por IVA (mostraba una base sin IVA) mientras "Precio Unit." mostraba con IVA — el flete visualmente parecía "restar" en vez de sumar, aunque el cálculo interno era correcto. Fix: la columna ahora muestra con IVA (comparable directo a "Precio Unit."), renombrada a "Costo c/flete (c/IVA)". El valor real que se persiste en `costo_sin_iva` al confirmar sigue calculándose sin IVA por dentro (cálculo separado, no afectado).
+
+### Feature: artículos se marcan visibles en salón automáticamente
+A pedido de Ariel: cualquier artículo cargado en una orden de compra (nueva o editada) pasa a `disponible_local=true` automáticamente, sin importar si la orden queda en Borrador o se confirma — antes había que activarlo a mano en Artículos después de cada pedido. Implementado en ambos archivos de Compras (`nueva` y `[id]`), con un `UPDATE` que solo toca los que estaban en `false`.
+
+### Bug: `monto_comprobante` no se guardaba al crear una orden nueva
+En `compras/nueva/page.tsx`, el campo `monto_comprobante` nunca estaba incluido en el `INSERT` que crea la orden — no era un bug de parseo ni de permisos, directamente faltaba la columna en el payload. Corregido (agregado al `INSERT`); también se agregó `.trim()` a Nro. Factura y Nro. Remito.
+
+### Bug: ajuste por redondeo se perdía al reeditar una orden de compra
+En `compras/[id]/page.tsx`: al cargar una orden para editar, el `SELECT` no traía `es_ajuste_redondeo` y el `.map()` de "poblar items" mezclaba el ítem de ajuste (`articulo_id=null`) con los artículos editables normales, sin filtrarlo. Como el guardado hace `DELETE` completo + `INSERT` completo de `orden_compra_items`, al reeditar una orden que ya tenía un ajuste, este se reinsertaba por el camino normal con `es_ajuste_redondeo=false`, perdiendo la marca — caso real detectado: orden EPN (id=5), ítem id=78, subtotal $0,39, quedó en `false`. La orden Disfit (nunca reeditada) no tenía el problema, lo que ayudó a aislar la causa.
+
+**Fix aplicado:**
+1. El `SELECT` ahora trae `es_ajuste_redondeo`.
+2. El ítem de ajuste se filtra ANTES de poblar la lista editable `items` — nunca se mezcla con los artículos reales. Se guarda aparte en un estado `ajusteExistente`.
+3. Al guardar, si no se genera un ajuste NUEVO en ese guardado pero había uno existente, se reinserta preservando `es_ajuste_redondeo=true`.
+4. El total de la orden sigue sumando el ajuste correctamente en ambos casos.
+5. En el resumen visual, ahora aparece como línea informativa aparte ("Ajuste por redondeo: $X"), ya no como fila fantasma con "—" en la tabla de artículos.
+
+**Dato corregido en producción:** `UPDATE orden_compra_items SET es_ajuste_redondeo=true WHERE id=78;`
+
+### Resuelto (Conversa 11): TODO de "devolución a cliente" en Editar ítems
+Se creó `categorias_gasto` id=14 (Devoluciones, tipo Egreso) y `conceptos_gasto` id=45 (Devolución a cliente, Egreso) — se descartó reusar una categoría existente para mantener las devoluciones aisladas en reportes futuros. `EditarItemsVentaModal.tsx` actualizado con lógica condicional: `'devolver'` → 14/45, `'cobrar'` → 10/35 (sin cambios). Las devoluciones pueden ocurrir por cualquier medio de pago (efectivo o transferencia), confirmando que un solo concepto cubriendo todos los medios era el enfoque correcto.
+
+### Nuevo documento: MAPA-ARCHIVOS.md (Conversa 11)
+Índice completo de rutas del proyecto — qué hace cada archivo `.tsx`/`.ts` bajo `src/`, organizado por módulo, generado desde un listado real de `Get-ChildItem` (no de memoria, para evitar imprecisiones). 4 archivos marcados `[?]` pendientes de confirmar: `configuracion/page.tsx`, `reportes/page.tsx`, `page.tsx` raíz, `lib/utils.ts`. 2 candidatos a borrar: `compras/[id]/page_compras_id_old.tsx` (backup viejo que no forma parte del build activo) y `diagnostico/page.tsx`. Convención establecida: actualizar `MAPA-ARCHIVOS.md` al cierre de cada sesión cuando se crean o modifican archivos — mismo criterio que `ESTADO-PROYECTO.md`.
+
+### Bug de scroll corregido (Conversa 11): BuscadorProductos.tsx
+Al navegar resultados de búsqueda con flechas, el ítem resaltado se salía del área visible del dropdown — el foco de teclado se queda a propósito en el input (diseño anti-rebote de scanner de código de barras), lo que impide el autoscroll nativo del navegador. Fix: array de `itemRefs` + `useEffect` en `indiceFoco` que llama `scrollIntoView({ block: 'nearest' })` sobre el ítem activo.
+
+### Próximos pasos (en orden)
+1. Pantalla "Correcciones" (admin) para ventas de turnos cerrados — sin construir.
+2. Replicar en sandbox todos los cambios acumulados desde sesión 15 (Compras + Editar ítems + Emisor/Nro. operación).
+3. Confirmar los 4 archivos `[?]` de `MAPA-ARCHIVOS.md` y borrar los 2 candidatos (`page_compras_id_old.tsx`, `diagnostico/page.tsx`) si se confirma que no hacen falta.
+4. Definir circuito de Nota de Crédito (Caso B) cuando la fiscalización esté activa.
+
+---
+
+## 17. Sesión 08/07/2026 — Corrección de venta mal cargada (artículo equivocado) + nuevo estado "Fiscalizado externamente"
+
+### Caso real: artículo 1329 con stock=1 pero sin presencia física en el local
+Ariel detectó, revisando el listado de artículos, que "Citrato De Magnesio - 500 Grs - Frutos Rojos - Star Nutrition" (id=1329) figuraba con `stock_actual=1` pero no había ninguna unidad física en el local. Diagnóstico paso a paso:
+
+1. `articulo_stock.actualizado_en` del id=1329 marcaba `2026-06-27` — **anterior** al arranque en producción (29/06), al conteo físico (30/06) y a la limpieza de arranque (01/07). Ese registro nunca se había tocado desde entonces.
+2. Se consultó el historial real de movimientos del artículo vía `movimiento_stock_items` + `movimientos_stock` (no hay una tabla única de "historial por artículo" — hay que cruzar ambas, ver query de referencia abajo): **vacío**, ningún movimiento real desde el arranque.
+3. Cruce manual contra el listado de Cover reveló la causa real: existen **dos artículos distintos** con nombres muy parecidos —
+   - id=1329: Frutos Rojos
+   - id=1330: Neutro
+   
+   En Cover, la venta del 06/07 cargó correctamente el sabor Frutos Rojos (id equivalente a 1329). En el sistema propio, la venta **#1338** (id interno=45) cargó por error el sabor Neutro (1330) en su lugar — mismo precio ($36.000), por lo que el total de la venta no delató el error a simple vista (mismo patrón que ya había pasado con la venta #1326 en sesión 16).
+4. Consecuencia en stock: 1330 quedó en `-1` (absorbió la venta real del 01/07 más esta venta mal cargada del 06/07), mientras 1329 se quedó en `1` sin haber sido descontado nunca — a pesar de haber salido físicamente del local.
+
+### Fix aplicado (transaccional, ejecutado y verificado en producción)
+Se corrigió en un único `BEGIN/COMMIT` con 4 pasos:
+1. Snapshot del ítem original en `venta_items_historial` (mismo mecanismo que ya usa "Editar ítems", Caso A) antes de tocar nada.
+2. `UPDATE venta_items SET articulo_id = 1329 WHERE id = 103` — mismo precio/cantidad/subtotal, el total de la venta no cambia.
+3. `ventas.corregido_por_usuario_id`, `corregido_en`, `motivo_correccion` completados a mano sobre la venta id=45 — primer uso real de estas columnas (preparadas desde sesión 03/07 para la futura pantalla "Correcciones", que todavía no existe). Sirve de precedente documentado de qué hacer manualmente hasta que esa pantalla se construya.
+4. Reversión de stock vía el mecanismo normal de movimientos (no `UPDATE` directo sobre `articulo_stock`): un movimiento de Ingreso +1 sobre 1330 (revierte el descuento erróneo) y un movimiento de Egreso -1 sobre 1329 (aplica el descuento real), ambos con `origen_tipo='venta'`, `origen_id=45`, pasando por el trigger `fn_aplicar_item_stock` — igual que el resto del sistema. Resultado verificado: ambos artículos en `stock_actual=0.00`.
+
+No fue necesario tocar `movimientos` (ledger financiero) — el precio era idéntico entre los dos artículos, el total y el pago ya registrado seguían siendo correctos.
+
+**Query de referencia para diagnosticar el historial de un artículo (no existe tabla única, hay que cruzar):**
+```sql
+SELECT
+  ms.fecha_utc, tms.nombre AS tipo, sms.nombre AS subtipo,
+  ms.origen_tipo, ms.origen_id, msi.cantidad, ms.observaciones
+FROM movimiento_stock_items msi
+JOIN movimientos_stock ms       ON ms.id = msi.movimiento_stock_id
+JOIN tipos_movimiento_stock tms ON tms.id = ms.tipo_movimiento_stock_id
+LEFT JOIN subtipos_movimiento_stock sms ON sms.id = ms.subtipo_movimiento_stock_id
+WHERE msi.articulo_id = <ARTICULO_ID>
+ORDER BY ms.fecha_utc, ms.creado_en;
+```
+
+**Aprendizaje:** el stock inicial cargado el 30/06 (conteo físico) se hizo con `UPDATE` directo sobre `articulo_stock`, sin generar movimiento (decisión explícita de esa sesión). Esto significa que la query de arriba **no muestra el valor inicial** como fila — solo lo que pasó desde el 01/07 en adelante. Un `actualizado_en` viejo (anterior al 30/06) en `articulo_stock` es indicio de que ese artículo específico no tuvo ningún movimiento real después del arranque, útil como primera señal de diagnóstico.
+
+### Nuevo estado: `estados_venta.id=5 "Fiscalizado externamente"`
+Contexto: 19 ventas cargadas en el sistema propio entre el 01/07 y el 07/07 quedaron con `estado_venta_id=1` ("Fiscal", nombre real verificado — no "Pendiente fiscal" como estaba documentado antes) porque se tildó "Fiscalizar" en el POS, pero la fiscalización real todavía no está activa (pendiente definir proveedor, ver sección 12). Todas esas ventas **ya fueron facturadas en Cover** durante el período paralelo — no hay ninguna pendiente de verdad.
+
+Decisión de diseño acordada con Ariel: en vez de reusar el estado `4=Fiscalizada` (reservado para cuando el sistema propio fiscalice de verdad, con CAE real vía TusFacturasAPP), se creó un estado nuevo y deliberadamente genérico — **sin mencionar "Cover"** — para poder reutilizarlo a futuro ante cualquier fiscalización que ocurra por fuera del sistema propio (otro sistema externo, o incluso ARCA directamente en caso de una falla temporal del sistema propio). Mismo principio que ya se aplicó con `origen_subtipo` en Compras: nunca mezclar dos conceptos distintos bajo la misma etiqueta.
+
+**SQL ejecutado (con nota sobre un problema real encontrado):**
+```sql
+BEGIN;
+-- Necesario: la secuencia de estados_venta estaba desincronizada del MAX(id)
+-- real (alguna inserción previa puso un id a mano) — sin este paso, el
+-- INSERT fallaba con "duplicate key value violates unique constraint".
+SELECT setval(pg_get_serial_sequence('estados_venta', 'id'), (SELECT MAX(id) FROM estados_venta));
+
+WITH nuevo_estado AS (
+  INSERT INTO estados_venta (nombre)
+  VALUES ('Fiscalizado externamente')
+  RETURNING id
+)
+UPDATE ventas
+SET estado_venta_id = (SELECT id FROM nuevo_estado)
+WHERE id IN (16,17,18,20,22,23,24,26,27,28,30,31,32,33,34,43,45,48,49);
+COMMIT;
+```
+Resultado verificado: estado creado como `id=5`, 19 ventas migradas, `Fiscal` (id=1) quedó en 0.
+
+**Pendiente de verificar (no bloqueante, a revisar la próxima vez que se toque Dashboard/Reportes):** confirmar que ningún filtro de Dashboard o Registro de Ventas excluye ventas por una lista explícita de `estado_venta_id` (ej. `IN (1,2,4)`) que no contemple el nuevo `5` — si el filtro es del tipo `!= 3` (excluye solo Anuladas) no hay impacto.
+
+**Regla a futuro:** mientras dure el período paralelo (hasta el 12/07), toda venta que se facture en Cover debería cargarse directamente como `Fiscalizado externamente` en el sistema propio, en vez de `Fiscal`, para no repetir este backfill.
+
+### Resuelto en esta sesión: TODO de "devolución a cliente" — reemplazo de los IDs en el código
+(Complementa el hallazgo de la sesión anterior, sección 16, donde se crearon `categorias_gasto` id=14 y `conceptos_gasto` id=45.) Se editó `EditarItemsVentaModal.tsx`: la función que arma el `INSERT` a `movimientos` ahora elige `categoria_gasto_id`/`concepto_gasto_id` según `resolucion` — `'devolver'` → 14/45, `'cobrar'` → 10/35 (sin cambios). Ya no queda ningún `TODO` en ese archivo.
+
+### Corrección de documentación: `CLAUDE_CODE_PROMPT.md`
+El nombre real de `estados_venta.id=1` en producción es **"Fiscal"**, no "Pendiente fiscal" como estaba documentado — corregido en `CLAUDE_CODE_PROMPT.md` (ver ese archivo). Se suma como otro caso real de por qué la regla "nunca documentar sin verificar con SELECT en producción" importa incluso para datos que parecían ya confirmados.
+
+### Archivos modificados esta sesión
+- `components/ventas/EditarItemsVentaModal.tsx` — TODO de devolución resuelto (14/45)
+- `components/ventas/BuscadorProductos.tsx` — fix de auto-scroll en navegación con flechas (`itemRefs` + `scrollIntoView`)
+- `MAPA-ARCHIVOS.md` — creado (ver sesión anterior) y sumado formalmente a la lista de "Documentos relacionados" de este archivo
+
+### Próximos pasos (en orden)
+1. Pantalla "Correcciones" (admin) para ventas de turnos cerrados — sin construir; ya hay un precedente manual documentado (venta #1338) de qué columnas completar mientras tanto.
+2. Verificar que Dashboard/Reportes no excluyan el nuevo `estado_venta_id=5` en algún filtro por lista explícita.
+3. Replicar en sandbox todos los cambios acumulados desde sesión 15 (Compras, Editar ítems, nuevo estado `Fiscalizado externamente`, corrección de `estados_venta` en la documentación).
+4. Confirmar los 4 archivos `[?]` de `MAPA-ARCHIVOS.md` y borrar los 2 candidatos (`page_compras_id_old.tsx`, `diagnostico/page.tsx`).
+5. Definir circuito de Nota de Crédito (Caso B) cuando la fiscalización esté activa.

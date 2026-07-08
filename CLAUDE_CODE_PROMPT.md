@@ -84,7 +84,7 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - venta_pagos: id, venta_id, medio_pago_id, monto, tarjeta_id, cupon, numero_autorizacion, cuenta_bancaria_id, referencia, creado_en, emisor_pago_id, payment_method_raw
 - medios_pago: id, nombre, fiscaliza_por_defecto, activo, creado_en — Efectivo=1, Débito=2, Crédito=3, Transferencia=4, QR Mercado Pago=5
 - emisores_pago: id, nombre, fiscaliza, activo, creado_en — Mercado Pago=7
-- estados_venta: id, nombre — 1=Pendiente fiscal, 2=Guardada, 3=Anulada, 4=Fiscalizada
+- estados_venta: id, nombre — 1=Fiscal, 2=Guardado, 3=Anulada, 4=Fiscalizada, 5=Fiscalizado externamente (agregado 08/07/2026 — ventas facturadas por fuera del sistema propio, ej. Cover durante el período paralelo; nombres corregidos contra SELECT real en producción, NO coincidían con lo documentado antes)
 
 ### Movimientos financieros
 - categorias_gasto: id, nombre, tipo(Ingreso/Egreso/Ambos/Sistema), creado_en — NO tiene activo
@@ -180,3 +180,4 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 14. Al entregar dos archivos con el mismo nombre final (`page.tsx` en carpetas distintas de Next.js), nombrar los archivos de descarga de forma bien diferenciada (ej. `PARA_CARPETA_nueva.tsx` / `PARA_CARPETA_id_corchetes.tsx`) — de lo contrario el usuario puede confundir cuál va en cada carpeta al copiar/pegar manualmente
 15. Nunca ajustar el precio unitario de un artículo real para forzar que un total cierre exacto contra un comprobante — el ajuste de redondeo debe ser un ítem separado y visible, no una alteración silenciosa del precio real del producto
 16. Movimientos financieros generados por una Orden de Compra deben dispararse por `monto > 0` en el guardado (Borrador o Confirmada), no solo al Confirmar — de lo contrario la caja real queda desalineada del sistema durante todo el tiempo que la orden permanece sin confirmar
+17. Una secuencia de Postgres puede desincronizarse del `MAX(id)` real de una tabla si en algún momento se insertó una fila con `id` puesto a mano — el síntoma es `duplicate key value violates unique constraint` al hacer un INSERT normal. Fix: `SELECT setval(pg_get_serial_sequence('tabla','id'), (SELECT MAX(id) FROM tabla));` antes de reintentar el INSERT
