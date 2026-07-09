@@ -28,6 +28,11 @@ interface CajaEstado {
   turno: string | null
   apertura: number
   esperado: number
+  // Efectivo físico real, independiente de si hay turno abierto o cerrado:
+  // si está abierta, es lo mismo que `esperado`; si está cerrada, es lo
+  // contado (efectivo_real) en el último cierre — según confirmado, ese
+  // monto queda íntegro en el local y es la apertura del próximo turno.
+  efectivoEnCaja: number
   usuario: string | null
   desde: string | null
 }
@@ -38,7 +43,7 @@ export default function DashboardPage() {
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [cajaEstado, setCajaEstado] = useState<CajaEstado>({ abierta: false, turno: null, apertura: 0, esperado: 0, usuario: null, desde: null })
+  const [cajaEstado, setCajaEstado] = useState<CajaEstado>({ abierta: false, turno: null, apertura: 0, esperado: 0, efectivoEnCaja: 0, usuario: null, desde: null })
   const [ventasManana, setVentasManana] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasTarde, setVentasTarde] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasDia, setVentasDia] = useState<VentasTurno>({ total: 0, cantidad: 0 })
@@ -78,7 +83,26 @@ export default function DashboardPage() {
     if (error) throw error
 
     if (!data) {
-      setCajaEstado({ abierta: false, turno: null, apertura: 0, esperado: 0, usuario: null, desde: null })
+      // No hay turno abierto: el efectivo en caja es el `efectivo_real`
+      // contado en el último cierre — queda íntegro en el local y es la
+      // apertura del próximo turno (confirmado con Ariel, no hay retiro
+      // físico fuera del sistema al cerrar).
+      const { data: ultimoCierre, error: ultimoError } = await supabase
+        .from('cierres_turno')
+        .select('efectivo_real')
+        .eq('sucursal_id', 1)
+        .not('cerrado_en', 'is', null)
+        .order('cerrado_en', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (ultimoError) throw ultimoError
+
+      setCajaEstado({
+        abierta: false, turno: null, apertura: 0, esperado: 0,
+        efectivoEnCaja: ultimoCierre?.efectivo_real ?? 0,
+        usuario: null, desde: null,
+      })
       return
     }
 
@@ -130,6 +154,7 @@ export default function DashboardPage() {
       turno: turnoRes.data?.nombre || null,
       apertura: data.apertura,
       esperado,
+      efectivoEnCaja: esperado,
       usuario: usuarioRes.data ? `${usuarioRes.data.nombre} ${usuarioRes.data.apellido}` : null,
       desde: data.creado_en,
     })
@@ -253,7 +278,9 @@ export default function DashboardPage() {
             <AlertTriangle className="w-5 h-5 text-orange-500" />
             <div>
               <p className="font-semibold text-orange-800 text-sm">Caja cerrada</p>
-              <p className="text-xs text-orange-600">No se pueden registrar ventas hasta abrir la caja</p>
+              <p className="text-xs text-orange-600">
+                No se pueden registrar ventas hasta abrir la caja · Efectivo en caja: {fmt(cajaEstado.efectivoEnCaja)}
+              </p>
             </div>
           </div>
           <button
