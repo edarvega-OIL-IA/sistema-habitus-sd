@@ -34,6 +34,11 @@ export default function MovimientosPage() {
   const [fechaRef, setFechaRef] = useState<Date>(new Date())
   const [fechaDesde, setFechaDesde] = useState<string>('')
   const [fechaHasta, setFechaHasta] = useState<string>('')
+  // Categoría "Caja" (id=13) = retiro/ingreso manual de plata, movimiento
+  // interno entre caja y banco/bolsillo, no un ingreso o gasto real del
+  // negocio (decisión 08/07/2026). Por defecto se sigue mostrando (false),
+  // para no cambiar el comportamiento existente sin que el usuario lo pida.
+  const [excluirCaja, setExcluirCaja] = useState<boolean>(false)
 
   function toArgentina(d: Date) {
     return d.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
@@ -90,6 +95,7 @@ export default function MovimientosPage() {
     setFechaDesde('')
     setFechaHasta('')
     setFechaRef(new Date())
+    setExcluirCaja(false)
   }
 
   const { desde, hasta } = getDesdHasta()
@@ -139,10 +145,11 @@ export default function MovimientosPage() {
     const cumpleTipo = tipoFiltro === 'todos' || mov.tipo === tipoFiltro
     const cumpleCategoria = categoriaFiltro === 'todos' ||
       mov.categoria_gasto_id?.toString() === categoriaFiltro
+    const cumpleExclusionCaja = !excluirCaja || mov.categoria_gasto_id !== 13
     const fechaCreado = new Date(mov.creado_en).toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
     const cumpleFechaDesde = !desde || fechaCreado >= desde
     const cumpleFechaHasta = !hasta || fechaCreado <= hasta
-    return cumpleTipo && cumpleCategoria && cumpleFechaDesde && cumpleFechaHasta
+    return cumpleTipo && cumpleCategoria && cumpleExclusionCaja && cumpleFechaDesde && cumpleFechaHasta
   })
 
   const totalIngresos = movimientosFiltrados
@@ -251,6 +258,19 @@ export default function MovimientosPage() {
               ))}
             </select>
           </div>
+        </div>
+
+        {/* Fila 3: exclusión de movimientos internos de Caja */}
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer w-fit">
+            <input
+              type="checkbox"
+              checked={excluirCaja}
+              onChange={e => setExcluirCaja(e.target.checked)}
+              className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+            />
+            Excluir movimientos internos de Caja (Retiro/Ingreso manual) — no son ingreso o gasto real del negocio
+          </label>
         </div>
 
       </div>
