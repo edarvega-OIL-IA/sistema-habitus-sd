@@ -165,22 +165,15 @@ export async function POST(request: NextRequest) {
       console.error('Error al generar movimiento para venta', venta.id, ':', movError.message)
     }
 
-    if (fiscalizar) {
-      const { error: compError } = await supabase
-        .from('comprobantes')
-        .insert({
-          venta_id: venta.id,
-          tipo_comprobante_id: 1,
-          punto_venta_id: 1,
-          estado_fiscal_id: 1,
-          fecha_emision_utc: new Date().toISOString(),
-          total,
-          fiscalizacion_intentos: 0,
-          impreso_enviado: false,
-        })
-
-      if (compError) console.error('Error al crear comprobante:', compError.message)
-    }
+    // NOTA (10/07/2026): el INSERT a `comprobantes` se sacó provisoriamente.
+    // `numero` es NOT NULL y debe ser el número de comprobante REAL que
+    // devuelve ARCA vía TusFacturasAPP al fiscalizar — no hay forma de
+    // completarlo en este punto (recién se crea la venta, todavía no se
+    // llamó a ningún proveedor de fiscalización). Cuando se integre
+    // TusFacturasAPP, este INSERT va a moverse a DESPUÉS de una llamada
+    // exitosa a su API, usando el numero/CAE reales de la respuesta.
+    // No afecta el comportamiento visible: la venta se sigue guardando
+    // igual, con estado_venta_id=1 ("Fiscal") si se tildó Fiscalizar.
 
     return NextResponse.json({
       ok: true,
