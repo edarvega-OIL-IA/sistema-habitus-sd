@@ -336,7 +336,7 @@ export default function ComprasPage() {
                         </Link>
                       )}
                       {!esAnulada && (
-                        <Link href={`/compras/${orden.id}/precios`}
+                        <Link href={`/articulos/precios?oc=${orden.id}`}
                           onClick={e => e.stopPropagation()}
                           className="text-xs text-gray-400 hover:text-[#00a19a] px-2 py-1 rounded hover:bg-[#00a19a]/10 transition-colors">
                           Precios

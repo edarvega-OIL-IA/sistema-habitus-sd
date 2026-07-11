@@ -46,6 +46,7 @@ export default function ArticulosPage() {
   const [marcas, setMarcas] = useState<Marca[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [rolUsuario, setRolUsuario] = useState<number | null>(null)
 
   // Filtros
   const [busqueda, setBusqueda] = useState('')
@@ -61,6 +62,13 @@ export default function ArticulosPage() {
   async function cargarDatos() {
     const supabase = createClient()
     try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: usuarioData } = await supabase
+          .from('usuarios').select('rol_id').eq('id', user.id).single()
+        if (usuarioData) setRolUsuario(usuarioData.rol_id)
+      }
+
       const [
         { data: articulosData, error: articulosError },
         { data: stockData },
@@ -136,10 +144,18 @@ export default function ArticulosPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-semibold text-[#3c3c3b]">Artículos</h1>
-        <Link href="/articulos/nuevo"
-          className="bg-[#00a19a] text-white px-4 py-2 rounded text-sm hover:bg-[#008f89] transition-colors">
-          + Nuevo artículo
-        </Link>
+        <div className="flex gap-2">
+          {rolUsuario === 1 && (
+            <Link href="/articulos/precios"
+              className="border border-[#00a19a] text-[#00a19a] px-4 py-2 rounded text-sm hover:bg-[#00a19a]/10 transition-colors">
+              Actualizar precios
+            </Link>
+          )}
+          <Link href="/articulos/nuevo"
+            className="bg-[#00a19a] text-white px-4 py-2 rounded text-sm hover:bg-[#008f89] transition-colors">
+            + Nuevo artículo
+          </Link>
+        </div>
       </div>
 
       {/* Filtros */}
