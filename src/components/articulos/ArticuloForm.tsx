@@ -58,6 +58,10 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   const [tasaPct, setTasaPct] = useState<number>(21)
   const [idTasa21, setIdTasa21] = useState<number | null>(null)
   const [idUnidadDefault, setIdUnidadDefault] = useState<number | null>(null)
+  // Para saber si precio_local realmente cambió (y así decidir si hay que
+  // dejar rastro en historico_precios) y quién hace el cambio.
+  const [precioLocalOriginal, setPrecioLocalOriginal] = useState<number | null>(null)
+  const [usuarioId, setUsuarioId] = useState<string | null>(null)
 
   const { register, handleSubmit, formState: { errors }, setValue, watch, reset } = useForm<ArticuloFormData>({
     resolver: zodResolver(articuloSchema),
@@ -110,6 +114,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
+        setUsuarioId(user.id)
         const { data: usuarioData } = await supabase
           .from('usuarios').select('rol_id').eq('id', user.id).single()
         if (usuarioData) setRolUsuario(usuarioData.rol_id)
@@ -172,6 +177,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
             peso_kg: articulo.peso_kg ? Number(articulo.peso_kg) : null,
             descripcion: articulo.descripcion ?? null,
           })
+          setPrecioLocalOriginal(articulo.precio_local ? Number(articulo.precio_local) : null)
         }
       }
     } catch (error) {}
@@ -308,9 +314,21 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
       if (articuloId) {
         const { error } = await supabase.from('articulos').update(payload).eq('id', articuloId)
         if (error) throw error
+
+        // Registrar en historico_precios solo si el precio local realmente
+        // cambió — evita ensuciar el historial con guardados que tocaron
+        // otros campos (nombre, disponibilidad, etc.) sin tocar el precio.
+        if (payload.precio_local !== (precioLocalOriginal ?? 0)) {
+          await registrarHistoricoPrecio(articuloId, payload.precio_local, data.tasa_iva_id ?? null)
+        }
       } else {
-        const { error } = await supabase.from('articulos').insert([payload])
+        const { data: nuevoArticulo, error } = await supabase
+          .from('articulos').insert([payload]).select('id').single()
         if (error) throw error
+
+        // Snapshot inicial de precio para un artículo recién creado, así
+        // "Actualizado" en la pantalla de precios no queda vacío desde el día 1.
+        await registrarHistoricoPrecio(nuevoArticulo.id, payload.precio_local, data.tasa_iva_id ?? null)
       }
       router.push('/articulos')
       router.refresh()
@@ -318,6 +336,27 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
       alert('Error al guardar: ' + error.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // No bloquea el guardado del artículo si falla — el precio ya quedó
+  // guardado en `articulos`; esto es solo el rastro de auditoría.
+  async function registrarHistoricoPrecio(articuloIdDestino: number, precioLocal: number, tasaIvaId: number | null) {
+    const supabase = createClient()
+    try {
+      const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+      const { error } = await supabase.from('historico_precios').insert({
+        articulo_id: articuloIdDestino,
+        fecha: hoy,
+        tipo: 'precio_manual',
+        precio_local: precioLocal,
+        tasa_iva_id: tasaIvaId,
+        origen_id: null,
+        usuario_id: usuarioId,
+      })
+      if (error) console.error('Error al registrar historico_precios:', error.message)
+    } catch (err: any) {
+      console.error('Error al registrar historico_precios:', err.message)
     }
   }
 
