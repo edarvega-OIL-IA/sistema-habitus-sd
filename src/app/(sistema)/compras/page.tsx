@@ -282,6 +282,7 @@ export default function ComprasPage() {
               const estadoNombre = orden.estados_orden_compra?.nombre || ''
               const esAnulada = orden.estado_orden_compra_id === 3
               const esConfirmada = orden.estado_orden_compra_id === 2
+              const esBorrador = orden.estado_orden_compra_id === 1
 
               return (
                 <div key={orden.id}>
@@ -335,7 +336,7 @@ export default function ComprasPage() {
                           Editar
                         </Link>
                       )}
-                      {!esAnulada && (
+                      {esBorrador && (
                         <Link href={`/articulos/precios?oc=${orden.id}`}
                           onClick={e => e.stopPropagation()}
                           className="text-xs text-gray-400 hover:text-[#00a19a] px-2 py-1 rounded hover:bg-[#00a19a]/10 transition-colors">

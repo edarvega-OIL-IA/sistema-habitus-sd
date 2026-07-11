@@ -97,7 +97,8 @@ function ActualizarPreciosContent() {
     mapRubros: Map<number, string>
     mapMarcas: Map<number, string>
     mapActualizado: Map<number, string>
-    mapUltimoCosto: Map<number, string>
+    mapActualizadoTs: Map<number, string>
+    mapUltimoCostoTs: Map<number, string>
   } | null>(null)
 
   // Filtros — mismos nombres/valores por defecto que Artículos, + OC.
@@ -164,11 +165,16 @@ function ActualizarPreciosContent() {
         supabase.from('marcas').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('tasas_iva').select('id, porcentaje'),
         // Solo cambios reales de precio (no de costo) — más recientes primero.
-        supabase.from('historico_precios').select('articulo_id, fecha').eq('tipo', 'precio_manual').order('fecha', { ascending: false }),
+        // creado_en (con hora) se usa para decidir orden real; fecha (DATE)
+        // solo para mostrar en pantalla.
+        supabase.from('historico_precios').select('articulo_id, fecha, creado_en').eq('tipo', 'precio_manual').order('creado_en', { ascending: false }),
         // Cambios de costo (vienen de Compras al confirmar) — para detectar
         // artículos cuyo costo subió después de la última revisión de precio.
-        supabase.from('historico_precios').select('articulo_id, fecha').eq('tipo', 'costo').order('fecha', { ascending: false }),
-        supabase.from('ordenes_compra').select('id, fecha_orden, proveedor_id').neq('estado_orden_compra_id', 3).order('id', { ascending: false }),
+        supabase.from('historico_precios').select('articulo_id, fecha, creado_en').eq('tipo', 'costo').order('creado_en', { ascending: false }),
+        // Solo Borrador: una vez Confirmada, el costo de esa compra ya
+        // pasó a costo_sin_iva del artículo (costo general), así que no
+        // hace falta seguir viéndola aparte en este combo.
+        supabase.from('ordenes_compra').select('id, fecha_orden, proveedor_id').eq('estado_orden_compra_id', 1).order('id', { ascending: false }),
         supabase.from('proveedores').select('id, nombre_comercial'),
       ])
 
@@ -181,17 +187,23 @@ function ActualizarPreciosContent() {
       const mapMarcas = new Map<number, string>((marcasData || []).map((m: Marca) => [m.id, m.nombre]))
 
       // "Actualizado" = fecha del cambio de precio más reciente por
-      // artículo. Como historicoData ya viene ordenado desc, la primera
-      // aparición de cada articulo_id es la más reciente.
+      // artículo (para MOSTRAR). Como historicoData ya viene ordenado por
+      // creado_en desc, la primera aparición de cada articulo_id es la
+      // más reciente. mapActualizadoTs guarda el creado_en real, para
+      // COMPARAR con precisión (dos cambios el mismo día se distinguen).
       const mapActualizado = new Map<number, string>()
+      const mapActualizadoTs = new Map<number, string>()
       for (const h of (historicoData || [])) {
-        if (!mapActualizado.has(h.articulo_id)) mapActualizado.set(h.articulo_id, h.fecha)
+        if (!mapActualizado.has(h.articulo_id)) {
+          mapActualizado.set(h.articulo_id, h.fecha)
+          mapActualizadoTs.set(h.articulo_id, h.creado_en)
+        }
       }
 
       // Misma lógica, para el último cambio de costo.
-      const mapUltimoCosto = new Map<number, string>()
+      const mapUltimoCostoTs = new Map<number, string>()
       for (const h of (historicoCostoData || [])) {
-        if (!mapUltimoCosto.has(h.articulo_id)) mapUltimoCosto.set(h.articulo_id, h.fecha)
+        if (!mapUltimoCostoTs.has(h.articulo_id)) mapUltimoCostoTs.set(h.articulo_id, h.creado_en)
       }
 
       setRubros(rubrosData || [])
@@ -208,7 +220,7 @@ function ActualizarPreciosContent() {
       // una vez que setCargando(false) se aplique más abajo.
       datosBaseRef.current = {
         articulosData: articulosData || [],
-        mapStock, mapTasas, mapRubros, mapMarcas, mapActualizado, mapUltimoCosto,
+        mapStock, mapTasas, mapRubros, mapMarcas, mapActualizado, mapActualizadoTs, mapUltimoCostoTs,
       }
     } catch (err: any) {
       setError(err.message)
@@ -219,7 +231,7 @@ function ActualizarPreciosContent() {
 
   async function construirItems() {
     if (!datosBaseRef.current) return
-    const { articulosData, mapStock, mapTasas, mapRubros, mapMarcas, mapActualizado, mapUltimoCosto } = datosBaseRef.current
+    const { articulosData, mapStock, mapTasas, mapRubros, mapMarcas, mapActualizado, mapActualizadoTs, mapUltimoCostoTs } = datosBaseRef.current
     const supabase = createClient()
 
     // Costo específico de una OC puntual (si hay una seleccionada).
@@ -250,12 +262,18 @@ function ActualizarPreciosContent() {
         const precioActual = a.precio_local || 0
         const utilidadActual = calcularUtilidadPct(precioActual, costoConIva)
         const actualizadoFecha = mapActualizado.get(a.id) || null
-        const ultimoCostoFecha = mapUltimoCosto.get(a.id) || null
+        const actualizadoTs = mapActualizadoTs.get(a.id) || null
+        const ultimoCostoTs = mapUltimoCostoTs.get(a.id) || null
         // Desactualizado = nunca se revisó el precio manualmente, o el
         // costo cambió (por una compra) después de la última revisión.
+        // Se compara por creado_en (TIMESTAMPTZ, formato ISO de Postgrest)
+        // en vez de fecha (DATE) para distinguir correctamente dos cambios
+        // del mismo día — con solo fecha, "empataban" y no disparaba la alerta.
         // Comparación de strings 'YYYY-MM-DD' es válida lexicográficamente.
-        const desactualizado = !actualizadoFecha || (!!ultimoCostoFecha && ultimoCostoFecha > actualizadoFecha)
+        const desactualizado = !actualizadoTs || (!!ultimoCostoTs && ultimoCostoTs > actualizadoTs)
         const previa = mapEdicionesPrevias.get(a.id)
+        const precioNuevoTexto = previa ? previa.precioNuevoTexto : fmtMonto(precioActual)
+        const precioNuevoParsed = parsearMonto(precioNuevoTexto)
         return {
           articulo_id: a.id,
           nombre: a.nombre,
@@ -275,8 +293,13 @@ function ActualizarPreciosContent() {
           utilidadActual,
           actualizadoFecha,
           desactualizado,
-          precioNuevoTexto: previa ? previa.precioNuevoTexto : fmtMonto(precioActual),
-          utilidadNuevoTexto: previa ? previa.utilidadNuevoTexto : utilidadActual.toFixed(1),
+          // precioNuevoTexto sí se preserva tal cual (es un monto real,
+          // no depende del costo). utilidadNuevoTexto, en cambio, SIEMPRE
+          // se recalcula contra el costoConIva actual — si se preservara
+          // el texto viejo, quedaría mal cuando el costo cambia al
+          // seleccionar/cambiar el filtro de OC (bug encontrado 11/07/2026).
+          precioNuevoTexto,
+          utilidadNuevoTexto: precioNuevoParsed > 0 ? calcularUtilidadPct(precioNuevoParsed, costoConIva).toFixed(1) : utilidadActual.toFixed(1),
           seleccionado: previa ? previa.seleccionado : false,
         }
       })
