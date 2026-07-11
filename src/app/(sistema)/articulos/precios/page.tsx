@@ -24,6 +24,7 @@ interface ArticuloPrecio {
   precioActual: number
   utilidadActual: number
   actualizadoFecha: string | null
+  desactualizado: boolean
   precioNuevoTexto: string
   utilidadNuevoTexto: string
   seleccionado: boolean
@@ -96,6 +97,7 @@ function ActualizarPreciosContent() {
     mapRubros: Map<number, string>
     mapMarcas: Map<number, string>
     mapActualizado: Map<number, string>
+    mapUltimoCosto: Map<number, string>
   } | null>(null)
 
   // Filtros — mismos nombres/valores por defecto que Artículos, + OC.
@@ -105,6 +107,7 @@ function ActualizarPreciosContent() {
   const [disponibilidadFiltro, setDisponibilidadFiltro] = useState('local')
   const [stockFiltro, setStockFiltro] = useState('todos')
   const [ocFiltro, setOcFiltro] = useState('todos')
+  const [soloDesactualizados, setSoloDesactualizados] = useState(false)
   const [pctAumento, setPctAumento] = useState('')
 
   useEffect(() => {
@@ -149,6 +152,7 @@ function ActualizarPreciosContent() {
         { data: marcasData },
         { data: tasasData },
         { data: historicoData },
+        { data: historicoCostoData },
         { data: ordenesData },
         { data: proveedoresData },
       ] = await Promise.all([
@@ -161,6 +165,9 @@ function ActualizarPreciosContent() {
         supabase.from('tasas_iva').select('id, porcentaje'),
         // Solo cambios reales de precio (no de costo) — más recientes primero.
         supabase.from('historico_precios').select('articulo_id, fecha').eq('tipo', 'precio_manual').order('fecha', { ascending: false }),
+        // Cambios de costo (vienen de Compras al confirmar) — para detectar
+        // artículos cuyo costo subió después de la última revisión de precio.
+        supabase.from('historico_precios').select('articulo_id, fecha').eq('tipo', 'costo').order('fecha', { ascending: false }),
         supabase.from('ordenes_compra').select('id, fecha_orden, proveedor_id').neq('estado_orden_compra_id', 3).order('id', { ascending: false }),
         supabase.from('proveedores').select('id, nombre_comercial'),
       ])
@@ -181,6 +188,12 @@ function ActualizarPreciosContent() {
         if (!mapActualizado.has(h.articulo_id)) mapActualizado.set(h.articulo_id, h.fecha)
       }
 
+      // Misma lógica, para el último cambio de costo.
+      const mapUltimoCosto = new Map<number, string>()
+      for (const h of (historicoCostoData || [])) {
+        if (!mapUltimoCosto.has(h.articulo_id)) mapUltimoCosto.set(h.articulo_id, h.fecha)
+      }
+
       setRubros(rubrosData || [])
       setMarcas(marcasData || [])
       setOrdenesCompra((ordenesData || []).map((o: any) => ({
@@ -195,7 +208,7 @@ function ActualizarPreciosContent() {
       // una vez que setCargando(false) se aplique más abajo.
       datosBaseRef.current = {
         articulosData: articulosData || [],
-        mapStock, mapTasas, mapRubros, mapMarcas, mapActualizado,
+        mapStock, mapTasas, mapRubros, mapMarcas, mapActualizado, mapUltimoCosto,
       }
     } catch (err: any) {
       setError(err.message)
@@ -206,7 +219,7 @@ function ActualizarPreciosContent() {
 
   async function construirItems() {
     if (!datosBaseRef.current) return
-    const { articulosData, mapStock, mapTasas, mapRubros, mapMarcas, mapActualizado } = datosBaseRef.current
+    const { articulosData, mapStock, mapTasas, mapRubros, mapMarcas, mapActualizado, mapUltimoCosto } = datosBaseRef.current
     const supabase = createClient()
 
     // Costo específico de una OC puntual (si hay una seleccionada).
@@ -236,6 +249,12 @@ function ActualizarPreciosContent() {
         const costoConIva = costoSinIva * (1 + ivaPct / 100)
         const precioActual = a.precio_local || 0
         const utilidadActual = calcularUtilidadPct(precioActual, costoConIva)
+        const actualizadoFecha = mapActualizado.get(a.id) || null
+        const ultimoCostoFecha = mapUltimoCosto.get(a.id) || null
+        // Desactualizado = nunca se revisó el precio manualmente, o el
+        // costo cambió (por una compra) después de la última revisión.
+        // Comparación de strings 'YYYY-MM-DD' es válida lexicográficamente.
+        const desactualizado = !actualizadoFecha || (!!ultimoCostoFecha && ultimoCostoFecha > actualizadoFecha)
         const previa = mapEdicionesPrevias.get(a.id)
         return {
           articulo_id: a.id,
@@ -254,7 +273,8 @@ function ActualizarPreciosContent() {
           costoConIva,
           precioActual,
           utilidadActual,
-          actualizadoFecha: mapActualizado.get(a.id) || null,
+          actualizadoFecha,
+          desactualizado,
           precioNuevoTexto: previa ? previa.precioNuevoTexto : fmtMonto(precioActual),
           utilidadNuevoTexto: previa ? previa.utilidadNuevoTexto : utilidadActual.toFixed(1),
           seleccionado: previa ? previa.seleccionado : false,
@@ -277,9 +297,10 @@ function ActualizarPreciosContent() {
       if (disponibilidadFiltro === 'web' && !it.disponible_web) return false
       if (stockFiltro === 'con_stock' && it.stock <= 0) return false
       if (stockFiltro === 'sin_stock' && it.stock > 0) return false
+      if (soloDesactualizados && !it.desactualizado) return false
       return true
     })
-  }, [items, busqueda, rubroFiltro, marcaFiltro, disponibilidadFiltro, stockFiltro])
+  }, [items, busqueda, rubroFiltro, marcaFiltro, disponibilidadFiltro, stockFiltro, soloDesactualizados])
 
   const todosVisiblesSeleccionados = itemsVisibles.length > 0 && itemsVisibles.every(it => it.seleccionado)
 
@@ -364,7 +385,7 @@ function ActualizarPreciosContent() {
       if (histError) throw histError
 
       setItems(prev => prev.map(it => it.articulo_id === articuloId
-        ? { ...it, precioActual: nuevoPrecio, utilidadActual: calcularUtilidadPct(nuevoPrecio, it.costoConIva), actualizadoFecha: hoy }
+        ? { ...it, precioActual: nuevoPrecio, utilidadActual: calcularUtilidadPct(nuevoPrecio, it.costoConIva), actualizadoFecha: hoy, desactualizado: false }
         : it))
       setNotif({ tipo: 'ok', msg: `Precio de "${item.nombre}" actualizado a $${fmtMonto(nuevoPrecio)}.` })
     } catch (err: any) {
@@ -488,6 +509,17 @@ function ActualizarPreciosContent() {
             </p>
           </div>
         </div>
+
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer w-fit">
+            <input type="checkbox" checked={soloDesactualizados} onChange={e => setSoloDesactualizados(e.target.checked)}
+              className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]" />
+            Solo desactualizados — el costo cambió después de la última revisión de precio
+            <span className="text-gray-400">
+              ({items.filter(it => it.desactualizado).length} de {items.length})
+            </span>
+          </label>
+        </div>
       </div>
 
       {/* Ajuste masivo */}
@@ -533,7 +565,7 @@ function ActualizarPreciosContent() {
                 const precioParsed = parsearMonto(it.precioNuevoTexto)
                 const modificado = precioParsed !== it.precioActual
                 return (
-                  <tr key={it.articulo_id} className={modificado ? 'bg-amber-50' : ''}>
+                  <tr key={it.articulo_id} className={modificado ? 'bg-amber-50' : it.desactualizado ? 'bg-orange-50/50' : ''}>
                     <td className="px-4 py-3">
                       <input type="checkbox" checked={it.seleccionado} onChange={() => toggleSeleccion(it.articulo_id)}
                         className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]" />
@@ -542,7 +574,10 @@ function ActualizarPreciosContent() {
                     <td className="px-4 py-3 text-right text-gray-500">${fmtMonto(it.costoConIva)}</td>
                     <td className="px-4 py-3 text-right text-gray-500">${fmtMonto(it.precioActual)}</td>
                     <td className="px-4 py-3 text-right text-gray-500">{it.utilidadActual.toFixed(1)}%</td>
-                    <td className="px-4 py-3 text-center text-gray-400 text-xs">
+                    <td className={`px-4 py-3 text-center text-xs ${it.desactualizado ? 'text-orange-600 font-medium' : 'text-gray-400'}`}>
+                      {it.desactualizado && (
+                        <span title="El costo cambió después de la última revisión de precio" className="mr-1">⚠</span>
+                      )}
                       {it.actualizadoFecha ? it.actualizadoFecha.split('-').reverse().join('/') : 'Sin registro'}
                     </td>
                     <td className="px-4 py-3 text-right">
