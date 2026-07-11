@@ -177,6 +177,23 @@ export default function RevisionPreciosPage() {
     }))
   }
 
+  // Al perder el foco, reformatea ambos campos con separador de miles
+  // argentino — mientras se edita se muestra literal lo tipeado (patrón
+  // ya usado en ArticuloForm/Compras/Movimientos), pero acá faltaba este
+  // paso final de reformateo.
+  function reformatearFila(idx: number) {
+    setItems(prev => prev.map((it, i) => {
+      if (i !== idx) return it
+      const precio = parsearMonto(it.precioNuevoTexto)
+      const utilidad = calcularUtilidadPct(precio, it.costoConIva)
+      return {
+        ...it,
+        precioNuevoTexto: precio > 0 ? fmtMonto(precio) : it.precioNuevoTexto,
+        utilidadNuevoTexto: precio > 0 ? utilidad.toFixed(1) : it.utilidadNuevoTexto,
+      }
+    }))
+  }
+
   async function guardarPrecio(idx: number) {
     const item = items[idx]
     const nuevoPrecio = parsearMonto(item.precioNuevoTexto)
@@ -304,6 +321,7 @@ export default function RevisionPreciosPage() {
                       inputMode="decimal"
                       value={it.precioNuevoTexto}
                       onChange={e => actualizarDesdePrecio(idx, e.target.value)}
+                      onBlur={() => reformatearFila(idx)}
                       className="w-28 px-2 py-1 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
                     />
                   </td>
@@ -313,6 +331,7 @@ export default function RevisionPreciosPage() {
                       inputMode="decimal"
                       value={it.utilidadNuevoTexto}
                       onChange={e => actualizarDesdeUtilidad(idx, e.target.value)}
+                      onBlur={() => reformatearFila(idx)}
                       className="w-16 px-2 py-1 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
                     />
                   </td>
