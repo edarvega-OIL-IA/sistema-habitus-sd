@@ -129,7 +129,7 @@ export default function RevisionPreciosPage() {
         .filter(it => it.articulo_id && mapArticulos.has(it.articulo_id))
         .map(it => {
           const art = mapArticulos.get(it.articulo_id!)!
-          const ivaPct = mapTasas.get(art.tasa_iva_id) ?? 0
+          const ivaPct = art.tasa_iva_id != null ? (mapTasas.get(art.tasa_iva_id) ?? 0) : 0
           const costoConIva = (it.costo_final_unitario || 0) * (1 + ivaPct / 100)
           const precioActual = art.precio_local || 0
           const margenActual = calcularMargen(precioActual, costoConIva)
