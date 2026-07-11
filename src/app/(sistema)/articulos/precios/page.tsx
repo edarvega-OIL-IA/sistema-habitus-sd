@@ -587,8 +587,12 @@ function ActualizarPreciosContent() {
               {itemsVisibles.map(it => {
                 const precioParsed = parsearMonto(it.precioNuevoTexto)
                 const modificado = precioParsed !== it.precioActual
+                // "Sin registro" (nunca se revisó el precio) es neutro, no
+                // alarma — solo se resalta fuerte cuando SÍ hubo una
+                // revisión previa y el costo cambió después de esa fecha.
+                const alertaFuerte = it.desactualizado && !!it.actualizadoFecha
                 return (
-                  <tr key={it.articulo_id} className={modificado ? 'bg-amber-50' : it.desactualizado ? 'bg-orange-50/50' : ''}>
+                  <tr key={it.articulo_id} className={modificado ? 'bg-amber-50' : alertaFuerte ? 'bg-orange-50/50' : ''}>
                     <td className="px-4 py-3">
                       <input type="checkbox" checked={it.seleccionado} onChange={() => toggleSeleccion(it.articulo_id)}
                         className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]" />
@@ -597,8 +601,8 @@ function ActualizarPreciosContent() {
                     <td className="px-4 py-3 text-right text-gray-500">${fmtMonto(it.costoConIva)}</td>
                     <td className="px-4 py-3 text-right text-gray-500">${fmtMonto(it.precioActual)}</td>
                     <td className="px-4 py-3 text-right text-gray-500">{it.utilidadActual.toFixed(1)}%</td>
-                    <td className={`px-4 py-3 text-center text-xs ${it.desactualizado ? 'text-orange-600 font-medium' : 'text-gray-400'}`}>
-                      {it.desactualizado && (
+                    <td className={`px-4 py-3 text-center text-xs ${alertaFuerte ? 'text-orange-600 font-medium' : 'text-gray-400'}`}>
+                      {alertaFuerte && (
                         <span title="El costo cambió después de la última revisión de precio" className="mr-1">⚠</span>
                       )}
                       {it.actualizadoFecha ? it.actualizadoFecha.split('-').reverse().join('/') : 'Sin registro'}
