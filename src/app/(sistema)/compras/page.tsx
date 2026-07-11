@@ -327,12 +327,19 @@ export default function ComprasPage() {
                           : <span className="text-gray-300 text-xs">—</span>
                       }
                     </span>
-                    <span className="w-36 flex justify-end items-center gap-1">
+                    <span className="w-52 flex justify-end items-center gap-1">
                       {!esAnulada && (
                         <Link href={`/compras/${orden.id}`}
                           onClick={e => e.stopPropagation()}
                           className="text-xs text-gray-400 hover:text-[#00a19a] px-2 py-1 rounded hover:bg-[#00a19a]/10 transition-colors">
                           Editar
+                        </Link>
+                      )}
+                      {!esAnulada && (
+                        <Link href={`/compras/${orden.id}/precios`}
+                          onClick={e => e.stopPropagation()}
+                          className="text-xs text-gray-400 hover:text-[#00a19a] px-2 py-1 rounded hover:bg-[#00a19a]/10 transition-colors">
+                          Precios
                         </Link>
                       )}
                       {!esAnulada && (
