@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useEffect, useState, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
@@ -70,7 +70,7 @@ function calcularPrecioDesdeUtilidad(utilidadPct: number, costoConIva: number): 
   return costoConIva * (1 + utilidadPct / 100)
 }
 
-export default function ActualizarPreciosPage() {
+function ActualizarPreciosContent() {
   const searchParams = useSearchParams()
 
   const [cargando, setCargando] = useState(true)
@@ -575,5 +575,15 @@ export default function ActualizarPreciosPage() {
         )}
       </div>
     </div>
+  )
+}
+
+// useSearchParams() (para leer ?oc=) exige estar envuelto en Suspense
+// para que Next.js pueda generar la página estáticamente.
+export default function ActualizarPreciosPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-gray-500">Cargando...</p>}>
+      <ActualizarPreciosContent />
+    </Suspense>
   )
 }
