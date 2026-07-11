@@ -15,9 +15,9 @@ interface ItemPrecio {
   ivaPct: number
   costoConIva: number
   precioActual: number
-  margenActual: number
+  utilidadActual: number
   precioNuevoTexto: string
-  margenNuevoTexto: string
+  utilidadNuevoTexto: string
 }
 
 // Parseo de montos: coma o punto se interpreta como separador DECIMAL si
@@ -42,14 +42,16 @@ function fmtMonto(n: number): string {
   return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function calcularMargen(precio: number, costoConIva: number): number {
-  if (!precio) return 0
-  return ((precio - costoConIva) / precio) * 100
+// Utilidad % = recargo sobre el costo (markup), NO margen sobre precio de
+// venta. Misma fórmula que ArticuloForm.tsx y que usaba Cover — decisión
+// 10/07/2026 para que el número sea comparable en todo el sistema.
+function calcularUtilidadPct(precio: number, costoConIva: number): number {
+  if (!costoConIva) return 0
+  return ((precio - costoConIva) / costoConIva) * 100
 }
 
-function calcularPrecioDesdeMargen(margenPct: number, costoConIva: number): number {
-  if (margenPct >= 100) return 0 // margen inválido, evita división por 0/negativo
-  return costoConIva / (1 - margenPct / 100)
+function calcularPrecioDesdeUtilidad(utilidadPct: number, costoConIva: number): number {
+  return costoConIva * (1 + utilidadPct / 100)
 }
 
 export default function RevisionPreciosPage() {
@@ -132,7 +134,7 @@ export default function RevisionPreciosPage() {
           const ivaPct = art.tasa_iva_id != null ? (mapTasas.get(art.tasa_iva_id) ?? 0) : 0
           const costoConIva = (it.costo_final_unitario || 0) * (1 + ivaPct / 100)
           const precioActual = art.precio_local || 0
-          const margenActual = calcularMargen(precioActual, costoConIva)
+          const utilidadActual = calcularUtilidadPct(precioActual, costoConIva)
           return {
             orden_item_id: it.id,
             articulo_id: it.articulo_id!,
@@ -142,9 +144,9 @@ export default function RevisionPreciosPage() {
             ivaPct,
             costoConIva,
             precioActual,
-            margenActual,
+            utilidadActual,
             precioNuevoTexto: fmtMonto(precioActual),
-            margenNuevoTexto: margenActual.toFixed(1),
+            utilidadNuevoTexto: utilidadActual.toFixed(1),
           }
         })
 
@@ -160,18 +162,18 @@ export default function RevisionPreciosPage() {
     setItems(prev => prev.map((it, i) => {
       if (i !== idx) return it
       const precio = parsearMonto(texto)
-      const margen = calcularMargen(precio, it.costoConIva)
-      return { ...it, precioNuevoTexto: texto, margenNuevoTexto: precio > 0 ? margen.toFixed(1) : it.margenNuevoTexto }
+      const margen = calcularUtilidadPct(precio, it.costoConIva)
+      return { ...it, precioNuevoTexto: texto, utilidadNuevoTexto: precio > 0 ? margen.toFixed(1) : it.utilidadNuevoTexto }
     }))
   }
 
-  function actualizarDesdeMargen(idx: number, texto: string) {
+  function actualizarDesdeUtilidad(idx: number, texto: string) {
     setItems(prev => prev.map((it, i) => {
       if (i !== idx) return it
       const margen = parseFloat(texto.replace(',', '.'))
-      if (isNaN(margen)) return { ...it, margenNuevoTexto: texto }
-      const precio = calcularPrecioDesdeMargen(margen, it.costoConIva)
-      return { ...it, margenNuevoTexto: texto, precioNuevoTexto: precio > 0 ? fmtMonto(Math.round(precio)) : it.precioNuevoTexto }
+      if (isNaN(margen)) return { ...it, utilidadNuevoTexto: texto }
+      const precio = calcularPrecioDesdeUtilidad(margen, it.costoConIva)
+      return { ...it, utilidadNuevoTexto: texto, precioNuevoTexto: precio > 0 ? fmtMonto(Math.round(precio)) : it.precioNuevoTexto }
     }))
   }
 
@@ -209,7 +211,7 @@ export default function RevisionPreciosPage() {
       if (histError) throw histError
 
       setItems(prev => prev.map((it, i) => i === idx
-        ? { ...it, precioActual: nuevoPrecio, margenActual: calcularMargen(nuevoPrecio, it.costoConIva) }
+        ? { ...it, precioActual: nuevoPrecio, utilidadActual: calcularUtilidadPct(nuevoPrecio, it.costoConIva) }
         : it))
       setNotif({ tipo: 'ok', msg: `Precio de "${item.nombre}" actualizado a ${fmtMonto(nuevoPrecio)}.` })
     } catch (err: any) {
@@ -280,9 +282,9 @@ export default function RevisionPreciosPage() {
               <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Artículo</th>
               <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Costo c/IVA</th>
               <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Precio actual</th>
-              <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Margen actual</th>
+              <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Utilidad actual</th>
               <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold w-32">Precio nuevo</th>
-              <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold w-24">Margen %</th>
+              <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold w-24">Utilidad %</th>
               <th className="px-4 py-3 w-24"></th>
             </tr>
           </thead>
@@ -295,7 +297,7 @@ export default function RevisionPreciosPage() {
                   <td className="px-4 py-3 text-gray-700">{it.nombre}</td>
                   <td className="px-4 py-3 text-right text-gray-500">${fmtMonto(it.costoConIva)}</td>
                   <td className="px-4 py-3 text-right text-gray-500">${fmtMonto(it.precioActual)}</td>
-                  <td className="px-4 py-3 text-right text-gray-500">{it.margenActual.toFixed(1)}%</td>
+                  <td className="px-4 py-3 text-right text-gray-500">{it.utilidadActual.toFixed(1)}%</td>
                   <td className="px-4 py-3 text-right">
                     <input
                       type="text"
@@ -309,8 +311,8 @@ export default function RevisionPreciosPage() {
                     <input
                       type="text"
                       inputMode="decimal"
-                      value={it.margenNuevoTexto}
-                      onChange={e => actualizarDesdeMargen(idx, e.target.value)}
+                      value={it.utilidadNuevoTexto}
+                      onChange={e => actualizarDesdeUtilidad(idx, e.target.value)}
                       className="w-16 px-2 py-1 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
                     />
                   </td>
