@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { Plus, Filter, CheckCircle2, FileText, XCircle, ChevronDown, ChevronRight } from 'lucide-react'
+import { Plus, Filter, CheckCircle2, FileText, XCircle, ChevronDown, ChevronRight, Edit, Tag, Ban } from 'lucide-react'
 
 interface ItemOrden {
   id: number
@@ -328,19 +328,21 @@ export default function ComprasPage() {
                           : <span className="text-gray-300 text-xs">—</span>
                       }
                     </span>
-                    <span className="w-52 flex justify-end items-center gap-1">
+                    <span className="w-28 flex justify-end items-center gap-1">
                       {!esAnulada && (
                         <Link href={`/compras/${orden.id}`}
                           onClick={e => e.stopPropagation()}
-                          className="text-xs text-gray-400 hover:text-[#00a19a] px-2 py-1 rounded hover:bg-[#00a19a]/10 transition-colors">
-                          Editar
+                          title="Editar"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded text-blue-400 hover:bg-blue-500 hover:text-white transition-colors">
+                          <Edit className="w-4 h-4" />
                         </Link>
                       )}
                       {esBorrador && (
                         <Link href={`/articulos/precios?oc=${orden.id}`}
                           onClick={e => e.stopPropagation()}
-                          className="text-xs text-gray-400 hover:text-[#00a19a] px-2 py-1 rounded hover:bg-[#00a19a]/10 transition-colors">
-                          Precios
+                          title="Precios"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded text-indigo-400 hover:bg-indigo-500 hover:text-white transition-colors">
+                          <Tag className="w-4 h-4" />
                         </Link>
                       )}
                       {!esAnulada && (
@@ -359,8 +361,9 @@ export default function ComprasPage() {
                         ) : (
                           <button
                             onClick={e => { e.stopPropagation(); setConfirmandoAnular(orden.id) }}
-                            className="text-xs text-gray-400 hover:text-red-500 transition-colors px-2 py-1 rounded hover:bg-red-50">
-                            Anular
+                            title="Anular"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded text-red-400 hover:bg-red-500 hover:text-white transition-colors">
+                            <Ban className="w-4 h-4" />
                           </button>
                         )
                       )}

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { Plus, Filter } from 'lucide-react'
+import { Plus, Filter, Edit, Trash2 } from 'lucide-react'
 
 interface Movimiento {
   id: number
@@ -408,11 +408,17 @@ export default function MovimientosPage() {
                             <button onClick={() => setConfirmandoEliminar(null)} className="text-gray-400 hover:underline">No</button>
                           </div>
                         ) : (
-                          <div className="flex items-center justify-end gap-2">
+                          <div className="flex items-center justify-end gap-1">
                             <Link href={`/movimientos/${mov.id}`}
-                              className="text-xs text-gray-400 hover:text-[#00a19a]">Editar</Link>
+                              title="Editar"
+                              className="inline-flex items-center justify-center w-8 h-8 rounded text-blue-400 hover:bg-blue-500 hover:text-white transition-colors">
+                              <Edit className="w-4 h-4" />
+                            </Link>
                             <button onClick={() => setConfirmandoEliminar(mov.id)}
-                              className="text-xs text-gray-400 hover:text-red-600">Eliminar</button>
+                              title="Eliminar"
+                              className="inline-flex items-center justify-center w-8 h-8 rounded text-red-400 hover:bg-red-500 hover:text-white transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         )
                       )}
