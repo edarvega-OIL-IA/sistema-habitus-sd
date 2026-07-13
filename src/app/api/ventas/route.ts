@@ -1,5 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { fiscalizacionActiva, emitirFacturaC } from '@/lib/tusfacturas/emitir'
+import { mapearVentaAFacturaC, VentaParaFacturar, PUNTO_VENTA_ID, TIPO_COMPROBANTE_ID_FACTURA } from '@/lib/tusfacturas/mapeo'
+import { esRespuestaExitosa } from '@/lib/tusfacturas/tipos'
+
+// Estados de estados_fiscales en producción (verificado por SELECT, no asumido)
+const ESTADO_FISCAL_PENDIENTE = 1
+const ESTADO_FISCAL_CAE_RECIBIDO = 3
+const ESTADO_FISCAL_CAE_RECHAZADO = 4
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -111,8 +119,6 @@ export async function POST(request: NextRequest) {
     // detalle por artículo (movimiento_stock_items). El trigger
     // fn_aplicar_item_stock descuenta articulo_stock automáticamente al
     // insertar cada fila de detalle — mismo mecanismo que ya usa Compras.
-    // BUG CORREGIDO (02/07/2026): este bloque no existía; ninguna venta
-    // desde el arranque (01/07) había descontado stock.
     const { data: movStock, error: movStockError } = await supabase
       .from('movimientos_stock')
       .insert({
@@ -160,31 +166,146 @@ export async function POST(request: NextRequest) {
       })
 
     if (movError) {
-      // No revertimos la venta (ya puede tener comprobante asociado),
-      // pero dejamos rastro claro para corregir manualmente el movimiento faltante.
       console.error('Error al generar movimiento para venta', venta.id, ':', movError.message)
     }
 
-    // NOTA (10/07/2026): el INSERT a `comprobantes` se sacó provisoriamente.
-    // `numero` es NOT NULL y debe ser el número de comprobante REAL que
-    // devuelve ARCA vía TusFacturasAPP al fiscalizar — no hay forma de
-    // completarlo en este punto (recién se crea la venta, todavía no se
-    // llamó a ningún proveedor de fiscalización). Cuando se integre
-    // TusFacturasAPP, este INSERT va a moverse a DESPUÉS de una llamada
-    // exitosa a su API, usando el numero/CAE reales de la respuesta.
-    // No afecta el comportamiento visible: la venta se sigue guardando
-    // igual, con estado_venta_id=1 ("Fiscal") si se tildó Fiscalizar.
+    // ── Fiscalización AFIP/ARCA vía TusFacturasAPP ──────────────────────────
+    // Gateado por FISCALIZACION_TUSFACTURAS_ACTIVA (Vercel). Mientras esa
+    // variable no esté en 'true', este bloque no se ejecuta y el
+    // comportamiento es idéntico al que ya está en producción: la venta
+    // queda guardada con estado_venta_id=1 ("Fiscal", pendiente) si se
+    // tildó Fiscalizar, sin ningún llamado externo.
+    let mensajeFiscal: string | null = null
+
+    if (fiscalizar && fiscalizacionActiva()) {
+      try {
+        // 1) Reservar el próximo número de comprobante (consume numeración real)
+        const { data: proximoNumero, error: numComprobanteError } = await supabase
+          .rpc('obtener_proximo_numero_comprobante', {
+            p_punto_venta_id: PUNTO_VENTA_ID,
+            p_tipo_comprobante_id: TIPO_COMPROBANTE_ID_FACTURA,
+          })
+
+        if (numComprobanteError) throw new Error('Error al obtener numeración de comprobante: ' + numComprobanteError.message)
+
+        const numeroFormateado = String(proximoNumero).padStart(8, '0')
+
+        // 2) Insertar comprobante en estado Pendiente ANTES de llamar a la API
+        //    (si el request falla, el número queda documentado como consumido —
+        //    nunca se vuelve a pedir uno nuevo para reintentar la misma venta)
+        const { data: comprobante, error: comprobanteInsertError } = await supabase
+          .from('comprobantes')
+          .insert({
+            venta_id: venta.id,
+            tipo_comprobante_id: TIPO_COMPROBANTE_ID_FACTURA,
+            punto_venta_id: PUNTO_VENTA_ID,
+            numero: proximoNumero,
+            estado_fiscal_id: ESTADO_FISCAL_PENDIENTE,
+            fecha_emision_utc: new Date().toISOString(),
+            total,
+            fiscalizacion_intentos: 0,
+          })
+          .select('id')
+          .single()
+
+        if (comprobanteInsertError) throw new Error('Error al crear comprobante: ' + comprobanteInsertError.message)
+
+        // 3) Traer datos del cliente (hoy siempre id=1, Consumidor Final —
+        //    preparado para cuando el POS permita cargar cliente real)
+        const { data: clienteData } = await supabase
+          .from('clientes')
+          .select('nombre, cuit, dni, domicilio, email')
+          .eq('id', 1)
+          .single()
+
+        // 4) Traer nombre/código de cada artículo (query separada, nunca join anidado)
+        const articuloIds = items.map((item: any) => item.articulo_id)
+        const { data: articulosData } = await supabase
+          .from('articulos')
+          .select('id, nombre, codigo_interno')
+          .in('id', articuloIds)
+
+        const articulosMap = new Map((articulosData || []).map(a => [a.id, a]))
+
+        const ventaParaFacturar: VentaParaFacturar = {
+          venta_id: venta.id,
+          fecha_utc: fechaHoy,
+          total,
+          cliente: {
+            cuit: clienteData?.cuit ?? null,
+            dni: clienteData?.dni ?? null,
+            nombre: clienteData?.nombre || 'Consumidor Final',
+            domicilio: clienteData?.domicilio ?? null,
+            email: clienteData?.email ?? null,
+          },
+          items: items.map((item: any) => {
+            const articulo = articulosMap.get(item.articulo_id)
+            return {
+              articulo_nombre: articulo?.nombre || 'Artículo',
+              articulo_codigo: articulo?.codigo_interno || String(item.articulo_id),
+              cantidad: item.cantidad,
+              subtotal: item.precio_unitario * item.cantidad * (1 - (item.descuento_pct || 0) / 100),
+            }
+          }),
+        }
+
+        const jsonRequest = mapearVentaAFacturaC(ventaParaFacturar, numeroFormateado)
+        const respuesta = await emitirFacturaC(jsonRequest)
+
+        if (esRespuestaExitosa(respuesta)) {
+          // 5a) Éxito: CAE recibido
+          await supabase
+            .from('comprobantes')
+            .update({
+              estado_fiscal_id: ESTADO_FISCAL_CAE_RECIBIDO,
+              factura_cae: respuesta.cae,
+              factura_cae_vencimiento: convertirFechaDDMMYYYYaISO(respuesta.cae_vencimiento),
+              fiscalizacion_intentos: 1,
+            })
+            .eq('id', comprobante.id)
+
+          await supabase
+            .from('ventas')
+            .update({ estado_venta_id: 4 }) // Fiscalizada
+            .eq('id', venta.id)
+
+          mensajeFiscal = `Factura C ${respuesta.comprobante_nro} — CAE ${respuesta.cae}`
+        } else {
+          // 5b) Error: queda documentado, sin tocar estado_venta_id (sigue en 1=Fiscal, pendiente de revisión manual)
+          console.error('TusFacturasAPP rechazó el comprobante de venta', venta.id, ':', respuesta.errores)
+
+          await supabase
+            .from('comprobantes')
+            .update({
+              estado_fiscal_id: ESTADO_FISCAL_CAE_RECHAZADO,
+              fiscalizacion_intentos: 1,
+            })
+            .eq('id', comprobante.id)
+
+          mensajeFiscal = 'La venta se guardó pero la fiscalización fue rechazada — revisar manualmente'
+        }
+      } catch (fiscalError: any) {
+        // Cualquier error en este bloque NUNCA revierte la venta —
+        // la venta ya está guardada y confirmada, solo queda pendiente de fiscalizar.
+        console.error('Error en pipeline de fiscalización, venta', venta.id, ':', fiscalError.message)
+        mensajeFiscal = 'La venta se guardó pero hubo un error al fiscalizar — revisar manualmente'
+      }
+    }
 
     return NextResponse.json({
       ok: true,
       venta_id: venta.id,
       numero_venta: numeracion,
-      mensaje: fiscalizar
-        ? 'Venta registrada — factura en proceso'
-        : 'Venta guardada',
+      mensaje: mensajeFiscal
+        ?? (fiscalizar ? 'Venta registrada — factura en proceso' : 'Venta guardada'),
     })
 
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
+}
+
+function convertirFechaDDMMYYYYaISO(fecha: string): string {
+  const [dia, mes, anio] = fecha.split('/')
+  return `${anio}-${mes}-${dia}`
 }
