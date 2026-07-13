@@ -13,6 +13,8 @@ interface Movimiento {
   monto: number
   observaciones: string | null
   categoria_gasto_id: number | null
+  origen_tipo: string | null
+  cierre_turno_id: number | null
   categorias_gasto: { nombre: string } | null
   conceptos_gasto: { nombre: string } | null
   medios_pago: { nombre: string } | null
@@ -28,6 +30,10 @@ export default function MovimientosPage() {
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [rolUsuario, setRolUsuario] = useState<number | null>(null)
+  const [cierreActivoId, setCierreActivoId] = useState<number | null>(null)
+  const [confirmandoEliminar, setConfirmandoEliminar] = useState<number | null>(null)
+  const [eliminando, setEliminando] = useState<number | null>(null)
   const [tipoFiltro, setTipoFiltro] = useState<string>('todos')
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>('todos')
   const [modoPeriodo, setModoPeriodo] = useState<'dia' | 'mes' | 'anio' | 'libre' | 'todos'>('todos')
@@ -105,6 +111,19 @@ export default function MovimientosPage() {
   async function cargarDatos() {
     const supabase = createClient()
     try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: usuarioData } = await supabase
+          .from('usuarios').select('rol_id, sucursal_id').eq('id', user.id).single()
+        if (usuarioData) {
+          setRolUsuario(usuarioData.rol_id)
+          const { data: cierreActivo } = await supabase
+            .from('cierres_turno').select('id')
+            .eq('sucursal_id', usuarioData.sucursal_id ?? 1).eq('estado_cierre_turno_id', 1).maybeSingle()
+          setCierreActivoId(cierreActivo?.id ?? null)
+        }
+      }
+
       const { data: movimientosData, error: movimientosError } = await supabase
         .from('movimientos')
         .select(`
@@ -114,6 +133,8 @@ export default function MovimientosPage() {
           monto,
           observaciones,
           categoria_gasto_id,
+          origen_tipo,
+          cierre_turno_id,
           creado_en,
           categorias_gasto ( nombre ),
           conceptos_gasto ( nombre ),
@@ -139,6 +160,26 @@ export default function MovimientosPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Editar/Eliminar solo para movimientos manuales (origen_tipo null) —
+  // los generados por Ventas/Compras/Caja se corrigen desde su origen.
+  // Admin siempre puede; otro usuario solo si pertenece al cierre de
+  // turno actualmente abierto.
+  function puedeEditar(mov: Movimiento): boolean {
+    if (mov.origen_tipo !== null) return false
+    if (rolUsuario === 1) return true
+    return mov.cierre_turno_id !== null && mov.cierre_turno_id === cierreActivoId
+  }
+
+  async function eliminarMovimiento(id: number) {
+    setEliminando(id)
+    const supabase = createClient()
+    const { error } = await supabase.from('movimientos').update({ anulado: true }).eq('id', id)
+    setEliminando(null)
+    setConfirmandoEliminar(null)
+    if (error) { setError('Error al eliminar: ' + error.message); return }
+    setMovimientos(prev => prev.filter(m => m.id !== id))
   }
 
   const movimientosFiltrados = movimientos.filter(mov => {
@@ -329,6 +370,7 @@ export default function MovimientosPage() {
                   <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Monto</th>
                   <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Medio de pago</th>
                   <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Observaciones</th>
+                  <th className="px-4 py-3 w-24"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -353,6 +395,27 @@ export default function MovimientosPage() {
                     <td className="px-4 py-3 text-gray-600">{mov.medios_pago?.nombre || '—'}</td>
                     <td className="px-4 py-3 text-gray-500 text-xs max-w-xs truncate">
                       {mov.observaciones || ''}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {puedeEditar(mov) && (
+                        confirmandoEliminar === mov.id ? (
+                          <div className="flex items-center justify-end gap-1 text-xs">
+                            <span className="text-gray-500">¿Eliminar?</span>
+                            <button onClick={() => eliminarMovimiento(mov.id)} disabled={eliminando === mov.id}
+                              className="text-red-600 hover:underline disabled:opacity-50">
+                              {eliminando === mov.id ? '...' : 'Sí'}
+                            </button>
+                            <button onClick={() => setConfirmandoEliminar(null)} className="text-gray-400 hover:underline">No</button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-end gap-2">
+                            <Link href={`/movimientos/${mov.id}`}
+                              className="text-xs text-gray-400 hover:text-[#00a19a]">Editar</Link>
+                            <button onClick={() => setConfirmandoEliminar(mov.id)}
+                              className="text-xs text-gray-400 hover:text-red-600">Eliminar</button>
+                          </div>
+                        )
+                      )}
                     </td>
                   </tr>
                 ))}
