@@ -175,6 +175,14 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
         return
       }
 
+      // Poblar conceptosFiltrados ANTES de reset(): si se espera al efecto
+      // [categoriaId, tipo, conceptos], el <select> renderiza sin la opción
+      // todavía disponible y el navegador cae al placeholder — el valor de
+      // concepto_id quedaba puesto pero invisible (bug encontrado 13/07/2026).
+      setConceptosFiltrados((conceptosRes.data || []).filter(
+        (c: Concepto) => c.categoria_gasto_id === mov.categoria_gasto_id && (c.tipo === mov.tipo || c.tipo === 'Ambos')
+      ))
+
       reset({
         tipo: mov.tipo,
         monto: mov.monto,
