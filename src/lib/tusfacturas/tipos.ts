@@ -32,6 +32,7 @@ export interface TusFacturasDetalleItem {
 
 export interface TusFacturasComprobante {
   fecha: string // dd/mm/yyyy
+  vencimiento: string // dd/mm/yyyy — obligatorio (changelog TusFacturasAPP 01/10/2023). Igual a "fecha" porque condicion_pago=Contado (0 días).
   tipo: 'FACTURA C'
   operacion: 'V'
   punto_venta: string // "0004"

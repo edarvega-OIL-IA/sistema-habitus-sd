@@ -117,8 +117,11 @@ export function mapearVentaAFacturaC(
     leyenda: '',
   }))
 
+  const fechaComprobante = formatearFechaDDMMYYYY(venta.fecha_utc)
+
   const comprobante: TusFacturasComprobante = {
-    fecha: formatearFechaDDMMYYYY(venta.fecha_utc),
+    fecha: fechaComprobante,
+    vencimiento: fechaComprobante, // Contado (condicion_pago=201) = 0 días de plazo
     tipo: 'FACTURA C',
     operacion: 'V',
     punto_venta: PUNTO_VENTA,
