@@ -378,23 +378,24 @@ export default function PanelPagos({
               onChange={e => setMontoPago(e.target.value.replace(/[^0-9,.]/g, ''))}
               onKeyDown={e => e.key === 'Enter' && agregarPago()}
               placeholder="$0"
-              className="flex-1 h-8 border border-gray-300 rounded text-sm px-2 focus:outline-none focus:border-[#00a19a]"
+              className="flex-1 min-w-0 h-8 border border-gray-300 rounded text-sm px-2 focus:outline-none focus:border-[#00a19a]"
             />
             <button
               onClick={agregarPago}
-              className="h-8 px-3 bg-gray-100 border border-gray-300 rounded text-sm hover:bg-gray-200 whitespace-nowrap"
+              className="h-8 px-3 bg-gray-100 border border-gray-300 rounded text-sm hover:bg-gray-200 whitespace-nowrap shrink-0"
             >
-              {editandoIndex !== null ? 'Guardar cambios' : '+ Agregar'}
+              {editandoIndex !== null ? 'Guardar' : '+ Agregar'}
             </button>
-            {editandoIndex !== null && (
-              <button
-                onClick={cancelarEdicion}
-                className="h-8 px-3 bg-white border border-gray-300 rounded text-sm text-gray-500 hover:bg-gray-50 whitespace-nowrap"
-              >
-                Cancelar
-              </button>
-            )}
           </div>
+
+          {editandoIndex !== null && (
+            <button
+              onClick={cancelarEdicion}
+              className="text-xs text-gray-400 hover:text-gray-600 mb-2 block"
+            >
+              Cancelar edición
+            </button>
+          )}
 
           <input
             type="text"
