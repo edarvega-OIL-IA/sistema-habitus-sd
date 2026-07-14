@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 13/07/2026 — Pipeline completo de fiscalización AFIP/ARCA vía TusFacturasAPP construido y desplegado a producción, **inactivo a propósito** (gateado por variable de entorno) hasta que Ariel decida activarlo. Bloqueante de IP resuelto (wildcard `*`). Punto de venta 0004 cargado en `puntos_venta`. Numeración de comprobantes confirmada para ese punto de venta.
-**Estado general:** 🟢 Sistema en producción real. Módulos Compras, Ventas, Editar ítems, Caja, Dashboard, Movimientos, pantalla unificada de Precios: estables. Fiscalización real vía TusFacturasAPP: código listo end-to-end, esperando que Ariel la active manualmente (variable `FISCALIZACION_TUSFACTURAS_ACTIVA=true` en Vercel) — planeado para el 14/07 en el local, con una venta real de prueba.
-**Próxima acción concreta:** 14/07/2026 en el local — Ariel activa `FISCALIZACION_TUSFACTURAS_ACTIVA=true` en Vercel + redeploy, y hace una venta real fiscalizada de prueba con el sistema propio (primera factura C real emitida automáticamente desde Sistema Habitus SD, no desde Cover). Seguir el resultado en vivo por si hace falta ajustar algo. En paralelo: seguir pendiente la baja de Cover (~12/07, ya vencido el objetivo original, revisar con Ariel si sigue en pie la fecha).
+**Última actualización:** 14/07/2026 — **Fiscalización AFIP/ARCA vía TusFacturasAPP ACTIVA EN PRODUCCIÓN REAL.** `FISCALIZACION_TUSFACTURAS_ACTIVA=true` en Vercel desde hoy. Primera venta real fiscalizada desde el sistema propio (no Cover) emitida con éxito. Se encontraron y corrigieron 8+ bugs durante la activación (todos documentados en sección 19). Las 2 ventas de prueba realizadas durante la validación fueron anuladas correctamente mediante Notas de Crédito C reales (no con SQL, porque ya tenían CAE real de ARCA).
+**Estado general:** 🟢 Sistema en producción real y **fiscalizando de verdad**. Módulos Compras, Ventas, Editar ítems, Caja, Dashboard, Movimientos, pantalla unificada de Precios, Fiscalización AFIP/ARCA: todos estables y en uso real.
+**Próxima acción concreta:** Seguir de cerca las próximas ventas reales fiscalizadas por el personal del local (Agustín incluido) para detectar cualquier caso no cubierto en las pruebas (ej. venta con múltiples ítems, venta con cliente real con CUIT/DNI cargado — todavía no probado, solo Consumidor Final). Definir si la baja de Cover (objetivo original 12/07, vencido) ya puede confirmarse ahora que la fiscalización real funciona.
 
 ---
 
@@ -14,17 +14,17 @@ Documentos relacionados:
 - `HABITUS_SD_ANALISIS_SESION01.md` — análisis funcional completo (41 secciones)
 - `HABITUS_UI_REGLAS.md` — reglas de UI confirmadas
 - `CLAUDE_CODE_PROMPT.md` — contexto para Claude Code (campos BD verificados, rutas, reglas)
-- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto (creado 07/07, actualizar al cierre de cada sesión cuando cambien archivos — **pendiente actualizar con los 4 archivos nuevos de esta sesión**, ver sección 18)
+- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto
 - `supabase/01_referencia.sql` ✅ al `supabase/08_cierre_turno.sql` ✅ — todos ejecutados
 - `supabase/agregar_origen_subtipo.sql` — ejecutado en producción, PENDIENTE en sandbox
 - `supabase/limpieza_arranque.sql` — ejecutado en producción (01/07)
-- `supabase/numeracion_comprobantes_pv0004.sql` — ejecutado en producción (13/07), no aplicó cambios porque la fila ya existía (ver sección 18)
+- `supabase/numeracion_comprobantes_pv0004.sql` — ejecutado en producción (13/07), no aplicó cambios porque la fila ya existía
 
 ---
 
 ## 2. El negocio en una línea
 
-Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Negro) + tienda online habitussd.com. Dueño Ariel Vega (monotributista), un empleado (Agustín, Lun-Vie). Objetivo: reemplazar coverweb.com.ar ($204.900/mes) + Empretienda ($9.490/mes) por sistema propio. Ahorro neto estimado ~$194.000/mes.
+Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Negro) + tienda online habitussd.com. Dueño Ariel Vega (monotributista, CUIT 23238900719), un empleado (Agustín, Lun-Vie). Objetivo: reemplazar coverweb.com.ar ($204.900/mes) + Empretienda ($9.490/mes) por sistema propio. Ahorro neto estimado ~$194.000/mes.
 
 ---
 
@@ -37,7 +37,7 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 | Estilos / UI | Tailwind + shadcn/ui |
 | Formularios | React Hook Form + Zod |
 | Fechas | date-fns / date-fns-tz |
-| Facturación AFIP/ARCA | **TusFacturasAPP — cuenta creada, punto de venta enlazado, plan API contratado, pipeline de código completo y desplegado, inactivo hasta activación manual** |
+| Facturación AFIP/ARCA | **TusFacturasAPP — EN PRODUCCIÓN REAL desde 14/07/2026** |
 | Pagos (MVP v2) | Mercado Pago (webhooks) |
 | Tipografía sistema | Inter (Google Fonts) — reemplaza Geist |
 | Modo offline | No contemplado |
@@ -47,15 +47,15 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 ## 4. Módulos confirmados (orden de prioridad)
 
 1. Artículos / Inventario ✅
-2. Órdenes de Compra ✅ (nueva, editar, listado con detalle)
-3. Movimientos de Stock ✅ (incluyendo edición; excluye ventas/compras — solo movimientos manuales)
-4. Ventas (carrito, modo POS, multi-pago) ✅ — descuenta stock correctamente (fix 02-03/07)
-5. Registro de Ventas ✅ (anulación segura con reversión trazable, gateada por turno activo)
+2. Órdenes de Compra ✅
+3. Movimientos de Stock ✅
+4. Ventas (carrito, modo POS, multi-pago) ✅
+5. Registro de Ventas ✅
 6. Movimientos financieros (ledger único) ✅
-7. **Caja** (ex Cierre de turno) ✅
-8. **Dashboard** ✅
+7. Caja ✅
+8. Dashboard ✅
 9. Reportes — pendiente
-10. Facturación AFIP automática — **código completo, desplegado, inactivo** (ver sección 18)
+10. **Facturación AFIP automática — ✅ EN PRODUCCIÓN REAL (14/07/2026)**
 11. Vitrina web propia (reemplaza Empretienda) — post-MVP
 12. Team Habitus (sponsoreo a deportistas, a costo) — post-MVP
 
@@ -64,110 +64,135 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 ## 5. Infraestructura Supabase
 
 - Organización: **Camino Doce Doce - IT**
-- **Producción:** habitus-sd-production (ref: lfscdxrhwjpkkirxzhwt, AWS sa-east-1, Pro ~USD25/mes) — en uso real desde 29/06/2026
-- **Sandbox:** habitus-sd-sandbox (AWS sa-east-1, plan Free) — usado para pruebas, con drift periódico respecto a producción
+- **Producción:** habitus-sd-production (ref: lfscdxrhwjpkkirxzhwt, AWS sa-east-1, Pro ~USD25/mes)
+- **Sandbox:** habitus-sd-sandbox (AWS sa-east-1, plan Free) — desincronizado, replicar toda la integración TusFacturasAPP cuando haya ventana
 - `.env.local` → producción | `.env.development.local` → sandbox
 - **Deploy:** https://sistema-habitus-sd.vercel.app (GitHub, auto-deploy en push)
-- **Variables de entorno nuevas en Vercel (13/07):** `TUSFACTURAS_APIKEY`, `TUSFACTURAS_APITOKEN`, `TUSFACTURAS_USERTOKEN` (todas marcadas Sensitive, Production+Preview). `FISCALIZACION_TUSFACTURAS_ACTIVA` **sin crear todavía** — a propósito, es el interruptor general de la fiscalización real.
+- **Variables de entorno en Vercel (Production+Preview, todas Sensitive):** `TUSFACTURAS_APIKEY`, `TUSFACTURAS_APITOKEN`, `TUSFACTURAS_USERTOKEN`, y desde 14/07 también **`FISCALIZACION_TUSFACTURAS_ACTIVA=true`** (ya NO está inactiva — el interruptor está prendido).
 
 ---
 
 ## 6. Decisiones pendientes
 
-- [ ] Pantalla "Correcciones" (admin, rol_id=1) para ventas de turnos ya cerrados — usa columnas `corregido_por_usuario_id`, `corregido_en`, `motivo_correccion` (ya en producción)
-- [x] ~~`concepto_gasto_id` correcto para "Egreso por devolución a cliente"~~ — resuelto: `categorias_gasto` id=14 (Devoluciones), `conceptos_gasto` id=45 (Devolución a cliente)
-- [ ] Circuito de Nota de Crédito (Caso B: venta ya fiscalizada con diferencia de dinero) — depende de tener fiscalización real activa (ya está el código base, falta activarlo y luego diseñar NC)
-- [ ] Limpiar políticas RLS duplicadas restantes si aparecen nuevas (ya se limpiaron `movimientos_stock` y `venta_items`)
+- [ ] Pantalla "Correcciones" (admin, rol_id=1) para ventas de turnos ya cerrados
+- [ ] **Circuito de Nota de Crédito (NC) real dentro del sistema** — hoy la emisión de NC se hizo a mano por fuera del sistema (PowerShell + API directa) para corregir 2 ventas de prueba (ver sección 19). Falta: pantalla/función para emitir NC desde el sistema, y **resolver el gap de esquema** `comprobantes.venta_id` es `UNIQUE` — no permite guardar más de un comprobante por venta (bloquea guardar la NC como fila en `comprobantes`). Mientras tanto, las NC quedan documentadas en `ventas.observaciones` como workaround.
+- [ ] Limpiar políticas RLS duplicadas restantes si aparecen nuevas
 - [ ] Confirmar los 4 archivos marcados `[?]` en `MAPA-ARCHIVOS.md`: `configuracion/page.tsx`, `reportes/page.tsx`, `page.tsx` raíz, `lib/utils.ts`
-- [ ] Borrar `compras/[id]/page_compras_id_old.tsx` (backup viejo, no forma parte del build) y `src/app/(sistema)/diagnostico/` (herramienta temporal del bug del scanner, ya resuelto) una vez confirmado que no hacen falta
+- [ ] Borrar `compras/[id]/page_compras_id_old.tsx` y `src/app/(sistema)/diagnostico/`
 - [ ] Tipografías web: licenciar Antique Olive Nord D + Futura MD BT, o alternativas Google Fonts
-- [ ] Reemplazar `alert()` en confirmación de venta POS por notificación UI (los demás módulos ya lo tienen)
+- [ ] Reemplazar `alert()` en confirmación de venta POS por notificación UI
 - [ ] Migrar datos históricos MOVIMIENTOS_HISTORICO_UNIFICADO.xlsx (2 filas amarillas: −$28.000 del 30/06/2026)
 - [ ] Pantalla de ABM de Categorías y Conceptos de movimientos (post-MVP)
 - [ ] Reorganización del menú lateral (post-MVP)
 - [ ] Editar historial de cierres de caja (Admin, pantalla separada) — post-MVP
-- [ ] Indicador de rentabilidad caída en listado de artículos (rojo si margen bajó >5% desde última compra)
-- [ ] Sandbox sigue sin los cambios de Compras de sesión 15, sin las tablas/columnas nuevas de las sesiones siguientes, y ahora tampoco tiene nada de la integración TusFacturasAPP — replicar cuando haya ventana
-- [x] ~~MVP v2: fiscalización AFIP/ARCA vía TusFacturasAPP (cuenta todavía no creada)~~ — cuenta creada, punto de venta enlazado, plan API contratado, **código completo desplegado**. Pendiente real: **activar el interruptor** (`FISCALIZACION_TUSFACTURAS_ACTIVA=true`) y hacer la primera venta real fiscalizada (planeado 14/07)
-- [ ] Auditar el resto de pantallas con inputs de monto por si tienen el mismo problema de decimales (no se hizo una revisión exhaustiva de todo el sistema)
-- [ ] Definir si la fecha objetivo de baja de Cover (12/07) sigue en pie, dado que la activación real de TusFacturasAPP recién se prueba el 14/07
+- [ ] Indicador de rentabilidad caída en listado de artículos
+- [ ] Sandbox sigue sin toda la integración TusFacturasAPP — replicar cuando haya ventana
+- [x] ~~MVP v2: fiscalización AFIP/ARCA vía TusFacturasAPP~~ — **EN PRODUCCIÓN REAL desde 14/07/2026**
+- [ ] Auditar el resto de pantallas con inputs de monto por si tienen el mismo problema de decimales
+- [ ] Definir si la baja de Cover (objetivo 12/07, vencido) ya puede confirmarse ahora que la fiscalización real está validada
+- [ ] Ariel debe retirar físicamente $200 de la caja (efectivo real cobrado durante las 2 ventas de prueba, ya anuladas fiscalmente vía NC pero el dinero físico entró de verdad)
+- [ ] Probar fiscalización con cliente real (CUIT o DNI cargado) — todo lo probado hasta ahora fue Consumidor Final sin datos
+- [ ] Probar fiscalización con venta de múltiples ítems (todo lo probado fue de 1 solo ítem)
+- [ ] Evaluar si conviene trackear la numeración de Notas de Crédito en `numeracion_comprobantes` (hoy se le pidió a TusFacturasAPP que asigne el número automáticamente, sin fila propia en esa tabla para `tipo_comprobante_id=3`)
+- [ ] Crear concepto de gasto específico "TusFacturasAPP" ya usado en el primer pago mensual (categoría Sistema, id=8) — confirmar que quedó bien cargado
 
 ---
 
-## 7. Pantallas operativas al cierre de sesión 10
+## 12. Fiscalización AFIP/ARCA — EN PRODUCCIÓN REAL (actualizado 14/07/2026)
 
-*(sin cambios — ver secciones posteriores para todo lo agregado desde entonces)*
+### Estado: ACTIVO
+- `FISCALIZACION_TUSFACTURAS_ACTIVA=true` en Vercel desde 14/07/2026.
+- Primera venta real fiscalizada desde el sistema propio (no Cover): **Factura C 00004-00000002**, CAE `86283796388165`, $1.800, Consumidor Final.
+- Segunda venta real con descuento general (94%): **Factura C 00004-00000003**, CAE `86283800773414`, total $100.
+- Ambas fueron ventas de prueba (con datos de descuento extremos para validar el circuito) y se anularon correctamente con Notas de Crédito C reales — ver sección 19 para el detalle completo.
 
----
+### Bugs encontrados y corregidos durante la activación (14/07/2026)
+Ver sección 19 para el detalle técnico completo. En resumen: falta de política RLS `UPDATE` en `comprobantes`, campo `vencimiento` faltante (obligatorio desde 01/10/2023), campo `bonificacion` no calculado (rompía ventas con descuento), 8 campos obligatorios faltantes en el JSON (`idioma`, `periodo_facturado_desde/hasta`, `cliente.codigo`, `cliente.rg5329`, `producto.unidad_medida/actualiza_precio/rg5329`, `detalle.afecta_stock`), y un bug de nombre de campo en la respuesta (`vencimiento_cae` no `cae_vencimiento`) que causaba un crash *después* de que ARCA ya hubiera emitido el CAE con éxito.
 
-## 12. Fiscalización AFIP/ARCA — actualización 13/07/2026 (ver también sección 18)
-
-### Estado actual de TusFacturasAPP
-- Cuenta creada (edarvega@gmail.com).
-- Punto de venta **0004** dado de alta en ARCA (distinto del 0003 que usa Cover) y en TusFacturasAPP, con enlace ARCA completo (7 pasos) y certificado cargado.
-- **Facturación real ya probada con éxito**: Factura C 00004-00000001, CAE real emitido (venta de prueba $500, irreversible).
-- Plan pagado: API26 1K4C, $33.000/mes IVA incluido, 4 puntos de venta, 1.000 comprobantes/mes, vigente 13/07/2026–12/08/2026.
-- Bloqueante de IP resuelto: campo "IP habilitada" configurado con wildcard `*` (soporte de TusFacturasAPP lo recomendó para plataformas serverless como Vercel, que no tienen IP de salida fija).
-- Credenciales de API cargadas como variables de entorno en Vercel (nunca hardcodeadas ni en el repo): `TUSFACTURAS_APIKEY`, `TUSFACTURAS_APITOKEN`, `TUSFACTURAS_USERTOKEN`.
-
-### Pipeline de código — completo (ver sección 18 para el detalle técnico)
-Construido, revisado contra la documentación oficial de TusFacturasAPP (no asumido), y desplegado a producción. **Inactivo a propósito** mientras dure la operación paralela con Cover — gateado por la variable `FISCALIZACION_TUSFACTURAS_ACTIVA`, que todavía no existe en Vercel.
-
-### Próximo paso concreto
-14/07/2026, en el local: Ariel activa la variable de entorno + redeploy, y hace una venta real con "Fiscalizar" tildado, siguiendo el resultado en vivo.
+### Gap de diseño encontrado (no resuelto, documentado como pendiente)
+`comprobantes.venta_id` tiene restricción `UNIQUE` — el esquema original asume 1 venta = 1 comprobante y no contempla que una venta pueda tener además una Nota de Crédito asociada. Bloqueó guardar las NC como filas en `comprobantes`; se documentaron en su lugar en `ventas.observaciones` como workaround temporal. Ver sección 6, ítem pendiente de circuito de NC.
 
 ---
 
-## 18. Sesión 13/07/2026 — Pipeline de fiscalización TusFacturasAPP construido y desplegado (inactivo)
+## 19. Sesión 14/07/2026 — Activación real de TusFacturasAPP: bugs encontrados, corregidos, y primera factura real emitida
 
 ### Contexto de arranque
-Retomando desde el bloqueante de sesión anterior ("IP-INVALIDA"): se escribió y envió el mail a soporte de TusFacturasAPP, que respondió indicando usar el wildcard `*` en el campo de IP habilitada del punto de venta (opción pensada para plataformas serverless sin IP fija como Vercel). Ariel lo configuró desde el panel de TusFacturasAPP (Mi espacio de trabajo → Puntos de venta → editar → API), confirmado con captura: campo quedó en `*`. Bloqueante resuelto sin necesidad de proxy ni infraestructura extra.
+Continuando desde la sesión 13/07 (pipeline construido y desplegado, inactivo). Ariel en el local, listo para activar.
 
-### Verificaciones contra producción antes de escribir código (regla del proyecto respetada)
-Antes de tocar código se corrieron `SELECT` para no asumir estructura:
-- `comprobantes`: ya existía con la estructura completa (venta_id, tipo_comprobante_id, punto_venta_id, numero NOT NULL, comprobante_asociado_id, estado_fiscal_id NOT NULL, factura_cae, factura_cae_vencimiento, fecha_emision_utc, fiscalizacion_intentos, total, impreso_enviado).
-- `clientes`: existe con cuit/dni/condicion_iva_id/domicilio/email — cliente id=1 = "Consumidor Final" (usado siempre hoy, ya que Ventas POS hardcodea `cliente_id: 1`).
-- `tipos_comprobante`: id=1 "Factura" (genérico, sin distinción de letra A/B/C/M en la tabla — la letra la fija el código, no la BD, porque Ariel solo emite Factura C).
-- `puntos_venta`: **gap real encontrado** — solo tenía el PV interno id=1 (número 0003, Cover) y el id=2 (0007, histórico inactivo). El PV 0004 nuevo no estaba cargado. Se insertó: `id=3, sucursal_id=1, numero=4, nombre='Sistema propio (Electrónico)', activo=true`.
-- `estados_fiscales`: ya existía completa con los 6 estados necesarios (Pendiente/Enviado/CAE_Recibido/CAE_Rechazado/Reintentando/Anulado) — no hizo falta crear nada ahí.
-- `numeracion_comprobantes`: estructura (punto_venta_id, tipo_comprobante_id, ultimo_numero) + función ya existente `obtener_proximo_numero_comprobante(p_punto_venta_id, p_tipo_comprobante_id)` (UPDATE...RETURNING atómico, mismo patrón que `incrementar_numero_venta`). Se preparó un INSERT con `WHERE NOT EXISTS` para la fila del PV 0004 (`punto_venta_id=3, tipo_comprobante_id=1, ultimo_numero=1` — arranca en 1 porque la factura de prueba real 00004-00000001 ya está emitida). Al ejecutarlo dio error de clave duplicada: **la fila ya existía** (cargada en algún momento anterior no registrado), confirmado con `SELECT * FROM numeracion_comprobantes` → `id=2, punto_venta_id=3, tipo_comprobante_id=1, ultimo_numero=1`. No hizo falta ninguna acción adicional, el script no rompió nada gracias al `WHERE NOT EXISTS`.
+### Paso 1 — Regularización de ventas del período paralelo con Cover
+6 ventas (#1350 a #1355) que habían quedado en "Pend. fiscal" porque se facturaron en Cover durante el período paralelo, se reclasificaron a `estado_venta_id=5` ("Fiscalizado externamente") — mismo patrón ya usado en sesión 08/07 para las 19 ventas anteriores.
 
-### Documentación oficial de TusFacturasAPP consultada (no se inventó ningún campo)
-- Estructura completa del JSON de Factura C (`POST /app/api/v2/facturacion/nuevo`), incluyendo el detalle de que **AFIP/ARCA recibe solo totales para comprobantes A/B/C/M vía WSFEv1, nunca el detalle de ítems** — el array `detalle` del JSON es solo para gestión interna de TusFacturasAPP (PDF, reportes), no afecta la validez fiscal. Esto simplificó el mapeo: lo que tiene que ser exacto es `comprobante.total`, no la suma de la línea de detalle.
-- Convención para "Consumidor Final sin especificar datos": `documento_tipo:"OTRO"`, `documento_nro:"0"` (aplica siempre hoy, ya que `cliente_id` está hardcodeado a 1 en el POS).
-- Tabla oficial de códigos de provincia: **Río Negro = 16** (se había puesto un valor placeholder `99` en un primer borrador, corregido antes de entregar el archivo final — nunca llegó a desplegarse el valor incorrecto).
-- Formato de respuesta exitosa: `{"error":"N","cae":"...","comprobante_nro":"00004-00000002","cae_vencimiento":"dd/mm/yyyy"}`. Formato de error: `{"error":"S","errores":[...],"error_details":[{"code":"...","text":"..."}]}`.
+### Paso 2 — Activación
+`FISCALIZACION_TUSFACTURAS_ACTIVA=true` agregada en Vercel + redeploy.
 
-### Archivos nuevos — `src/lib/tusfacturas/`
-- `tipos.ts` — tipos TypeScript del request/response de TusFacturasAPP.
-- `mapeo.ts` — función `mapearVentaAFacturaC(venta, numeroComprobante)`: arma el JSON completo (cliente + comprobante + detalle) a partir de una venta del sistema. Exporta también `PUNTO_VENTA_ID=3` y `TIPO_COMPROBANTE_ID_FACTURA=1` para que `route.ts` no repita esos valores a mano. Resuelve cliente CUIT/DNI/Consumidor Final según los datos disponibles; código de provincia fijo en 16 (Río Negro).
-- `emitir.ts` — llamado real a la API (`fetch` a `/app/api/v2/facturacion/nuevo`) + función `fiscalizacionActiva()`, que lee `process.env.FISCALIZACION_TUSFACTURAS_ACTIVA === 'true'`. Es el único punto del sistema donde se decide si se llama de verdad a TusFacturasAPP.
+### Paso 3 — Primer intento real: rechazo por campo `vencimiento` faltante
+Venta de prueba $100 efectivo → TusFacturasAPP rechazó: *"El formato de fecha de vencimiento no es válido"* + *"La fecha de vencimiento del comprobante es menor a la fecha del comprobante"*. Causa real: el campo `comprobante.vencimiento` (obligatorio desde el 01/10/2023 según el changelog oficial de TusFacturasAPP) directamente no se estaba enviando en el JSON. **Fix:** agregado `vencimiento = fecha` (mismo día, porque `condicion_pago="201"` = Contado = 0 días de plazo).
 
-### Archivo modificado — `src/app/api/ventas/route.ts`
-Reconstruido completo (no parcheado, se pidió y recibió el contenido actual primero). Agrega, después de generar el movimiento financiero de la venta, un bloque nuevo que solo se ejecuta si `fiscalizar === true` **y** `fiscalizacionActiva() === true`:
-1. Reserva el próximo número de comprobante vía RPC `obtener_proximo_numero_comprobante`.
-2. Inserta en `comprobantes` en estado Pendiente **antes** de llamar a la API — si el llamado falla, el número queda documentado como consumido y un futuro reintento reutilizaría el mismo comprobante en vez de pedir un número nuevo (evita huecos en la numeración fiscal real).
-3. Trae cliente (`clientes` id=1) y datos de artículos (`articulos`, query separada — nunca join anidado, regla del proyecto) para completar el mapeo.
-4. Llama a `mapearVentaAFacturaC` + `emitirFacturaC`.
-5. Si la respuesta es exitosa: actualiza el comprobante a `estado_fiscal_id=3` (CAE_Recibido) con CAE y vencimiento reales, y actualiza `ventas.estado_venta_id=4` (Fiscalizada).
-6. Si la respuesta es de error: actualiza el comprobante a `estado_fiscal_id=4` (CAE_Rechazado), deja `ventas.estado_venta_id` sin tocar (sigue en 1="Fiscal", pendiente de revisión manual), y loguea el detalle del error para seguimiento.
-7. Cualquier excepción en este bloque completo **nunca revierte la venta** — la venta, sus items, pagos, stock y movimiento financiero ya quedaron confirmados antes de llegar a este punto; un fallo de fiscalización solo queda pendiente de revisión manual.
-
-Mientras `FISCALIZACION_TUSFACTURAS_ACTIVA` no exista (o esté en `false`), este bloque completo no se ejecuta — el comportamiento es idéntico al que ya estaba en producción desde el 10/07 (venta se guarda igual, sin ningún llamado externo).
-
-### SQL ejecutado en producción
-- `supabase/numeracion_comprobantes_pv0004.sql` — corrido, no aplicó cambios (la fila ya existía, confirmado que es la correcta).
-- Insert manual de la fila faltante en `puntos_venta` (PV 0004, id=3) — corrido y confirmado.
-
-### Deploy
-```powershell
-cd "C:\Users\Usuario\Documents\sistema-habitus-sd"; git add -A; git commit -m "feat: integracion TusFacturasAPP (fiscalizacion gateada, inactiva por defecto)"; git push
+### Bug colateral encontrado: falta política RLS UPDATE en `comprobantes`
+Al revisar por qué el comprobante rechazado había quedado en estado `Pendiente` en vez de `Rechazado`, se encontró que la tabla `comprobantes` solo tenía políticas RLS de `INSERT` y `SELECT` — le faltaba `UPDATE` (ni política ni GRANT). Los `UPDATE` que hace el código para marcar CAE recibido o rechazo fallaban en silencio. **Fix:**
+```sql
+CREATE POLICY comprobantes_update ON comprobantes FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+GRANT UPDATE ON comprobantes TO authenticated;
 ```
-Commit `6f08e9f`. Variables de entorno agregadas en Vercel (Production + Preview, todas Sensitive): `TUSFACTURAS_APIKEY`, `TUSFACTURAS_APITOKEN`, `TUSFACTURAS_USERTOKEN`. Redeploy manual confirmado exitoso ("Ready"). `FISCALIZACION_TUSFACTURAS_ACTIVA` deliberadamente sin crear.
+
+### Paso 4 — Segundo intento: rechazo por inconsistencia `total` vs `detalle`
+Venta de prueba con 94% de descuento general ($1.800 → $100) → TusFacturasAPP rechazó por inconsistencia entre la suma del `detalle` ($1.800) y el `total` enviado ($100). El campo `bonificacion` del comprobante estaba hardcodeado en `"0.00"`. **Fix:** `bonificacion = suma del detalle − total final`, calculado dinámicamente en `mapearVentaAFacturaC`.
+
+### Paso 5 — Tercer intento: rechazo por desalineación de numeración ante ARCA
+Cada rechazo anterior (antes de llegar a ARCA) **igual consumía un número de nuestro contador interno** (`numeracion_comprobantes`), pero ARCA nunca llegó a recibir esos números — quedó desalineado (nuestro contador en 5, ARCA esperando el 2). **Fix:** se resetearon manualmente varias veces `numeracion_comprobantes.ultimo_numero` durante la sesión, y se identificó que los comprobantes rechazados/huérfanos (con `factura_cae IS NULL`) debían borrarse físicamente de `comprobantes` (a diferencia de las ventas, que nunca se borran) porque colisionaban con la restricción `UNIQUE(punto_venta_id, tipo_comprobante_id, numero)` al reintentar.
+
+### Paso 6 — Revisión exhaustiva de campos contra la documentación oficial (antes de seguir por prueba y error)
+Se decidió pausar el ciclo de prueba-y-error y revisar el JSON completo campo por campo contra la "Referencia API AFIP ARCA" oficial. Se encontraron **8 campos obligatorios faltantes que nunca se habían enviado**:
+- `comprobante.idioma` (REQUERIDO)
+- `comprobante.periodo_facturado_desde` / `periodo_facturado_hasta` (REQUERIDO)
+- `cliente.codigo` (REQUERIDO)
+- `cliente.rg5329` (REQUERIDO)
+- `producto.unidad_medida` (REQUERIDO)
+- `producto.actualiza_precio` (REQUERIDO)
+- `producto.rg5329` (REQUERIDO)
+- `detalle.afecta_stock` (REQUERIDO)
+
+Se corrigieron todos de una vez en `tipos.ts` y `mapeo.ts`.
+
+### Paso 7 — ¡Primera factura real exitosa!
+Venta #1367 (venta_id=74), $1.800 sin descuento, efectivo → **Factura C 00004-00000002, CAE 86283796388165, vencimiento CAE 24/07/2026**. Confirmado visualmente en el panel de TusFacturasAPP y en el PDF oficial con QR de ARCA.
+
+### Bug post-éxito encontrado: nombre de campo incorrecto en la respuesta
+Una segunda prueba devolvió `"Cannot read properties of undefined (reading 'split')"` — inicialmente se sospechó de un rechazo, pero investigando se confirmó que **el comprobante había sido aceptado con éxito por ARCA** y el error era nuestro, al intentar leer `respuesta.cae_vencimiento` cuando el campo real en la respuesta se llama **`vencimiento_cae`** (nombres invertidos respecto a lo que se había asumido). También se agregó `.trim()` al CAE (la documentación aclara que puede venir con un espacio final). **Este fue un hallazgo importante: hubo que verificar manualmente en el panel de TusFacturasAPP que no se estuviera por anular una factura real por error de interpretación del código.**
+
+### Paso 8 — Segunda factura real exitosa, con descuento
+Venta #1368 (venta_id=75), $1.800 subtotal con $1.700 de descuento general → total $100 → **Factura C 00004-00000003, CAE 86283800773414**. Confirma que el fix de `bonificacion` también quedó correcto.
+
+### Paso 9 — Regularización de las 2 ventas de prueba (ya con CAE real, no se pueden anular por SQL)
+Según la documentación oficial de TusFacturasAPP: *"Aquellos comprobantes que hayan impactado en AFIP, no podrán ser eliminados. Sólo pueden ser anulados contablemente generando una Nota de Crédito."* Se decidió por la opción prolija (NC real) en vez de simplemente aceptar las ventas de prueba como reales.
+
+Se emitieron 2 Notas de Crédito C reales, llamando directamente a la API de TusFacturasAPP desde PowerShell (fuera del sistema, como acción administrativa puntual):
+- **NC 00004-00000001**, CAE `86283802682152`, anulando Factura C 00004-00000002 (venta_id=74, $1.800)
+- **NC 00004-00000002**, CAE `86283802918959`, anulando Factura C 00004-00000003 (venta_id=75, $100)
+
+Al intentar registrar las NC como filas nuevas en `comprobantes`, se encontró que **`comprobantes.venta_id` tiene restricción `UNIQUE`** — el esquema no contempla más de un comprobante por venta. Se documentó como gap pendiente (ver sección 6) y, como workaround, las NC quedaron registradas en `ventas.observaciones` de cada venta, con número de NC y CAE.
+
+Se revirtió stock (movimiento de Ingreso compensatorio) y el movimiento financiero (ledger) de ambas ventas, y se marcaron como `estado_venta_id=3` (Anulada). **Pendiente:** Ariel debe retirar físicamente $200 de la caja (el efectivo de las 2 pruebas entró de verdad, aunque las facturas ya estén anuladas fiscalmente).
+
+### Archivos modificados en esta sesión
+- `src/lib/tusfacturas/tipos.ts` — agregados: `vencimiento`, `idioma`, `periodo_facturado_desde/hasta` en `TusFacturasComprobante`; `codigo`, `rg5329` en `TusFacturasCliente`; `unidad_medida`, `actualiza_precio`, `rg5329` en `TusFacturasProducto`; `afecta_stock` en `TusFacturasDetalleItem`; renombrado `cae_vencimiento` → `vencimiento_cae` en `TusFacturasRespuestaExito` (nombre real del campo).
+- `src/lib/tusfacturas/mapeo.ts` — cálculo dinámico de `bonificacion` (subtotal detalle − total), completados los 8 campos obligatorios nuevos en las 3 ramas de `resolverCliente` y en el armado de `detalle`.
+- `src/app/api/ventas/route.ts` — corregida la referencia a `respuesta.vencimiento_cae` (antes `respuesta.cae_vencimiento`) + `.trim()` en el CAE. (Nota operativa: en esta sesión el archivo se copió por error a `src/lib/tusfacturas/route.ts` en un primer intento — corregido moviéndolo a la ruta real `src/app/api/ventas/route.ts`.)
+
+### SQL ejecutado en producción (además de las políticas RLS ya mencionadas)
+- Reseteos múltiples de `numeracion_comprobantes.ultimo_numero` para el PV 0004 / tipo Factura durante el troubleshooting.
+- `DELETE FROM comprobantes WHERE punto_venta_id=3 AND tipo_comprobante_id=1 AND factura_cae IS NULL` — limpieza de comprobantes huérfanos/rechazados sin CAE real.
+- Anulación completa (reversión de stock + ledger + `estado_venta_id=3`) de las ventas fallidas: ids 69, 70, 71, 72, 73 (numero_venta 1362 a 1366) y, con el workaround de NC, las ventas 74 y 75 (numero_venta 1367 y 1368).
+- Creado concepto de gasto `TusFacturasAPP` dentro de categoría `Sistema` (id=8), para clasificar el pago mensual de la suscripción de forma específica en vez de "Otro sistema".
+
+### Estado final de `numeracion_comprobantes` (PV 0004)
+- `tipo_comprobante_id=1` (Factura): `ultimo_numero=3` (00004-00000001 = prueba manual de sesión anterior, 00004-00000002 y 00004-00000003 = las 2 ventas de prueba de hoy, ya anuladas con NC — la numeración real de ARCA **no tiene huecos**, solo nuestras ventas asociadas están anuladas).
+- `tipo_comprobante_id=3` (Nota de Crédito): sin fila propia todavía — se dejó que TusFacturasAPP asigne el número automáticamente. Pendiente evaluar si conviene trackearlo internamente cuando se construya el circuito completo de NC.
 
 ### Pendiente para la próxima sesión
-1. **14/07/2026, en el local:** Ariel activa `FISCALIZACION_TUSFACTURAS_ACTIVA=true` en Vercel + redeploy, hace una venta real con "Fiscalizar" tildado, seguimiento en vivo del resultado (CAE recibido / rechazado / error de red).
-2. Actualizar `MAPA-ARCHIVOS.md` con los 4 archivos nuevos (`src/lib/tusfacturas/tipos.ts`, `mapeo.ts`, `emitir.ts`, y la reescritura de `api/ventas/route.ts`).
-3. Revisar si la fecha objetivo de baja de Cover (12/07) sigue en pie, dado que recién ahora se activa la fiscalización real.
-4. Diseñar el circuito de Nota de Crédito (Caso B) una vez validada la primera fiscalización real.
-5. Replicar en sandbox todo lo acumulado, incluyendo esta integración completa (sigue desincronizado desde sesión 15).
+1. Confirmar que Ariel retiró los $200 de la caja física.
+2. Seguir de cerca las próximas ventas reales del local (Agustín incluido).
+3. Probar fiscalización con cliente real (CUIT/DNI) y con múltiples ítems — no probado todavía.
+4. Diseñar el circuito completo de Nota de Crédito dentro del sistema, resolviendo el gap de `comprobantes.venta_id UNIQUE`.
+5. Definir con Ariel si la baja de Cover ya puede confirmarse.
+6. Replicar toda la integración TusFacturasAPP en sandbox (sigue desincronizado).

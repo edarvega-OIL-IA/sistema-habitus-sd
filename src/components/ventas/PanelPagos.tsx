@@ -52,6 +52,7 @@ export default function PanelPagos({
   const [error, setError] = useState<string | null>(null)
   const [modoDescuento, setModoDescuento] = useState<'pct' | 'monto'>('pct')
   const [descuentoValor, setDescuentoValor] = useState<string>('')
+  const [editandoIndex, setEditandoIndex] = useState<number | null>(null)
   const medioRef = useRef<HTMLSelectElement>(null)
   const btnFiscalizarRef = useRef<HTMLButtonElement>(null)
   const btnGuardarRef = useRef<HTMLButtonElement>(null)
@@ -140,7 +141,7 @@ export default function PanelPagos({
     }
     const emisor = emisores.find(e => e.id === emisorSeleccionado)
     const fiscaliza = requiereEmisor && emisor ? emisor.fiscaliza : medio.fiscaliza_por_defecto
-    setPagos(prev => [...prev, {
+    const pagoActualizado: PagoRegistrado = {
       medio_pago_id: medio.id,
       nombre_medio: medio.nombre,
       emisor_pago_id: emisorSeleccionado || null,
@@ -148,7 +149,14 @@ export default function PanelPagos({
       monto,
       referencia: referencia || null,
       fiscaliza,
-    }])
+    }
+    if (editandoIndex !== null) {
+      // Modo edición: reemplaza el pago existente en su lugar, no agrega uno nuevo
+      setPagos(prev => prev.map((p, i) => (i === editandoIndex ? pagoActualizado : p)))
+      setEditandoIndex(null)
+    } else {
+      setPagos(prev => [...prev, pagoActualizado])
+    }
     setMontoPago('')
     setReferencia('')
     setEmisorSeleccionado(0)
@@ -156,8 +164,28 @@ export default function PanelPagos({
     setTimeout(() => medioRef.current?.focus(), 50)
   }
 
+  function iniciarEdicion(index: number) {
+    const pago = pagos[index]
+    setMedioSeleccionado(pago.medio_pago_id)
+    setEmisorSeleccionado(pago.emisor_pago_id || 0)
+    setMontoPago(String(pago.monto))
+    setReferencia(pago.referencia || '')
+    setEditandoIndex(index)
+    setError(null)
+    setTimeout(() => medioRef.current?.focus(), 50)
+  }
+
+  function cancelarEdicion() {
+    setEditandoIndex(null)
+    setMontoPago('')
+    setReferencia('')
+    setEmisorSeleccionado(0)
+    setError(null)
+  }
+
   function eliminarPago(index: number) {
     setPagos(prev => prev.filter((_, i) => i !== index))
+    if (editandoIndex === index) cancelarEdicion()
   }
 
   async function procesarVenta(fiscalizar: boolean) {
@@ -197,6 +225,7 @@ export default function PanelPagos({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       setPagos([])
+      setEditandoIndex(null)
       onDescuentoChange(0)
       setDescuentoValor('')
       setModoDescuento('pct')
@@ -289,7 +318,10 @@ export default function PanelPagos({
         )}
 
         {pagos.map((pago, i) => (
-          <div key={i} className="bg-white border border-gray-200 rounded-lg p-2 mb-2">
+          <div
+            key={i}
+            className={`bg-white border rounded-lg p-2 mb-2 ${editandoIndex === i ? 'border-[#00a19a] ring-1 ring-[#00a19a]' : 'border-gray-200'}`}
+          >
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600">
                 {pago.nombre_medio}
@@ -299,7 +331,8 @@ export default function PanelPagos({
                 <span className="text-sm font-semibold text-[#3c3c3b]">
                   ${pago.monto.toLocaleString('es-AR', { minimumFractionDigits: 0 })}
                 </span>
-                <button onClick={() => eliminarPago(i)} className="text-gray-300 hover:text-red-500">✕</button>
+                <button onClick={() => iniciarEdicion(i)} className="text-gray-300 hover:text-[#00a19a]" title="Editar pago">✎</button>
+                <button onClick={() => eliminarPago(i)} className="text-gray-300 hover:text-red-500" title="Eliminar pago">✕</button>
               </div>
             </div>
             {pago.referencia && (
@@ -308,8 +341,11 @@ export default function PanelPagos({
           </div>
         ))}
 
-        {/* Agregar pago */}
-        <div className="bg-white border border-gray-200 rounded-lg p-3 mt-2">
+        {/* Agregar / editar pago */}
+        <div className={`bg-white border rounded-lg p-3 mt-2 ${editandoIndex !== null ? 'border-[#00a19a]' : 'border-gray-200'}`}>
+          {editandoIndex !== null && (
+            <div className="text-xs text-[#00a19a] font-medium mb-2">Editando pago #{editandoIndex + 1}</div>
+          )}
           <select
             ref={medioRef}
             value={medioSeleccionado}
@@ -348,8 +384,16 @@ export default function PanelPagos({
               onClick={agregarPago}
               className="h-8 px-3 bg-gray-100 border border-gray-300 rounded text-sm hover:bg-gray-200 whitespace-nowrap"
             >
-              + Agregar
+              {editandoIndex !== null ? 'Guardar cambios' : '+ Agregar'}
             </button>
+            {editandoIndex !== null && (
+              <button
+                onClick={cancelarEdicion}
+                className="h-8 px-3 bg-white border border-gray-300 rounded text-sm text-gray-500 hover:bg-gray-50 whitespace-nowrap"
+              >
+                Cancelar
+              </button>
+            )}
           </div>
 
           <input
