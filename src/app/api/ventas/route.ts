@@ -254,12 +254,13 @@ export async function POST(request: NextRequest) {
 
         if (esRespuestaExitosa(respuesta)) {
           // 5a) Éxito: CAE recibido
+          const caeLimpio = respuesta.cae.trim() // TusFacturasAPP envía el CAE con un espacio al final
           await supabase
             .from('comprobantes')
             .update({
               estado_fiscal_id: ESTADO_FISCAL_CAE_RECIBIDO,
-              factura_cae: respuesta.cae,
-              factura_cae_vencimiento: convertirFechaDDMMYYYYaISO(respuesta.cae_vencimiento),
+              factura_cae: caeLimpio,
+              factura_cae_vencimiento: convertirFechaDDMMYYYYaISO(respuesta.vencimiento_cae),
               fiscalizacion_intentos: 1,
             })
             .eq('id', comprobante.id)
@@ -269,7 +270,7 @@ export async function POST(request: NextRequest) {
             .update({ estado_venta_id: 4 }) // Fiscalizada
             .eq('id', venta.id)
 
-          mensajeFiscal = `Factura C ${respuesta.comprobante_nro} — CAE ${respuesta.cae}`
+          mensajeFiscal = `Factura C ${respuesta.comprobante_nro} — CAE ${caeLimpio}`
         } else {
           // 5b) Error: queda documentado, sin tocar estado_venta_id (sigue en 1=Fiscal, pendiente de revisión manual)
           console.error('TusFacturasAPP rechazó el comprobante de venta', venta.id, ':', respuesta.errores)
