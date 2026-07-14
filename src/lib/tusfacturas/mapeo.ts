@@ -52,12 +52,14 @@ function resolverCliente(cliente: ClienteParaFacturar): TusFacturasCliente {
       razon_social: cliente.nombre,
       domicilio: cliente.domicilio || 'No especifica',
       provincia: '16', // Río Negro — tabla oficial de provincias TusFacturasAPP
+      codigo: `CUIT-${cliente.cuit.replace(/\D/g, '')}`,
       condicion_iva: 'CF',
       condicion_iva_operacion: 'CF',
       condicion_pago: CONDICION_PAGO_CONTADO,
       email: cliente.email || undefined,
       envia_por_mail: 'N',
       reclama_deuda: 'N',
+      rg5329: 'N',
     }
   }
 
@@ -68,12 +70,14 @@ function resolverCliente(cliente: ClienteParaFacturar): TusFacturasCliente {
       razon_social: cliente.nombre,
       domicilio: cliente.domicilio || 'No especifica',
       provincia: '16',
+      codigo: `DNI-${cliente.dni.replace(/\D/g, '')}`,
       condicion_iva: 'CF',
       condicion_iva_operacion: 'CF',
       condicion_pago: CONDICION_PAGO_CONTADO,
       email: cliente.email || undefined,
       envia_por_mail: 'N',
       reclama_deuda: 'N',
+      rg5329: 'N',
     }
   }
 
@@ -84,11 +88,13 @@ function resolverCliente(cliente: ClienteParaFacturar): TusFacturasCliente {
     razon_social: 'Consumidor Final',
     domicilio: 'No especifica',
     provincia: '16',
+    codigo: 'CONSUMIDOR-FINAL',
     condicion_iva: 'CF',
     condicion_iva_operacion: 'CF',
     condicion_pago: CONDICION_PAGO_CONTADO,
     envia_por_mail: 'N',
     reclama_deuda: 'N',
+    rg5329: 'N',
   }
 }
 
@@ -105,13 +111,17 @@ export function mapearVentaAFacturaC(
 ): TusFacturasRequestBody {
   const detalle: TusFacturasDetalleItem[] = venta.items.map((item) => ({
     cantidad: String(item.cantidad),
+    afecta_stock: 'N', // el stock se gestiona en nuestro sistema, no en TusFacturasAPP
     producto: {
       descripcion: item.articulo_nombre.slice(0, 200),
       codigo: item.articulo_codigo,
       unidad_bulto: '1',
+      unidad_medida: '7', // Unidad — tabla de referencia AFIP
       precio_unitario_sin_iva: (item.subtotal / item.cantidad).toFixed(2),
       alicuota: '0',
       lista_precios: 'standard',
+      actualiza_precio: 'N',
+      rg5329: 'N',
     },
     bonificacion_porcentaje: 0,
     leyenda: '',
@@ -125,6 +135,9 @@ export function mapearVentaAFacturaC(
   const comprobante: TusFacturasComprobante = {
     fecha: fechaComprobante,
     vencimiento: fechaComprobante, // Contado (condicion_pago=201) = 0 días de plazo
+    idioma: '1',
+    periodo_facturado_desde: fechaComprobante,
+    periodo_facturado_hasta: fechaComprobante,
     tipo: 'FACTURA C',
     operacion: 'V',
     punto_venta: PUNTO_VENTA,

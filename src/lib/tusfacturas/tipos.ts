@@ -6,25 +6,31 @@ export interface TusFacturasCliente {
   razon_social: string
   domicilio: string
   provincia: string
+  codigo: string // identificador propio del cliente en nuestro sistema (REQUERIDO por TusFacturasAPP)
   condicion_iva: 'CF' // Consumidor Final — único caso contemplado por ahora
   condicion_iva_operacion?: 'CF'
   condicion_pago: string
   email?: string
   envia_por_mail: 'N'
   reclama_deuda: 'N'
+  rg5329: 'N' // Ariel no está alcanzado por el régimen de percepción RG5329
 }
 
 export interface TusFacturasProducto {
   descripcion: string
   codigo: string
   unidad_bulto: string
+  unidad_medida: string // '7' = Unidad (tabla de referencia AFIP)
   precio_unitario_sin_iva: string
   alicuota: '0' // Factura C siempre alícuota 0
   lista_precios: string
+  actualiza_precio: 'N' // el catálogo de precios vive en nuestro sistema, no en TusFacturasAPP
+  rg5329: 'N'
 }
 
 export interface TusFacturasDetalleItem {
   cantidad: string
+  afecta_stock: 'N' // el stock se gestiona en nuestro sistema, no en TusFacturasAPP
   producto: TusFacturasProducto
   bonificacion_porcentaje: number
   leyenda: string
@@ -33,6 +39,9 @@ export interface TusFacturasDetalleItem {
 export interface TusFacturasComprobante {
   fecha: string // dd/mm/yyyy
   vencimiento: string // dd/mm/yyyy — obligatorio (changelog TusFacturasAPP 01/10/2023). Igual a "fecha" porque condicion_pago=Contado (0 días).
+  idioma: '1' // 1=Español, 2=Inglés — REQUERIDO
+  periodo_facturado_desde: string // dd/mm/yyyy — REQUERIDO. Venta de mostrador: mismo día que "fecha"
+  periodo_facturado_hasta: string // dd/mm/yyyy — REQUERIDO. Venta de mostrador: mismo día que "fecha"
   tipo: 'FACTURA C'
   operacion: 'V'
   punto_venta: string // "0004"
