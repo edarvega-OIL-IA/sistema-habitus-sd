@@ -71,7 +71,7 @@ export interface TusFacturasRespuestaExito {
   errores: []
   cae: string
   comprobante_nro: string // formato "00004-00000002"
-  cae_vencimiento: string // dd/mm/yyyy
+  vencimiento_cae: string // dd/mm/yyyy — OJO: el nombre real de este campo es "vencimiento_cae", no "cae_vencimiento"
   observaciones?: string
 }
 
