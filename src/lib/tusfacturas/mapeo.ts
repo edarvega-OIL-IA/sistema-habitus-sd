@@ -119,6 +119,9 @@ export function mapearVentaAFacturaC(
 
   const fechaComprobante = formatearFechaDDMMYYYY(venta.fecha_utc)
 
+  const subtotalDetalle = venta.items.reduce((sum, item) => sum + item.subtotal, 0)
+  const bonificacionGeneral = subtotalDetalle - venta.total
+
   const comprobante: TusFacturasComprobante = {
     fecha: fechaComprobante,
     vencimiento: fechaComprobante, // Contado (condicion_pago=201) = 0 días de plazo
@@ -131,7 +134,7 @@ export function mapearVentaAFacturaC(
     rubro: RUBRO,
     rubro_grupo_contable: RUBRO,
     detalle,
-    bonificacion: '0.00',
+    bonificacion: bonificacionGeneral.toFixed(2),
     leyenda_gral: ' ',
     total: venta.total.toFixed(2),
     external_reference: `venta-${venta.venta_id}`,
