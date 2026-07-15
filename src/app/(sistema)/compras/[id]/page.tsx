@@ -693,9 +693,12 @@ export default function ComprasEditarPage() {
             </button>
             <button type="button" onClick={() => setDiferenciaPendiente(null)}
               className="px-3 py-1.5 border border-amber-300 text-amber-800 rounded text-xs font-medium hover:bg-amber-100">
-              Corrijo yo manualmente
+              Volver a corregir un ítem (todavía no se guardó nada)
             </button>
           </div>
+          <p className="text-xs text-amber-700 mt-2">
+            Este segundo botón no guarda la orden — solo cierra este aviso para que corrijas algún precio o cantidad. Después tenés que volver a clickear "Confirmar orden" o "Guardar borrador".
+          </p>
         </div>
       )}
 
@@ -831,7 +834,7 @@ export default function ComprasEditarPage() {
                   <th className="text-center px-3 py-2 text-xs text-gray-600 font-semibold w-20">Cant. Fact.</th>
                   <th className="text-center px-3 py-2 text-xs text-gray-600 font-semibold w-20">Cant. Recib.</th>
                   <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-36">Precio Unit. (c/IVA)</th>
-                  <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-20">Desc. %</th>
+                  <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-28">Desc. %</th>
                   <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-32">Subtotal</th>
                   {distribuirFlete && fleteMonto > 0 && (
                     <th className="text-right px-3 py-2 text-xs text-gray-500 font-semibold w-32">Costo c/flete (c/IVA)</th>
