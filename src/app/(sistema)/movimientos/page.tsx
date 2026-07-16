@@ -13,6 +13,7 @@ interface Movimiento {
   monto: number
   observaciones: string | null
   categoria_gasto_id: number | null
+  medio_pago_id: number | null
   origen_tipo: string | null
   cierre_turno_id: number | null
   categorias_gasto: { nombre: string } | null
@@ -25,9 +26,15 @@ interface Categoria {
   nombre: string
 }
 
+interface MedioPago {
+  id: number
+  nombre: string
+}
+
 export default function MovimientosPage() {
   const [movimientos, setMovimientos] = useState<Movimiento[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
+  const [mediosPago, setMediosPago] = useState<MedioPago[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [rolUsuario, setRolUsuario] = useState<number | null>(null)
@@ -36,6 +43,7 @@ export default function MovimientosPage() {
   const [eliminando, setEliminando] = useState<number | null>(null)
   const [tipoFiltro, setTipoFiltro] = useState<string>('todos')
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>('todos')
+  const [medioPagoFiltro, setMedioPagoFiltro] = useState<string>('todos')
   const [modoPeriodo, setModoPeriodo] = useState<'dia' | 'mes' | 'anio' | 'libre' | 'todos'>('todos')
   const [fechaRef, setFechaRef] = useState<Date>(new Date())
   const [fechaDesde, setFechaDesde] = useState<string>('')
@@ -98,6 +106,7 @@ export default function MovimientosPage() {
     setModoPeriodo('todos')
     setTipoFiltro('todos')
     setCategoriaFiltro('todos')
+    setMedioPagoFiltro('todos')
     setFechaDesde('')
     setFechaHasta('')
     setFechaRef(new Date())
@@ -133,6 +142,7 @@ export default function MovimientosPage() {
           monto,
           observaciones,
           categoria_gasto_id,
+          medio_pago_id,
           origen_tipo,
           cierre_turno_id,
           creado_en,
@@ -153,8 +163,16 @@ export default function MovimientosPage() {
 
       if (categoriasError) throw categoriasError
 
+      const { data: mediosPagoData, error: mediosPagoError } = await supabase
+        .from('medios_pago')
+        .select('id, nombre')
+        .order('nombre')
+
+      if (mediosPagoError) throw mediosPagoError
+
       setMovimientos(movimientosData as any || [])
       setCategorias(categoriasData || [])
+      setMediosPago(mediosPagoData || [])
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -186,11 +204,13 @@ export default function MovimientosPage() {
     const cumpleTipo = tipoFiltro === 'todos' || mov.tipo === tipoFiltro
     const cumpleCategoria = categoriaFiltro === 'todos' ||
       mov.categoria_gasto_id?.toString() === categoriaFiltro
+    const cumpleMedioPago = medioPagoFiltro === 'todos' ||
+      mov.medio_pago_id?.toString() === medioPagoFiltro
     const cumpleExclusionCaja = !excluirCaja || mov.categoria_gasto_id !== 13
     const fechaCreado = new Date(mov.creado_en).toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
     const cumpleFechaDesde = !desde || fechaCreado >= desde
     const cumpleFechaHasta = !hasta || fechaCreado <= hasta
-    return cumpleTipo && cumpleCategoria && cumpleExclusionCaja && cumpleFechaDesde && cumpleFechaHasta
+    return cumpleTipo && cumpleCategoria && cumpleMedioPago && cumpleExclusionCaja && cumpleFechaDesde && cumpleFechaHasta
   })
 
   const totalIngresos = movimientosFiltrados
@@ -278,8 +298,8 @@ export default function MovimientosPage() {
           )}
         </div>
 
-        {/* Fila 2: tipo y categoría */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Fila 2: tipo, categoría y medio de pago */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
             <select value={tipoFiltro} onChange={e => setTipoFiltro(e.target.value)}
@@ -296,6 +316,16 @@ export default function MovimientosPage() {
               <option value="todos">Todas las categorías</option>
               {categorias.map(cat => (
                 <option key={cat.id} value={cat.id.toString()}>{cat.nombre}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Medio de pago</label>
+            <select value={medioPagoFiltro} onChange={e => setMedioPagoFiltro(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
+              <option value="todos">Todos los medios</option>
+              {mediosPago.map(mp => (
+                <option key={mp.id} value={mp.id.toString()}>{mp.nombre}</option>
               ))}
             </select>
           </div>
