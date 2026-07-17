@@ -149,21 +149,46 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ── Movimiento financiero (ledger) — UNA FILA POR CADA MEDIO DE PAGO ────
+    // BUG CORREGIDO (17/07/2026): antes se insertaba una sola fila con el
+    // medio de pago del PRIMER ítem de "pagos" y el TOTAL completo de la
+    // venta — en ventas con pago mixto (ej. parte Efectivo + parte
+    // Transferencia) esto inflaba artificialmente el total declarado en el
+    // primer medio, rompiendo la trazabilidad de efectivo en Movimientos.
+    // Fix: se reparte proporcionalmente cada pago sobre el total real de la
+    // venta (así el vuelto en efectivo, si lo hay, no infla el total —
+    // "totalPagos" puede ser mayor a "total" cuando hay vuelto), y el
+    // redondeo de centavos se absorbe en el último ítem para que la suma
+    // de las filas coincida exactamente con "total".
+    const factorProporcion = total / totalPagos
+    let sumaAcumulada = 0
+    const contribuciones = pagos.map((pago: any, i: number) => {
+      let monto: number
+      if (i === pagos.length - 1) {
+        // Último pago: absorbe el redondeo para que la suma cierre exacta
+        monto = Math.round((total - sumaAcumulada) * 100) / 100
+      } else {
+        monto = Math.round(pago.monto * factorProporcion * 100) / 100
+        sumaAcumulada += monto
+      }
+      return { medio_pago_id: pago.medio_pago_id, monto }
+    })
+
     const { error: movError } = await supabase
       .from('movimientos')
-      .insert({
+      .insert(contribuciones.map(c => ({
         sucursal_id: usuarioSistema.sucursal_id || 1,
         tipo: 'Ingreso',
         categoria_gasto_id: 10, // Ventas
         concepto_gasto_id: 35, // Venta local
-        medio_pago_id: pagos[0].medio_pago_id,
-        monto: total,
+        medio_pago_id: c.medio_pago_id,
+        monto: c.monto,
         fecha_utc: fechaHoy,
         mes_contable: fechaHoy.slice(0, 7) + '-01',
         origen_tipo: 'venta',
         origen_id: venta.id,
         usuario_id: user.id,
-      })
+      })))
 
     if (movError) {
       console.error('Error al generar movimiento para venta', venta.id, ':', movError.message)
