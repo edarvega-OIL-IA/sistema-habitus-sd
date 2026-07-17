@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
 
     const { error: movError } = await supabase
       .from('movimientos')
-      .insert(contribuciones.map(c => ({
+      .insert(contribuciones.map((c: { medio_pago_id: number; monto: number }) => ({
         sucursal_id: usuarioSistema.sucursal_id || 1,
         tipo: 'Ingreso',
         categoria_gasto_id: 10, // Ventas
