@@ -762,37 +762,37 @@ export default function DashboardPage() {
               )
             })}
           </div>
-        </div>
-      </div>
 
-      {/* Stock valorizado (colapsado por defecto) */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <button
-          onClick={() => setMostrarStockValorizado(!mostrarStockValorizado)}
-          className="w-full flex items-center justify-between text-left"
-        >
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
-            <Wallet className="w-4 h-4 text-gray-400" />
-            Stock valorizado
-          </h2>
-          {mostrarStockValorizado ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-        </button>
+          {/* Stock valorizado (colapsado por defecto) — debajo de Clima del negocio */}
+          <div className="bg-white rounded-lg border border-gray-200 p-4 mt-4">
+            <button
+              onClick={() => setMostrarStockValorizado(!mostrarStockValorizado)}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-gray-400" />
+                Stock valorizado
+              </h2>
+              {mostrarStockValorizado ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+            </button>
 
-        {mostrarStockValorizado && (
-          <div className="mt-3">
-            {stockValorizado === null ? (
-              <button
-                onClick={calcularStockValorizado}
-                disabled={calculandoStock}
-                className="bg-[#00a19a] text-white px-4 py-2 rounded text-sm hover:bg-[#00a19a]/90 transition-colors disabled:opacity-50"
-              >
-                {calculandoStock ? 'Calculando...' : 'Calcular'}
-              </button>
-            ) : (
-              <p className="text-2xl font-bold text-[#3c3c3b]">{fmt(stockValorizado)}</p>
+            {mostrarStockValorizado && (
+              <div className="mt-3">
+                {stockValorizado === null ? (
+                  <button
+                    onClick={calcularStockValorizado}
+                    disabled={calculandoStock}
+                    className="bg-[#00a19a] text-white px-4 py-2 rounded text-sm hover:bg-[#00a19a]/90 transition-colors disabled:opacity-50"
+                  >
+                    {calculandoStock ? 'Calculando...' : 'Calcular'}
+                  </button>
+                ) : (
+                  <p className="text-2xl font-bold text-[#3c3c3b]">{fmt(stockValorizado)}</p>
+                )}
+              </div>
             )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Stock mínimo (colapsable, mismo patrón que Stock Valorizado) */}
