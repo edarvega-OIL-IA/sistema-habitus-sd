@@ -2,326 +2,832 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import Link from 'next/link'
-import { Search, Edit } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { ShoppingCart, TrendingUp, TrendingDown, Package, Clock, AlertTriangle, Target, Wallet, ChevronDown, ChevronUp, Percent, Activity } from 'lucide-react'
 
-interface Articulo {
+interface VentasTurno {
+  total: number
+  cantidad: number
+}
+
+interface ResumenMes {
+  ventas: number
+  ingresos: number
+  egresos: number
+  costoMercaderia: number
+  margenPct: number
+}
+
+interface ArticuloStockMinimo {
   id: number
   nombre: string
-  codigo_interno: string | null
-  codigo_barra: string | null
-  precio_local: number | null
-  disponible_local: boolean
-  disponible_web: boolean
-  activo: boolean
-  rubros: { nombre: string } | null
-  marcas: { nombre: string } | null
-  rubro_id: number | null
-  marca_id: number | null
-  articulo_stock: { stock_actual: number; stock_min: number; sucursal_id: number }[]
+  stock_actual: number
+  stock_min: number
 }
 
-interface Rubro {
-  id: number
-  nombre: string
+interface CajaEstado {
+  abierta: boolean
+  turno: string | null
+  apertura: number
+  esperado: number
+  efectivoEnCaja: number
+  usuario: string | null
+  desde: string | null
 }
 
-interface Marca {
-  id: number
-  nombre: string
+interface PuntoEquilibrio {
+  // Mes actual — objetivo ESTIMADO usando los costos fijos REALES del mes
+  // anterior (el mes en curso todavía no tiene todos sus gastos cargados:
+  // alquiler, parte de sueldos, etc. se pagan después del 20) y el margen
+  // REAL de lo vendido en lo que va del mes actual.
+  objetivoEsteMes: number
+  ventasEsteMes: number
+  diferenciaEsteMes: number
+  // Mes anterior — ya cerrado, con TODOS sus movimientos cargados, así que
+  // este número es fijo y no cambia más. Sirve de referencia de contraste.
+  hayDatosMesAnterior: boolean
+  objetivoMesAnterior: number
+  ventasMesAnterior: number
+  diferenciaMesAnterior: number
 }
 
-// Quita acentos/diacríticos y pasa a minúsculas, para que la búsqueda
-// no dependa de tildes ni de mayúsculas (ej: "creatina" encuentra "Creatína").
-function normalizar(s: string): string {
-  return s
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
+interface VentasPorTurnoMes {
+  manana: number
+  tarde: number
 }
 
-export default function ArticulosPage() {
-  const [articulos, setArticulos] = useState<Articulo[]>([])
-  const [rubros, setRubros] = useState<Rubro[]>([])
-  const [marcas, setMarcas] = useState<Marca[]>([])
+type EstadoSemaforo = 'verde' | 'ambar' | 'rojo' | 'neutro'
+
+export default function DashboardPage() {
+  const router = useRouter()
+  const supabase = createClient()
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [rolUsuario, setRolUsuario] = useState<number | null>(null)
+  const [cajaEstado, setCajaEstado] = useState<CajaEstado>({ abierta: false, turno: null, apertura: 0, esperado: 0, efectivoEnCaja: 0, usuario: null, desde: null })
+  const [ventasManana, setVentasManana] = useState<VentasTurno>({ total: 0, cantidad: 0 })
+  const [ventasTarde, setVentasTarde] = useState<VentasTurno>({ total: 0, cantidad: 0 })
+  const [ventasDia, setVentasDia] = useState<VentasTurno>({ total: 0, cantidad: 0 })
+  const [resumenMes, setResumenMes] = useState<ResumenMes>({ ventas: 0, ingresos: 0, egresos: 0, costoMercaderia: 0, margenPct: 0 })
+  const [stockMinimo, setStockMinimo] = useState<ArticuloStockMinimo[]>([])
+  const [puntoEquilibrio, setPuntoEquilibrio] = useState<PuntoEquilibrio>({
+    objetivoEsteMes: 0, ventasEsteMes: 0, diferenciaEsteMes: 0,
+    hayDatosMesAnterior: false, objetivoMesAnterior: 0, ventasMesAnterior: 0, diferenciaMesAnterior: 0,
+  })
+  const [ventasPorTurnoMes, setVentasPorTurnoMes] = useState<VentasPorTurnoMes>({ manana: 0, tarde: 0 })
+  const [ultimaDiferenciaCaja, setUltimaDiferenciaCaja] = useState<number | null>(null)
+  const [ritmoVentas, setRitmoVentas] = useState<number | null>(null)
 
-  // Filtros
-  const [busqueda, setBusqueda] = useState('')
-  const [rubroFiltro, setRubroFiltro] = useState<string>('todos')
-  const [marcaFiltro, setMarcaFiltro] = useState<string>('todos')
-  const [disponibilidadFiltro, setDisponibilidadFiltro] = useState<string>('local') // local | web | todos
-  const [stockFiltro, setStockFiltro] = useState<string>('todos') // con_stock | sin_stock | todos
+  const [mostrarStockValorizado, setMostrarStockValorizado] = useState(false)
+  const [stockValorizado, setStockValorizado] = useState<number | null>(null)
+  const [calculandoStock, setCalculandoStock] = useState(false)
 
-  useEffect(() => {
-    cargarDatos()
-  }, [])
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+  const mesDesde = hoy.slice(0, 7) + '-01'
+
+  useEffect(() => { cargarDatos() }, [])
 
   async function cargarDatos() {
-    const supabase = createClient()
+    setLoading(true)
+    setError(null)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data: usuarioData } = await supabase
-          .from('usuarios').select('rol_id').eq('id', user.id).single()
-        if (usuarioData) setRolUsuario(usuarioData.rol_id)
-      }
-
-      const [
-        { data: articulosData, error: articulosError },
-        { data: stockData },
-        { data: rubrosData },
-        { data: marcasData },
-      ] = await Promise.all([
-        supabase
-          .from('articulos')
-          .select(`
-            id, nombre, codigo_interno, codigo_barra, precio_local,
-            disponible_local, disponible_web, activo, rubro_id, marca_id,
-            rubros!inner ( nombre ),
-            marcas!inner ( nombre )
-          `)
-          .eq('activo', true)
-          .order('nombre'),
-        supabase
-          .from('articulo_stock')
-          .select('articulo_id, stock_actual, stock_min')
-          .eq('sucursal_id', 1),
-        supabase.from('rubros').select('id, nombre').eq('activo', true).order('nombre'),
-        supabase.from('marcas').select('id, nombre').eq('activo', true).order('nombre'),
+      await Promise.all([
+        cargarCaja(),
+        cargarVentasDia(),
+        cargarResumenMes(),
+        cargarStockMinimo(),
+        cargarPuntoEquilibrio(),
+        cargarVentasPorTurnoMes(),
+        cargarUltimaDiferenciaCaja(),
+        cargarRitmoVentas(),
       ])
-
-      if (articulosError) throw articulosError
-
-      // Mergear stock en cada artículo
-      const stockMap = new Map((stockData || []).map(s => [s.articulo_id, s]))
-      const articulosConStock = (articulosData || []).map(a => {
-        const s = stockMap.get(a.id)
-        return {
-          ...a,
-          articulo_stock: [{ stock_actual: s?.stock_actual ?? 0, stock_min: s?.stock_min ?? 0, sucursal_id: 1 }]
-        }
-      })
-
-      setArticulos(articulosConStock as any)
-      setRubros(rubrosData || [])
-      setMarcas(marcasData || [])
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : JSON.stringify(err))
     } finally {
       setLoading(false)
     }
   }
 
-  const articulosFiltrados = articulos.filter(a => {
-    // Búsqueda tokenizada e insensible a acentos/mayúsculas: cada palabra
-    // escrita debe aparecer en algún lugar del texto buscable, sin importar
-    // el orden (ej: "whey one fit" encuentra "Classic Whey Protein... One Fit").
-    const tokens = normalizar(busqueda).trim().split(/\s+/).filter(Boolean)
-    if (tokens.length > 0) {
-      const haystack = normalizar(
-        [a.nombre, a.codigo_interno, a.codigo_barra, (a.rubros as any)?.nombre, (a.marcas as any)?.nombre]
-          .filter(Boolean)
-          .join(' ')
-      )
-      if (!tokens.every(t => haystack.includes(t))) return false
+  async function cargarCaja() {
+    const { data, error } = await supabase
+      .from('cierres_turno')
+      .select('id, apertura, creado_en, turno_id, usuario_id')
+      .eq('sucursal_id', 1)
+      .eq('estado_cierre_turno_id', 1)
+      .maybeSingle()
+
+    if (error) throw error
+
+    if (!data) {
+      const { data: ultimoCierre, error: ultimoError } = await supabase
+        .from('cierres_turno')
+        .select('efectivo_real')
+        .eq('sucursal_id', 1)
+        .not('cerrado_en', 'is', null)
+        .order('cerrado_en', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (ultimoError) throw ultimoError
+
+      setCajaEstado({
+        abierta: false, turno: null, apertura: 0, esperado: 0,
+        efectivoEnCaja: ultimoCierre?.efectivo_real ?? 0,
+        usuario: null, desde: null,
+      })
+      return
     }
-    if (rubroFiltro !== 'todos' && a.rubro_id?.toString() !== rubroFiltro) return false
-    if (marcaFiltro !== 'todos' && a.marca_id?.toString() !== marcaFiltro) return false
-    if (disponibilidadFiltro === 'local' && !a.disponible_local) return false
-    if (disponibilidadFiltro === 'web' && !a.disponible_web) return false
-    const stock = a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_actual ?? 0
-    const stockMin = a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_min ?? 0
-    if (stockFiltro === 'con_stock' && stock <= 0) return false
-    if (stockFiltro === 'sin_stock' && stock > 0) return false
-    if (stockFiltro === 'con_minimo' && stockMin <= 0) return false
-    if (stockFiltro === 'bajo_minimo' && !(stockMin > 0 && stock <= stockMin)) return false
-    return true
-  })
 
-  // Si hay un rubro seleccionado, solo mostrar marcas que tengan al menos
-  // un artículo en ese rubro — evita listar marcas irrelevantes al filtro actual.
-  const marcasDisponibles = rubroFiltro === 'todos'
-    ? marcas
-    : marcas.filter(m => articulos.some(a => a.rubro_id?.toString() === rubroFiltro && a.marca_id === m.id))
+    const [turnoRes, usuarioRes, ventasEfectivoRes, egresosRes, ingresosRes, retirosRes] = await Promise.all([
+      supabase.from('turnos').select('nombre').eq('id', data.turno_id).single(),
+      supabase.from('usuarios').select('nombre, apellido').eq('id', data.usuario_id).single(),
+      supabase
+        .from('venta_pagos')
+        .select('monto, ventas!inner(sucursal_id, estado_venta_id, creado_en)')
+        .eq('medio_pago_id', 1)
+        .eq('ventas.sucursal_id', 1)
+        .neq('ventas.estado_venta_id', 3)
+        .gte('ventas.creado_en', data.creado_en),
+      supabase
+        .from('movimientos')
+        .select('monto')
+        .eq('sucursal_id', 1)
+        .eq('tipo', 'Egreso')
+        .eq('medio_pago_id', 1)
+        .eq('anulado', false)
+        .gte('creado_en', data.creado_en),
+      supabase
+        .from('movimientos')
+        .select('monto, origen_tipo')
+        .eq('sucursal_id', 1)
+        .eq('tipo', 'Ingreso')
+        .eq('medio_pago_id', 1)
+        .eq('anulado', false)
+        .gte('creado_en', data.creado_en),
+      supabase
+        .from('retiros_caja')
+        .select('monto')
+        .eq('cierre_turno_id', data.id),
+    ])
 
-  function handleCambioRubro(nuevoRubro: string) {
-    setRubroFiltro(nuevoRubro)
-    // Si la marca actualmente elegida no tiene artículos en el rubro nuevo, resetear el filtro de marca
-    if (marcaFiltro !== 'todos' && nuevoRubro !== 'todos') {
-      const sigueDisponible = articulos.some(a => a.rubro_id?.toString() === nuevoRubro && a.marca_id?.toString() === marcaFiltro)
-      if (!sigueDisponible) setMarcaFiltro('todos')
+    const totalVentas = (ventasEfectivoRes.data || []).reduce((s, v) => s + v.monto, 0)
+    const totalEgresos = (egresosRes.data || []).reduce((s, e) => s + e.monto, 0)
+    const totalIngresos = (ingresosRes.data || [])
+      .filter((i: any) => i.origen_tipo !== 'venta')
+      .reduce((s, i) => s + i.monto, 0)
+    const totalRetiros = (retirosRes.data || []).reduce((s, r) => s + r.monto, 0)
+    const esperado = data.apertura + totalVentas + totalIngresos - totalEgresos - totalRetiros
+
+    setCajaEstado({
+      abierta: true,
+      turno: turnoRes.data?.nombre || null,
+      apertura: data.apertura,
+      esperado,
+      efectivoEnCaja: esperado,
+      usuario: usuarioRes.data ? `${usuarioRes.data.nombre} ${usuarioRes.data.apellido}` : null,
+      desde: data.creado_en,
+    })
+  }
+
+  async function cargarVentasDia() {
+    const { data, error } = await supabase
+      .from('ventas')
+      .select('total, cierre_turno_id')
+      .eq('sucursal_id', 1)
+      .neq('estado_venta_id', 3)
+      .eq('fecha_utc', hoy)
+
+    if (error) throw error
+    if (!data || data.length === 0) return
+
+    const cierreIds = [...new Set(data.map(v => v.cierre_turno_id).filter(Boolean))]
+    let cierreTurnoMap: Map<number, number> = new Map()
+
+    if (cierreIds.length > 0) {
+      const { data: cierres } = await supabase
+        .from('cierres_turno')
+        .select('id, turno_id')
+        .in('id', cierreIds as number[])
+      ;(cierres || []).forEach(c => cierreTurnoMap.set(c.id, c.turno_id))
+    }
+
+    const manana = data.filter(v => v.cierre_turno_id && cierreTurnoMap.get(v.cierre_turno_id) === 1)
+    const tarde = data.filter(v => v.cierre_turno_id && cierreTurnoMap.get(v.cierre_turno_id) === 2)
+
+    setVentasManana({ total: manana.reduce((s, v) => s + v.total, 0), cantidad: manana.length })
+    setVentasTarde({ total: tarde.reduce((s, v) => s + v.total, 0), cantidad: tarde.length })
+    setVentasDia({ total: data.reduce((s, v) => s + v.total, 0), cantidad: data.length })
+  }
+
+  // Calcula ventas totales + costo real de mercadería vendida para un rango
+  // de fechas [desde, hasta] — reutilizado para mes actual y mes anterior.
+  async function calcularVentasYCosto(desde: string, hasta: string) {
+    const { data: ventasRes } = await supabase
+      .from('ventas')
+      .select('id, total')
+      .eq('sucursal_id', 1)
+      .neq('estado_venta_id', 3)
+      .gte('fecha_utc', desde)
+      .lte('fecha_utc', hasta)
+
+    const totalVentas = (ventasRes || []).reduce((s, v) => s + v.total, 0)
+    const ventaIds = (ventasRes || []).map(v => v.id)
+
+    let costoMercaderia = 0
+    if (ventaIds.length > 0) {
+      const { data: itemsData } = await supabase
+        .from('venta_items')
+        .select('articulo_id, cantidad')
+        .in('venta_id', ventaIds)
+
+      if (itemsData && itemsData.length > 0) {
+        const articuloIds = [...new Set(itemsData.map(i => i.articulo_id))]
+        const { data: articulosCosto } = await supabase
+          .from('articulos')
+          .select('id, costo_sin_iva')
+          .in('id', articuloIds)
+
+        const costoMap = new Map((articulosCosto || []).map(a => [a.id, a.costo_sin_iva || 0]))
+        costoMercaderia = itemsData.reduce((s, i) => s + i.cantidad * (costoMap.get(i.articulo_id) || 0), 0)
+      }
+    }
+
+    return { totalVentas, costoMercaderia }
+  }
+
+  async function cargarResumenMes() {
+    const { totalVentas, costoMercaderia } = await calcularVentasYCosto(mesDesde, hoy)
+
+    const { data: movData, error: movError } = await supabase
+      .from('movimientos')
+      .select('tipo, monto')
+      .eq('sucursal_id', 1)
+      .eq('anulado', false)
+      .gte('mes_contable', mesDesde)
+
+    if (movError) throw movError
+
+    const ingresos = (movData || []).filter(m => m.tipo === 'Ingreso').reduce((s, m) => s + m.monto, 0)
+    const egresos = (movData || []).filter(m => m.tipo === 'Egreso').reduce((s, m) => s + m.monto, 0)
+    const margenPct = totalVentas > 0 ? (totalVentas - costoMercaderia) / totalVentas : 0
+
+    setResumenMes({ ventas: totalVentas, ingresos, egresos, costoMercaderia, margenPct })
+  }
+
+  // Costos Fijos de un mes = egresos EXCEPTO Compras Mercadería (categoria_gasto_id=1,
+  // ya contemplada en el margen de contribución) y Retiro de caja (concepto_gasto_id=41,
+  // no es un gasto real del negocio).
+  async function calcularCostosFijos(mesContable: string) {
+    const { data } = await supabase
+      .from('movimientos')
+      .select('monto, categoria_gasto_id, concepto_gasto_id')
+      .eq('sucursal_id', 1)
+      .eq('tipo', 'Egreso')
+      .eq('anulado', false)
+      .eq('mes_contable', mesContable)
+
+    return (data || [])
+      .filter(m => m.categoria_gasto_id !== 1 && m.concepto_gasto_id !== 41)
+      .reduce((s, m) => s + m.monto, 0)
+  }
+
+  async function cargarPuntoEquilibrio() {
+    // Rango del mes anterior calendario (independiente de cuántos días tenga)
+    const [anioActual, mesActualNum] = mesDesde.split('-').map(Number)
+    const fechaMesAnterior = new Date(anioActual, mesActualNum - 2, 1) // -2 porque Date usa mes 0-indexado y ya restamos 1 mes
+    const mesAnteriorDesde = fechaMesAnterior.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+    const ultimoDiaMesAnterior = new Date(anioActual, mesActualNum - 1, 0)
+    const mesAnteriorHasta = ultimoDiaMesAnterior.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+
+    const [costosFijosMesAnterior, costosFijosParaEstimar, { totalVentas: ventasEsteMes, costoMercaderia: costoEsteMes }, { totalVentas: ventasMesAnterior, costoMercaderia: costoMesAnterior }] = await Promise.all([
+      calcularCostosFijos(mesAnteriorDesde),
+      calcularCostosFijos(mesAnteriorDesde), // mismo valor — se usa como base del objetivo estimado de este mes
+      calcularVentasYCosto(mesDesde, hoy),
+      calcularVentasYCosto(mesAnteriorDesde, mesAnteriorHasta),
+    ])
+
+    const hayDatosMesAnterior = costosFijosMesAnterior > 0 || ventasMesAnterior > 0
+
+    // Mes actual: objetivo estimado = costos fijos REALES del mes anterior /
+    // margen REAL de lo vendido en lo que va de este mes.
+    const margenEsteMes = ventasEsteMes > 0 ? (ventasEsteMes - costoEsteMes) / ventasEsteMes : 0
+    const objetivoEsteMes = margenEsteMes > 0 ? costosFijosParaEstimar / margenEsteMes : 0
+    const diferenciaEsteMes = ventasEsteMes - objetivoEsteMes
+
+    // Mes anterior: ya cerrado, con sus propios costos fijos y margen reales — fijo para siempre.
+    const margenMesAnterior = ventasMesAnterior > 0 ? (ventasMesAnterior - costoMesAnterior) / ventasMesAnterior : 0
+    const objetivoMesAnterior = margenMesAnterior > 0 ? costosFijosMesAnterior / margenMesAnterior : 0
+    const diferenciaMesAnterior = ventasMesAnterior - objetivoMesAnterior
+
+    setPuntoEquilibrio({
+      objetivoEsteMes, ventasEsteMes, diferenciaEsteMes,
+      hayDatosMesAnterior, objetivoMesAnterior, ventasMesAnterior, diferenciaMesAnterior,
+    })
+  }
+
+  async function cargarVentasPorTurnoMes() {
+    const { data, error } = await supabase
+      .from('ventas')
+      .select('total, cierre_turno_id')
+      .eq('sucursal_id', 1)
+      .neq('estado_venta_id', 3)
+      .gte('fecha_utc', mesDesde)
+      .lte('fecha_utc', hoy)
+
+    if (error) throw error
+    if (!data || data.length === 0) return
+
+    const cierreIds = [...new Set(data.map(v => v.cierre_turno_id).filter(Boolean))]
+    let cierreTurnoMap: Map<number, number> = new Map()
+
+    if (cierreIds.length > 0) {
+      const { data: cierres } = await supabase
+        .from('cierres_turno')
+        .select('id, turno_id')
+        .in('id', cierreIds as number[])
+      ;(cierres || []).forEach(c => cierreTurnoMap.set(c.id, c.turno_id))
+    }
+
+    const manana = data.filter(v => v.cierre_turno_id && cierreTurnoMap.get(v.cierre_turno_id) === 1)
+      .reduce((s, v) => s + v.total, 0)
+    const tarde = data.filter(v => v.cierre_turno_id && cierreTurnoMap.get(v.cierre_turno_id) === 2)
+      .reduce((s, v) => s + v.total, 0)
+
+    setVentasPorTurnoMes({ manana, tarde })
+  }
+
+  async function cargarUltimaDiferenciaCaja() {
+    const { data } = await supabase
+      .from('cierres_turno')
+      .select('diferencia')
+      .eq('sucursal_id', 1)
+      .not('cerrado_en', 'is', null)
+      .order('cerrado_en', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    setUltimaDiferenciaCaja(data?.diferencia ?? null)
+  }
+
+  async function cargarRitmoVentas() {
+    const fechaRef = new Date()
+    const inicio3Meses = new Date(fechaRef.getFullYear(), fechaRef.getMonth() - 3, 1)
+    const inicio3MesesStr = inicio3Meses.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+
+    const { data } = await supabase
+      .from('ventas')
+      .select('total')
+      .eq('sucursal_id', 1)
+      .neq('estado_venta_id', 3)
+      .gte('fecha_utc', inicio3MesesStr)
+      .lt('fecha_utc', mesDesde)
+
+    const totalUltimos3Meses = (data || []).reduce((s, v) => s + v.total, 0)
+    const promedioDiario = totalUltimos3Meses / 90
+
+    const diaDelMes = new Date().getDate()
+    const esperadoAEstaAltura = promedioDiario * diaDelMes
+
+    if (esperadoAEstaAltura <= 0) { setRitmoVentas(null); return }
+
+    const { data: ventasMesData } = await supabase
+      .from('ventas')
+      .select('total')
+      .eq('sucursal_id', 1)
+      .neq('estado_venta_id', 3)
+      .gte('fecha_utc', mesDesde)
+      .lte('fecha_utc', hoy)
+
+    const ventasMes = (ventasMesData || []).reduce((s, v) => s + v.total, 0)
+    setRitmoVentas(ventasMes / esperadoAEstaAltura)
+  }
+
+  async function cargarStockMinimo() {
+    const { data: stocks, error } = await supabase
+      .from('articulo_stock')
+      .select('articulo_id, stock_actual, stock_min')
+      .eq('sucursal_id', 1)
+      .gt('stock_min', 0)
+
+    if (error) throw error
+    if (!stocks || stocks.length === 0) return
+
+    const enMinimo = stocks.filter(s => s.stock_actual <= s.stock_min)
+    if (enMinimo.length === 0) return
+
+    const articuloIds = enMinimo.map(s => s.articulo_id)
+    const { data: articulos } = await supabase
+      .from('articulos')
+      .select('id, nombre')
+      .in('id', articuloIds)
+
+    const artMap = new Map((articulos || []).map(a => [a.id, a.nombre]))
+
+    setStockMinimo(enMinimo.map(s => ({
+      id: s.articulo_id,
+      nombre: artMap.get(s.articulo_id) || '—',
+      stock_actual: s.stock_actual,
+      stock_min: s.stock_min,
+    })))
+  }
+
+  async function calcularStockValorizado() {
+    setCalculandoStock(true)
+    try {
+      const { data: stocks } = await supabase
+        .from('articulo_stock')
+        .select('articulo_id, stock_actual')
+        .eq('sucursal_id', 1)
+        .gt('stock_actual', 0)
+
+      if (!stocks || stocks.length === 0) { setStockValorizado(0); return }
+
+      const articuloIds = [...new Set(stocks.map(s => s.articulo_id))]
+      const { data: articulos } = await supabase
+        .from('articulos')
+        .select('id, costo_sin_iva')
+        .in('id', articuloIds)
+
+      const costoMap = new Map((articulos || []).map(a => [a.id, a.costo_sin_iva || 0]))
+      const total = stocks.reduce((s, item) => s + item.stock_actual * (costoMap.get(item.articulo_id) || 0), 0)
+      setStockValorizado(total)
+    } finally {
+      setCalculandoStock(false)
     }
   }
 
-  const fmtPrecio = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
+  const fmtPct = (n: number) => (n * 100).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%'
+  const fmtHora = (s: string) => new Date(s).toLocaleTimeString('es-AR', {
+    hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires'
+  })
 
-  if (loading) return <div className="flex items-center justify-center h-64"><p className="text-gray-500 text-sm">Cargando artículos...</p></div>
-  if (error) return <p className="text-red-500 text-sm">Error al cargar artículos: {error}</p>
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <p className="text-sm text-gray-400">Cargando dashboard...</p>
+    </div>
+  )
+
+  if (error) return (
+    <div className="mx-auto max-w-xl mt-8 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+      {error}
+    </div>
+  )
+
+  // ── Clima del negocio ──────────────────────────────────────────────────
+  const estadoCaja: EstadoSemaforo = ultimaDiferenciaCaja === null ? 'neutro'
+    : Math.abs(ultimaDiferenciaCaja) <= 500 ? 'verde'
+    : Math.abs(ultimaDiferenciaCaja) <= 2000 ? 'ambar' : 'rojo'
+
+  const estadoStock: EstadoSemaforo = stockMinimo.length === 0 ? 'verde'
+    : stockMinimo.length <= 3 ? 'ambar' : 'rojo'
+
+  const estadoMargen: EstadoSemaforo = resumenMes.margenPct >= 0.30 ? 'verde'
+    : resumenMes.margenPct >= 0.20 ? 'ambar' : 'rojo'
+
+  const estadoRitmo: EstadoSemaforo = ritmoVentas === null ? 'neutro'
+    : ritmoVentas >= 1 ? 'verde'
+    : ritmoVentas >= 0.85 ? 'ambar' : 'rojo'
+
+  const estiloEstado: Record<EstadoSemaforo, string> = {
+    verde: 'bg-[#00a19a]/10 text-[#00a19a]',
+    ambar: 'bg-orange-50 text-[#D97706]',
+    rojo: 'bg-red-50 text-[#DC2626]',
+    neutro: 'bg-gray-100 text-gray-400',
+  }
+
+  const climaItems: { label: string; icon: any; estado: EstadoSemaforo; valor: string }[] = [
+    {
+      label: 'Caja',
+      icon: Wallet,
+      estado: estadoCaja,
+      valor: ultimaDiferenciaCaja === null ? 'Sin datos' : `Dif. último cierre: ${fmt(ultimaDiferenciaCaja)}`,
+    },
+    {
+      label: 'Stock',
+      icon: Package,
+      estado: estadoStock,
+      valor: stockMinimo.length === 0 ? 'Todo en orden' : `${stockMinimo.length} artículo${stockMinimo.length === 1 ? '' : 's'} bajo mínimo`,
+    },
+    {
+      label: 'Margen',
+      icon: Percent,
+      estado: estadoMargen,
+      valor: estadoMargen === 'verde' ? 'Saludable' : estadoMargen === 'ambar' ? 'Ajustado' : 'Bajo',
+    },
+    {
+      label: 'Ritmo de ventas',
+      icon: Activity,
+      estado: estadoRitmo,
+      valor: ritmoVentas === null ? 'Sin datos' : `${Math.round(ritmoVentas * 100)}% del esperado`,
+    },
+  ]
+
+  // ── Gráfico de torta (donut CSS, sin librerías) ───────────────────────
+  const totalTurnoMes = ventasPorTurnoMes.manana + ventasPorTurnoMes.tarde
+  const pctManana = totalTurnoMes > 0 ? (ventasPorTurnoMes.manana / totalTurnoMes) * 100 : 0
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-[#3c3c3b]">Artículos</h1>
-        <div className="flex gap-2">
-          {rolUsuario === 1 && (
-            <Link href="/articulos/precios"
-              className="border border-[#00a19a] text-[#00a19a] px-4 py-2 rounded text-sm hover:bg-[#00a19a]/10 transition-colors">
-              Actualizar precios
-            </Link>
-          )}
-          <Link href="/articulos/nuevo"
-            className="bg-[#00a19a] text-white px-4 py-2 rounded text-sm hover:bg-[#008f89] transition-colors">
-            + Nuevo artículo
-          </Link>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <h1 className="text-xl font-semibold text-[#3c3c3b]">Dashboard</h1>
 
-      {/* Filtros */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          {/* Buscador */}
-          <div className="md:col-span-1">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Buscar</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input type="text"
-                placeholder="Nombre, código interno o código de barras"
-                value={busqueda}
-                onChange={e => setBusqueda(e.target.value)}
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-transparent" />
+      {/* Estado de caja */}
+      {!cajaEstado.abierta && (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-orange-500" />
+            <div>
+              <p className="font-semibold text-orange-800 text-sm">Caja cerrada</p>
+              <p className="text-xs text-orange-600">
+                No se pueden registrar ventas hasta abrir la caja · Efectivo en caja: {fmt(cajaEstado.efectivoEnCaja)}
+              </p>
             </div>
           </div>
-
-          {/* Rubro */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Rubro</label>
-            <select value={rubroFiltro} onChange={e => handleCambioRubro(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-transparent">
-              <option value="todos">Todos los rubros</option>
-              {rubros.map(r => <option key={r.id} value={r.id.toString()}>{r.nombre}</option>)}
-            </select>
-          </div>
-
-          {/* Marca */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Marca</label>
-            <select value={marcaFiltro} onChange={e => setMarcaFiltro(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-transparent">
-              <option value="todos">Todas las marcas</option>
-              {marcasDisponibles.map(m => <option key={m.id} value={m.id.toString()}>{m.nombre}</option>)}
-            </select>
-          </div>
+          <button
+            onClick={() => router.push('/cierre-turno')}
+            className="bg-orange-500 text-white px-4 py-2 rounded text-sm hover:bg-orange-600 transition-colors"
+          >
+            Abrir caja
+          </button>
         </div>
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Disponibilidad */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Disponibilidad</label>
-            <select value={disponibilidadFiltro} onChange={e => setDisponibilidadFiltro(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-transparent">
-              <option value="local">Disponibles en local</option>
-              <option value="web">Disponibles en web</option>
-              <option value="todos">Todos</option>
-            </select>
+      {cajaEstado.abierta && (
+        <div className="bg-[#00a19a]/10 border border-[#00a19a]/30 rounded-lg p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-2.5 h-2.5 rounded-full bg-[#00a19a] animate-pulse" />
+            <div>
+              <p className="font-semibold text-[#3c3c3b] text-sm">
+                Turno {cajaEstado.turno} abierto · {cajaEstado.usuario}
+              </p>
+              <p className="text-xs text-gray-500">
+                Desde las {fmtHora(cajaEstado.desde!)} · Esperado en caja: {fmt(cajaEstado.esperado)}
+              </p>
+            </div>
           </div>
+          <button
+            onClick={() => router.push('/cierre-turno')}
+            className="border border-[#00a19a] text-[#00a19a] px-4 py-2 rounded text-sm hover:bg-[#00a19a]/10 transition-colors"
+          >
+            Ver caja
+          </button>
+        </div>
+      )}
 
-          {/* Stock */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Stock</label>
-            <select value={stockFiltro} onChange={e => setStockFiltro(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-transparent">
-              <option value="todos">Todos</option>
-              <option value="con_stock">Con stock</option>
-              <option value="sin_stock">Sin stock</option>
-              <option value="con_minimo">Con mínimo configurado</option>
-              <option value="bajo_minimo">Bajo mínimo</option>
-            </select>
+      {/* Ventas del día */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+          Ventas del día —{' '}
+          {new Date().toLocaleDateString('es-AR', {
+            weekday: 'long', day: 'numeric', month: 'long',
+            timeZone: 'America/Argentina/Buenos_Aires'
+          })}
+        </h2>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Clock className="w-4 h-4 text-gray-400" />
+              <p className="text-xs text-gray-500 font-medium">Turno Mañana</p>
+            </div>
+            <p className="text-2xl font-bold text-[#3c3c3b]">{fmt(ventasManana.total)}</p>
+            <p className="text-xs text-gray-400 mt-1">{ventasManana.cantidad} {ventasManana.cantidad === 1 ? 'venta' : 'ventas'}</p>
           </div>
-
-          {/* Contador */}
-          <div className="flex items-end">
-            <p className="text-xs text-gray-500 pb-2">
-              {articulosFiltrados.length} {articulosFiltrados.length === 1 ? 'artículo' : 'artículos'}
-            </p>
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Clock className="w-4 h-4 text-gray-400" />
+              <p className="text-xs text-gray-500 font-medium">Turno Tarde</p>
+            </div>
+            <p className="text-2xl font-bold text-[#3c3c3b]">{fmt(ventasTarde.total)}</p>
+            <p className="text-xs text-gray-400 mt-1">{ventasTarde.cantidad} {ventasTarde.cantidad === 1 ? 'venta' : 'ventas'}</p>
+          </div>
+          <div className="bg-[#3c3c3b] rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <ShoppingCart className="w-4 h-4 text-white/70" />
+              <p className="text-xs text-white/70 font-medium">Total del día</p>
+            </div>
+            <p className="text-2xl font-bold text-white">{fmt(ventasDia.total)}</p>
+            <p className="text-xs text-white/50 mt-1">{ventasDia.cantidad} {ventasDia.cantidad === 1 ? 'venta' : 'ventas'}</p>
           </div>
         </div>
       </div>
 
-      {/* Tabla */}
-      {articulosFiltrados.length === 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-          <p className="text-sm text-gray-500">No se encontraron artículos con los filtros aplicados.</p>
+      {/* Resumen del mes (incluye torta por turno como 5to elemento) */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+          {new Date().toLocaleDateString('es-AR', {
+            month: 'long', year: 'numeric',
+            timeZone: 'America/Argentina/Buenos_Aires'
+          }).replace(/^\w/, c => c.toUpperCase())}
+        </h2>
+        <div className="grid grid-cols-5 gap-4">
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <ShoppingCart className="w-4 h-4 text-gray-400" />
+              <p className="text-xs text-gray-500 font-medium">Ventas del mes</p>
+            </div>
+            <p className="text-xl font-bold text-[#3c3c3b]">{fmt(resumenMes.ventas)}</p>
+          </div>
+          <div className="bg-green-50 rounded-lg border border-green-200 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className="w-4 h-4 text-green-500" />
+              <p className="text-xs text-green-600 font-medium">Ingresos</p>
+            </div>
+            <p className="text-xl font-bold text-green-700">{fmt(resumenMes.ingresos)}</p>
+          </div>
+          <div className="bg-red-50 rounded-lg border border-red-200 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingDown className="w-4 h-4 text-red-500" />
+              <p className="text-xs text-red-600 font-medium">Egresos</p>
+            </div>
+            <p className="text-xl font-bold text-red-700">{fmt(resumenMes.egresos)}</p>
+          </div>
+          <div className={`rounded-lg border p-4 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className={`w-4 h-4 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-500' : 'text-orange-500'}`} />
+              <p className={`text-xs font-medium ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>Diferencia</p>
+            </div>
+            <p className={`text-xl font-bold ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
+              {(resumenMes.ingresos - resumenMes.egresos) >= 0 ? '+' : ''}{fmt(resumenMes.ingresos - resumenMes.egresos)}
+            </p>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <p className="text-xs text-gray-500 font-medium mb-2">Por turno</p>
+            {totalTurnoMes === 0 ? (
+              <p className="text-xs text-gray-400 mt-4">Sin ventas este mes.</p>
+            ) : (
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-12 h-12 rounded-full shrink-0"
+                  style={{ background: `conic-gradient(#00a19a 0% ${pctManana}%, #0f6b66 ${pctManana}% 100%)` }}
+                >
+                  <div className="w-6 h-6 bg-white rounded-full m-3" />
+                </div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#00a19a]" />
+                    <span className="text-gray-600">M: {fmt(ventasPorTurnoMes.manana)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#0f6b66]" />
+                    <span className="text-gray-600">T: {fmt(ventasPorTurnoMes.tarde)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
+      </div>
+
+      {/* Punto de equilibrio + Clima del negocio, misma fila */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="col-span-2">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+            <Target className="w-4 h-4 text-gray-400" />
+            Punto de equilibrio
+          </h2>
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            {/* Este mes */}
+            <p className="text-xs text-gray-500 font-medium mb-2">Este mes (estimado)</p>
+            <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
+              <div
+                className="h-full bg-[#00a19a] rounded-full transition-all"
+                style={{ width: `${Math.min(100, puntoEquilibrio.objetivoEsteMes > 0 ? (puntoEquilibrio.ventasEsteMes / puntoEquilibrio.objetivoEsteMes) * 100 : 0)}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-gray-400 mb-2">
+              <span>{fmt(puntoEquilibrio.ventasEsteMes)} vendido</span>
+              <span>Objetivo: {fmt(puntoEquilibrio.objetivoEsteMes)}</span>
+            </div>
+            {puntoEquilibrio.objetivoEsteMes > 0 ? (
+              <p className={`text-lg font-bold ${puntoEquilibrio.diferenciaEsteMes >= 0 ? 'text-[#00a19a]' : 'text-[#D97706]'}`}>
+                {puntoEquilibrio.diferenciaEsteMes >= 0
+                  ? `Superado por ${fmt(puntoEquilibrio.diferenciaEsteMes)}`
+                  : `Faltan ${fmt(Math.abs(puntoEquilibrio.diferenciaEsteMes))}`}
+              </p>
+            ) : (
+              <p className="text-sm text-gray-400">Sin datos suficientes del mes anterior para estimar el objetivo todavía.</p>
+            )}
+            <p className="text-[11px] text-gray-400 mt-1">
+              Objetivo basado en los costos fijos reales del mes anterior — el mes en curso todavía no tiene todos sus gastos cargados.
+            </p>
+
+            {/* Mes anterior — mismo bloque visual, para comparar de un vistazo */}
+            {puntoEquilibrio.hayDatosMesAnterior && (
+              <>
+                <div className="border-t border-gray-100 my-4" />
+                <p className="text-xs text-gray-500 font-medium mb-2">Mes anterior (cerrado)</p>
+                <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
+                  <div
+                    className="h-full bg-gray-400 rounded-full"
+                    style={{ width: `${Math.min(100, puntoEquilibrio.objetivoMesAnterior > 0 ? (puntoEquilibrio.ventasMesAnterior / puntoEquilibrio.objetivoMesAnterior) * 100 : 0)}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs text-gray-400 mb-2">
+                  <span>{fmt(puntoEquilibrio.ventasMesAnterior)} vendido</span>
+                  <span>Objetivo: {fmt(puntoEquilibrio.objetivoMesAnterior)}</span>
+                </div>
+                <p className={`text-sm font-semibold ${puntoEquilibrio.diferenciaMesAnterior >= 0 ? 'text-[#00a19a]' : 'text-[#D97706]'}`}>
+                  {puntoEquilibrio.diferenciaMesAnterior >= 0
+                    ? `Superado por ${fmt(puntoEquilibrio.diferenciaMesAnterior)}`
+                    : `No se alcanzó por ${fmt(Math.abs(puntoEquilibrio.diferenciaMesAnterior))}`}
+                </p>
+              </>
+            )}
+
+            {!puntoEquilibrio.hayDatosMesAnterior && (
+              <>
+                <div className="border-t border-gray-100 my-4" />
+                <p className="text-xs text-gray-400">Sin datos suficientes del mes anterior todavía.</p>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Clima del negocio</h2>
+          <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+            {climaItems.map(item => {
+              const Icon = item.icon
+              return (
+                <div key={item.label} className="flex items-center gap-3 p-3">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${estiloEstado[item.estado]}`}>
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-500 font-medium">{item.label}</p>
+                    <p className="text-sm font-semibold text-[#3c3c3b] truncate">{item.valor}</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Stock valorizado (colapsado por defecto) */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <button
+          onClick={() => setMostrarStockValorizado(!mostrarStockValorizado)}
+          className="w-full flex items-center justify-between text-left"
+        >
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-gray-400" />
+            Stock valorizado
+          </h2>
+          {mostrarStockValorizado ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+        </button>
+
+        {mostrarStockValorizado && (
+          <div className="mt-3">
+            {stockValorizado === null ? (
+              <button
+                onClick={calcularStockValorizado}
+                disabled={calculandoStock}
+                className="bg-[#00a19a] text-white px-4 py-2 rounded text-sm hover:bg-[#00a19a]/90 transition-colors disabled:opacity-50"
+              >
+                {calculandoStock ? 'Calculando...' : 'Calcular'}
+              </button>
+            ) : (
+              <p className="text-2xl font-bold text-[#3c3c3b]">{fmt(stockValorizado)}</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Stock mínimo */}
+      {stockMinimo.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-orange-400" />
+            Artículos en stock mínimo ({stockMinimo.length})
+          </h2>
+          <div className="bg-white rounded-lg border border-orange-200 overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="bg-orange-50 border-b border-orange-200">
                 <tr>
-                  <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Nombre</th>
-                  <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Rubro</th>
-                  <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Marca</th>
-                  <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Cód. interno</th>
-                  <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Cód. barras</th>
-                  <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Precio local</th>
-                  <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Stock</th>
-                  <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Mín.</th>
-                  <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Local</th>
-                  <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Web</th>
-                  <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Acciones</th>
+                  <th className="text-left px-4 py-2 text-xs text-orange-700 font-semibold">Artículo</th>
+                  <th className="text-right px-4 py-2 text-xs text-orange-700 font-semibold">Stock actual</th>
+                  <th className="text-right px-4 py-2 text-xs text-orange-700 font-semibold">Mínimo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {articulosFiltrados.map(a => {
-                  const stock = a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_actual ?? 0
-                  const stockMin = a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_min ?? 0
-                  const bajoMinimo = stockMin > 0 && stock <= stockMin
-                  return (
-                    <tr key={a.id} className={`transition-colors ${bajoMinimo ? 'bg-orange-50 hover:bg-orange-100' : 'hover:bg-gray-50'}`}>
-                      <td className="px-4 py-3 text-[#3c3c3b] font-medium">{a.nombre}</td>
-                      <td className="px-4 py-3 text-[#00a19a] text-xs">{(a.rubros as any)?.nombre || '—'}</td>
-                      <td className="px-4 py-3 text-gray-600 text-xs">{(a.marcas as any)?.nombre || '—'}</td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{a.codigo_interno || '—'}</td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{a.codigo_barra || '—'}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-[#3c3c3b]">
-                        {a.precio_local ? fmtPrecio(a.precio_local) : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`text-xs font-semibold ${bajoMinimo ? 'text-orange-600' : stock > 0 ? 'text-[#3c3c3b]' : 'text-gray-300'}`}>
-                          {stock > 0 ? stock : '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-xs text-gray-400">
-                          {stockMin > 0 ? stockMin : '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={a.disponible_local ? 'text-green-600 font-bold' : 'text-gray-300'}>
-                          {a.disponible_local ? '✓' : '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={a.disponible_web ? 'text-green-600 font-bold' : 'text-gray-300'}>
-                          {a.disponible_web ? '✓' : '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <Link href={`/articulos/${a.id}`}
-                          className="inline-flex items-center justify-center w-8 h-8 rounded hover:bg-[#00a19a] hover:text-white text-gray-600 transition-colors"
-                          title="Editar artículo">
-                          <Edit className="w-4 h-4" />
-                        </Link>
-                      </td>
-                    </tr>
-                  )
-                })}
+                {stockMinimo.map(a => (
+                  <tr key={a.id} className="hover:bg-orange-50/50">
+                    <td className="px-4 py-2 text-gray-700">{a.nombre}</td>
+                    <td className="px-4 py-2 text-right font-semibold text-red-600">{a.stock_actual}</td>
+                    <td className="px-4 py-2 text-right text-gray-500">{a.stock_min}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {stockMinimo.length === 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-3">
+          <Package className="w-5 h-5 text-[#00a19a]" />
+          <p className="text-sm text-gray-500">Todos los artículos están por encima del stock mínimo.</p>
         </div>
       )}
     </div>
