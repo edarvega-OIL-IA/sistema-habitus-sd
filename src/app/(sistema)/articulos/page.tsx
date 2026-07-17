@@ -18,7 +18,7 @@ interface Articulo {
   marcas: { nombre: string } | null
   rubro_id: number | null
   marca_id: number | null
-  articulo_stock: { stock_actual: number; sucursal_id: number }[]
+  articulo_stock: { stock_actual: number; stock_min: number; sucursal_id: number }[]
 }
 
 interface Rubro {
@@ -87,7 +87,7 @@ export default function ArticulosPage() {
           .order('nombre'),
         supabase
           .from('articulo_stock')
-          .select('articulo_id, stock_actual')
+          .select('articulo_id, stock_actual, stock_min')
           .eq('sucursal_id', 1),
         supabase.from('rubros').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('marcas').select('id, nombre').eq('activo', true).order('nombre'),
@@ -96,11 +96,14 @@ export default function ArticulosPage() {
       if (articulosError) throw articulosError
 
       // Mergear stock en cada artículo
-      const stockMap = new Map((stockData || []).map(s => [s.articulo_id, s.stock_actual]))
-      const articulosConStock = (articulosData || []).map(a => ({
-        ...a,
-        articulo_stock: [{ stock_actual: stockMap.get(a.id) ?? 0, sucursal_id: 1 }]
-      }))
+      const stockMap = new Map((stockData || []).map(s => [s.articulo_id, s]))
+      const articulosConStock = (articulosData || []).map(a => {
+        const s = stockMap.get(a.id)
+        return {
+          ...a,
+          articulo_stock: [{ stock_actual: s?.stock_actual ?? 0, stock_min: s?.stock_min ?? 0, sucursal_id: 1 }]
+        }
+      })
 
       setArticulos(articulosConStock as any)
       setRubros(rubrosData || [])
@@ -130,8 +133,11 @@ export default function ArticulosPage() {
     if (disponibilidadFiltro === 'local' && !a.disponible_local) return false
     if (disponibilidadFiltro === 'web' && !a.disponible_web) return false
     const stock = a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_actual ?? 0
+    const stockMin = a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_min ?? 0
     if (stockFiltro === 'con_stock' && stock <= 0) return false
     if (stockFiltro === 'sin_stock' && stock > 0) return false
+    if (stockFiltro === 'con_minimo' && stockMin <= 0) return false
+    if (stockFiltro === 'bajo_minimo' && !(stockMin > 0 && stock <= stockMin)) return false
     return true
   })
 
@@ -215,6 +221,8 @@ export default function ArticulosPage() {
               <option value="todos">Todos</option>
               <option value="con_stock">Con stock</option>
               <option value="sin_stock">Sin stock</option>
+              <option value="con_minimo">Con mínimo configurado</option>
+              <option value="bajo_minimo">Bajo mínimo</option>
             </select>
           </div>
 
@@ -245,6 +253,7 @@ export default function ArticulosPage() {
                   <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Cód. barras</th>
                   <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Precio local</th>
                   <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Stock</th>
+                  <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Mín.</th>
                   <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Local</th>
                   <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Web</th>
                   <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Acciones</th>
@@ -253,8 +262,10 @@ export default function ArticulosPage() {
               <tbody className="divide-y divide-gray-100">
                 {articulosFiltrados.map(a => {
                   const stock = a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_actual ?? 0
+                  const stockMin = a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_min ?? 0
+                  const bajoMinimo = stockMin > 0 && stock <= stockMin
                   return (
-                    <tr key={a.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={a.id} className={`transition-colors ${bajoMinimo ? 'bg-orange-50 hover:bg-orange-100' : 'hover:bg-gray-50'}`}>
                       <td className="px-4 py-3 text-[#3c3c3b] font-medium">{a.nombre}</td>
                       <td className="px-4 py-3 text-[#00a19a] text-xs">{(a.rubros as any)?.nombre || '—'}</td>
                       <td className="px-4 py-3 text-gray-600 text-xs">{(a.marcas as any)?.nombre || '—'}</td>
@@ -264,8 +275,13 @@ export default function ArticulosPage() {
                         {a.precio_local ? fmtPrecio(a.precio_local) : '—'}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span className={`text-xs font-semibold ${stock > 0 ? 'text-[#3c3c3b]' : 'text-gray-300'}`}>
+                        <span className={`text-xs font-semibold ${bajoMinimo ? 'text-orange-600' : stock > 0 ? 'text-[#3c3c3b]' : 'text-gray-300'}`}>
                           {stock > 0 ? stock : '—'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-xs text-gray-400">
+                          {stockMin > 0 ? stockMin : '—'}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
