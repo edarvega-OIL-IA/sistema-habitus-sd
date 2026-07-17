@@ -141,6 +141,21 @@ export default function ArticulosPage() {
     return true
   })
 
+  // Si hay un rubro seleccionado, solo mostrar marcas que tengan al menos
+  // un artículo en ese rubro — evita listar marcas irrelevantes al filtro actual.
+  const marcasDisponibles = rubroFiltro === 'todos'
+    ? marcas
+    : marcas.filter(m => articulos.some(a => a.rubro_id?.toString() === rubroFiltro && a.marca_id === m.id))
+
+  function handleCambioRubro(nuevoRubro: string) {
+    setRubroFiltro(nuevoRubro)
+    // Si la marca actualmente elegida no tiene artículos en el rubro nuevo, resetear el filtro de marca
+    if (marcaFiltro !== 'todos' && nuevoRubro !== 'todos') {
+      const sigueDisponible = articulos.some(a => a.rubro_id?.toString() === nuevoRubro && a.marca_id?.toString() === marcaFiltro)
+      if (!sigueDisponible) setMarcaFiltro('todos')
+    }
+  }
+
   const fmtPrecio = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   if (loading) return <div className="flex items-center justify-center h-64"><p className="text-gray-500 text-sm">Cargando artículos...</p></div>
@@ -183,7 +198,7 @@ export default function ArticulosPage() {
           {/* Rubro */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Rubro</label>
-            <select value={rubroFiltro} onChange={e => setRubroFiltro(e.target.value)}
+            <select value={rubroFiltro} onChange={e => handleCambioRubro(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-transparent">
               <option value="todos">Todos los rubros</option>
               {rubros.map(r => <option key={r.id} value={r.id.toString()}>{r.nombre}</option>)}
@@ -196,7 +211,7 @@ export default function ArticulosPage() {
             <select value={marcaFiltro} onChange={e => setMarcaFiltro(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-transparent">
               <option value="todos">Todas las marcas</option>
-              {marcas.map(m => <option key={m.id} value={m.id.toString()}>{m.nombre}</option>)}
+              {marcasDisponibles.map(m => <option key={m.id} value={m.id.toString()}>{m.nombre}</option>)}
             </select>
           </div>
         </div>
