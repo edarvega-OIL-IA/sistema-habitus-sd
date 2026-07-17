@@ -54,6 +54,8 @@ interface HistorialCierre {
   apertura: number
   apertura_contada: number | null
   diferencia_apertura: number | null
+  ingresos_sistema: number | null
+  egresos_sistema: number | null
   efectivo_real: number | null
   diferencia: number | null
   estado_cierre_turno_id: number
@@ -166,7 +168,7 @@ export default function CierreTurnoPage() {
         .from('cierres_turno')
         .select(`
           id, fecha, creado_en, cerrado_en, apertura, apertura_contada, diferencia_apertura,
-          efectivo_real, diferencia, estado_cierre_turno_id,
+          ingresos_sistema, egresos_sistema, efectivo_real, diferencia, estado_cierre_turno_id,
           turnos ( nombre ),
           usuarios ( nombre, apellido )
         `)
@@ -1010,6 +1012,8 @@ export default function CierreTurnoPage() {
                   <th className="text-left px-4 py-2 text-xs text-gray-500">Responsable</th>
                   <th className="text-left px-4 py-2 text-xs text-gray-500">Apertura</th>
                   <th className="text-left px-4 py-2 text-xs text-gray-500">Cierre</th>
+                  <th className="text-right px-4 py-2 text-xs text-gray-500">Ingresos</th>
+                  <th className="text-right px-4 py-2 text-xs text-gray-500">Egresos</th>
                   <th className="text-right px-4 py-2 text-xs text-gray-500">Dinero apertura</th>
                   <th className="text-right px-4 py-2 text-xs text-gray-500">Dinero cierre</th>
                   <th className="text-right px-4 py-2 text-xs text-gray-500">Diferencia</th>
@@ -1032,6 +1036,12 @@ export default function CierreTurnoPage() {
                       </td>
                       <td className="px-4 py-2 text-gray-500">{fmtFecha(c.creado_en)}</td>
                       <td className="px-4 py-2 text-gray-500">{c.cerrado_en ? fmtFecha(c.cerrado_en) : '—'}</td>
+                      <td className="px-4 py-2 text-right text-green-700">
+                        {c.ingresos_sistema ? `+${fmt(c.ingresos_sistema)}` : '—'}
+                      </td>
+                      <td className="px-4 py-2 text-right text-red-700">
+                        {c.egresos_sistema ? `-${fmt(c.egresos_sistema)}` : '—'}
+                      </td>
                       <td className="px-4 py-2 text-right text-gray-700">
                         {fmt(c.apertura_contada ?? c.apertura)}
                       </td>
