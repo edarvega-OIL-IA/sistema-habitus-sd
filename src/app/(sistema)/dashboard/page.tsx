@@ -676,14 +676,15 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Punto de equilibrio */}
-      <div>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-          <Target className="w-4 h-4 text-gray-400" />
-          Punto de equilibrio
-        </h2>
-        <div className="grid grid-cols-2 gap-4">
+      {/* Punto de equilibrio + Clima del negocio, misma fila */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="col-span-2">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+            <Target className="w-4 h-4 text-gray-400" />
+            Punto de equilibrio
+          </h2>
           <div className="bg-white rounded-lg border border-gray-200 p-4">
+            {/* Este mes */}
             <p className="text-xs text-gray-500 font-medium mb-2">Este mes (estimado)</p>
             <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
               <div
@@ -691,63 +692,73 @@ export default function DashboardPage() {
                 style={{ width: `${Math.min(100, puntoEquilibrio.objetivoEsteMes > 0 ? (puntoEquilibrio.ventasEsteMes / puntoEquilibrio.objetivoEsteMes) * 100 : 0)}%` }}
               />
             </div>
-            <div className="flex justify-between text-xs text-gray-400 mb-3">
+            <div className="flex justify-between text-xs text-gray-400 mb-2">
               <span>{fmt(puntoEquilibrio.ventasEsteMes)} vendido</span>
               <span>Objetivo: {fmt(puntoEquilibrio.objetivoEsteMes)}</span>
             </div>
-            <p className={`text-lg font-bold ${puntoEquilibrio.diferenciaEsteMes >= 0 ? 'text-[#00a19a]' : 'text-[#D97706]'}`}>
-              {puntoEquilibrio.diferenciaEsteMes >= 0
-                ? `Superado por ${fmt(puntoEquilibrio.diferenciaEsteMes)}`
-                : `Faltan ${fmt(Math.abs(puntoEquilibrio.diferenciaEsteMes))}`}
-            </p>
-            <p className="text-[11px] text-gray-400 mt-2">
+            {puntoEquilibrio.objetivoEsteMes > 0 ? (
+              <p className={`text-lg font-bold ${puntoEquilibrio.diferenciaEsteMes >= 0 ? 'text-[#00a19a]' : 'text-[#D97706]'}`}>
+                {puntoEquilibrio.diferenciaEsteMes >= 0
+                  ? `Superado por ${fmt(puntoEquilibrio.diferenciaEsteMes)}`
+                  : `Faltan ${fmt(Math.abs(puntoEquilibrio.diferenciaEsteMes))}`}
+              </p>
+            ) : (
+              <p className="text-sm text-gray-400">Sin datos suficientes del mes anterior para estimar el objetivo todavía.</p>
+            )}
+            <p className="text-[11px] text-gray-400 mt-1">
               Objetivo basado en los costos fijos reales del mes anterior — el mes en curso todavía no tiene todos sus gastos cargados.
             </p>
-          </div>
 
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <p className="text-xs text-gray-500 font-medium mb-2">Mes anterior (cerrado)</p>
-            {!puntoEquilibrio.hayDatosMesAnterior ? (
-              <p className="text-sm text-gray-400 mt-4">Sin datos suficientes del mes anterior todavía.</p>
-            ) : (
+            {/* Mes anterior — mismo bloque visual, para comparar de un vistazo */}
+            {puntoEquilibrio.hayDatosMesAnterior && (
               <>
+                <div className="border-t border-gray-100 my-4" />
+                <p className="text-xs text-gray-500 font-medium mb-2">Mes anterior (cerrado)</p>
                 <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
                   <div
                     className="h-full bg-gray-400 rounded-full"
                     style={{ width: `${Math.min(100, puntoEquilibrio.objetivoMesAnterior > 0 ? (puntoEquilibrio.ventasMesAnterior / puntoEquilibrio.objetivoMesAnterior) * 100 : 0)}%` }}
                   />
                 </div>
-                <div className="flex justify-between text-xs text-gray-400 mb-3">
+                <div className="flex justify-between text-xs text-gray-400 mb-2">
                   <span>{fmt(puntoEquilibrio.ventasMesAnterior)} vendido</span>
                   <span>Objetivo: {fmt(puntoEquilibrio.objetivoMesAnterior)}</span>
                 </div>
-                <p className={`text-lg font-bold ${puntoEquilibrio.diferenciaMesAnterior >= 0 ? 'text-[#00a19a]' : 'text-[#D97706]'}`}>
+                <p className={`text-sm font-semibold ${puntoEquilibrio.diferenciaMesAnterior >= 0 ? 'text-[#00a19a]' : 'text-[#D97706]'}`}>
                   {puntoEquilibrio.diferenciaMesAnterior >= 0
                     ? `Superado por ${fmt(puntoEquilibrio.diferenciaMesAnterior)}`
                     : `No se alcanzó por ${fmt(Math.abs(puntoEquilibrio.diferenciaMesAnterior))}`}
                 </p>
               </>
             )}
+
+            {!puntoEquilibrio.hayDatosMesAnterior && (
+              <>
+                <div className="border-t border-gray-100 my-4" />
+                <p className="text-xs text-gray-400">Sin datos suficientes del mes anterior todavía.</p>
+              </>
+            )}
           </div>
         </div>
-      </div>
 
-      {/* Clima del negocio */}
-      <div>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Clima del negocio</h2>
-        <div className="grid grid-cols-4 gap-4">
-          {climaItems.map(item => {
-            const Icon = item.icon
-            return (
-              <div key={item.label} className="bg-white rounded-lg border border-gray-200 p-4">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center mb-3 ${estiloEstado[item.estado]}`}>
-                  <Icon className="w-4 h-4" />
+        <div>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Clima del negocio</h2>
+          <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+            {climaItems.map(item => {
+              const Icon = item.icon
+              return (
+                <div key={item.label} className="flex items-center gap-3 p-3">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${estiloEstado[item.estado]}`}>
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-500 font-medium">{item.label}</p>
+                    <p className="text-sm font-semibold text-[#3c3c3b] truncate">{item.valor}</p>
+                  </div>
                 </div>
-                <p className="text-xs text-gray-500 font-medium">{item.label}</p>
-                <p className="text-sm font-semibold text-[#3c3c3b] mt-0.5">{item.valor}</p>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
       </div>
 
