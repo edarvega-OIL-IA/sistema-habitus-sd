@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { ShoppingCart, TrendingUp, TrendingDown, Package, Clock, AlertTriangle } from 'lucide-react'
+import { ShoppingCart, TrendingUp, TrendingDown, Package, Clock, AlertTriangle, Target, Award, Wallet, ChevronDown, ChevronUp } from 'lucide-react'
 
 interface VentasTurno {
   total: number
@@ -14,6 +14,8 @@ interface ResumenMes {
   ventas: number
   ingresos: number
   egresos: number
+  costoMercaderia: number
+  margenPct: number
 }
 
 interface ArticuloStockMinimo {
@@ -28,14 +30,29 @@ interface CajaEstado {
   turno: string | null
   apertura: number
   esperado: number
-  // Efectivo físico real, independiente de si hay turno abierto o cerrado:
-  // si está abierta, es lo mismo que `esperado`; si está cerrada, es lo
-  // contado (efectivo_real) en el último cierre — según confirmado, ese
-  // monto queda íntegro en el local y es la apertura del próximo turno.
   efectivoEnCaja: number
   usuario: string | null
   desde: string | null
 }
+
+interface PuntoEquilibrio {
+  costosFijos: number
+  margenPct: number
+  objetivo: number
+  diferencia: number // positivo = superado, negativo = falta
+}
+
+interface VentasPorTurnoMes {
+  manana: number
+  tarde: number
+}
+
+interface ProductoDestacado {
+  nombre: string
+  total: number
+}
+
+type EstadoSemaforo = 'verde' | 'ambar' | 'rojo' | 'neutro'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -47,8 +64,17 @@ export default function DashboardPage() {
   const [ventasManana, setVentasManana] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasTarde, setVentasTarde] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasDia, setVentasDia] = useState<VentasTurno>({ total: 0, cantidad: 0 })
-  const [resumenMes, setResumenMes] = useState<ResumenMes>({ ventas: 0, ingresos: 0, egresos: 0 })
+  const [resumenMes, setResumenMes] = useState<ResumenMes>({ ventas: 0, ingresos: 0, egresos: 0, costoMercaderia: 0, margenPct: 0 })
   const [stockMinimo, setStockMinimo] = useState<ArticuloStockMinimo[]>([])
+  const [puntoEquilibrio, setPuntoEquilibrio] = useState<PuntoEquilibrio>({ costosFijos: 0, margenPct: 0, objetivo: 0, diferencia: 0 })
+  const [ventasPorTurnoMes, setVentasPorTurnoMes] = useState<VentasPorTurnoMes>({ manana: 0, tarde: 0 })
+  const [productoDestacado, setProductoDestacado] = useState<ProductoDestacado | null>(null)
+  const [ultimaDiferenciaCaja, setUltimaDiferenciaCaja] = useState<number | null>(null)
+  const [ritmoVentas, setRitmoVentas] = useState<number | null>(null) // ventas del mes / esperado a esta altura del mes
+
+  const [mostrarStockValorizado, setMostrarStockValorizado] = useState(false)
+  const [stockValorizado, setStockValorizado] = useState<number | null>(null)
+  const [calculandoStock, setCalculandoStock] = useState(false)
 
   const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
   const mesDesde = hoy.slice(0, 7) + '-01'
@@ -64,6 +90,11 @@ export default function DashboardPage() {
         cargarVentasDia(),
         cargarResumenMes(),
         cargarStockMinimo(),
+        cargarPuntoEquilibrio(),
+        cargarVentasPorTurnoMes(),
+        cargarProductoDestacado(),
+        cargarUltimaDiferenciaCaja(),
+        cargarRitmoVentas(),
       ])
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : JSON.stringify(err))
@@ -83,10 +114,6 @@ export default function DashboardPage() {
     if (error) throw error
 
     if (!data) {
-      // No hay turno abierto: el efectivo en caja es el `efectivo_real`
-      // contado en el último cierre — queda íntegro en el local y es la
-      // apertura del próximo turno (confirmado con Ariel, no hay retiro
-      // físico fuera del sistema al cerrar).
       const { data: ultimoCierre, error: ultimoError } = await supabase
         .from('cierres_turno')
         .select('efectivo_real')
@@ -106,7 +133,6 @@ export default function DashboardPage() {
       return
     }
 
-    // Queries separadas para evitar joins anidados bloqueados por RLS
     const [turnoRes, usuarioRes, ventasEfectivoRes, egresosRes, ingresosRes, retirosRes] = await Promise.all([
       supabase.from('turnos').select('nombre').eq('id', data.turno_id).single(),
       supabase.from('usuarios').select('nombre, apellido').eq('id', data.usuario_id).single(),
@@ -141,8 +167,6 @@ export default function DashboardPage() {
 
     const totalVentas = (ventasEfectivoRes.data || []).reduce((s, v) => s + v.monto, 0)
     const totalEgresos = (egresosRes.data || []).reduce((s, e) => s + e.monto, 0)
-    // Excluir movimientos que ya provienen de una venta: esa plata ya está
-    // contada en totalVentas (vía venta_pagos). Contarla de nuevo acá la duplicaría.
     const totalIngresos = (ingresosRes.data || [])
       .filter((i: any) => i.origen_tipo !== 'venta')
       .reduce((s, i) => s + i.monto, 0)
@@ -171,7 +195,6 @@ export default function DashboardPage() {
     if (error) throw error
     if (!data || data.length === 0) return
 
-    // Obtener turno_id de los cierres involucrados
     const cierreIds = [...new Set(data.map(v => v.cierre_turno_id).filter(Boolean))]
     let cierreTurnoMap: Map<number, number> = new Map()
 
@@ -195,7 +218,7 @@ export default function DashboardPage() {
     const [ventasRes, movRes] = await Promise.all([
       supabase
         .from('ventas')
-        .select('total')
+        .select('id, total')
         .eq('sucursal_id', 1)
         .neq('estado_venta_id', 3)
         .gte('fecha_utc', mesDesde)
@@ -215,7 +238,222 @@ export default function DashboardPage() {
     const ingresos = (movRes.data || []).filter(m => m.tipo === 'Ingreso').reduce((s, m) => s + m.monto, 0)
     const egresos = (movRes.data || []).filter(m => m.tipo === 'Egreso').reduce((s, m) => s + m.monto, 0)
 
-    setResumenMes({ ventas: totalVentas, ingresos, egresos })
+    // Margen real: costo de la mercadería vendida este mes, contra costo ACTUAL
+    // de cada artículo (no el costo histórico al momento de la venta, que no
+    // se guarda por ítem — simplificación aceptada, el margen puede variar
+    // levemente si el costo de un artículo cambió durante el mes).
+    let costoMercaderia = 0
+    const ventaIds = (ventasRes.data || []).map(v => v.id)
+    if (ventaIds.length > 0) {
+      const { data: itemsData } = await supabase
+        .from('venta_items')
+        .select('articulo_id, cantidad')
+        .in('venta_id', ventaIds)
+
+      if (itemsData && itemsData.length > 0) {
+        const articuloIds = [...new Set(itemsData.map(i => i.articulo_id))]
+        const { data: articulosCosto } = await supabase
+          .from('articulos')
+          .select('id, costo_sin_iva')
+          .in('id', articuloIds)
+
+        const costoMap = new Map((articulosCosto || []).map(a => [a.id, a.costo_sin_iva || 0]))
+        costoMercaderia = itemsData.reduce((s, i) => s + i.cantidad * (costoMap.get(i.articulo_id) || 0), 0)
+      }
+    }
+
+    const margenPct = totalVentas > 0 ? (totalVentas - costoMercaderia) / totalVentas : 0
+
+    setResumenMes({ ventas: totalVentas, ingresos, egresos, costoMercaderia, margenPct })
+  }
+
+  async function cargarPuntoEquilibrio() {
+    // Costos Fijos = todos los egresos del mes, EXCEPTO:
+    // - categoria_gasto_id=1 (Compras Mercadería): ya está contemplado
+    //   dentro del margen de contribución (costo de mercadería vendida) —
+    //   contarlo acá también sería descontarlo dos veces.
+    // - concepto_gasto_id=41 (Retiro de caja en efectivo): no es un gasto
+    //   real del negocio, es solo un movimiento interno de plata.
+    const { data, error } = await supabase
+      .from('movimientos')
+      .select('monto, categoria_gasto_id, concepto_gasto_id')
+      .eq('sucursal_id', 1)
+      .eq('tipo', 'Egreso')
+      .eq('anulado', false)
+      .gte('mes_contable', mesDesde)
+
+    if (error) throw error
+
+    const costosFijos = (data || [])
+      .filter(m => m.categoria_gasto_id !== 1 && m.concepto_gasto_id !== 41)
+      .reduce((s, m) => s + m.monto, 0)
+
+    // Reutiliza margenPct de resumenMes — se recalcula acá para no depender
+    // del orden de ejecución entre las dos funciones (ambas corren en paralelo).
+    const { data: ventasRes } = await supabase
+      .from('ventas')
+      .select('id, total')
+      .eq('sucursal_id', 1)
+      .neq('estado_venta_id', 3)
+      .gte('fecha_utc', mesDesde)
+      .lte('fecha_utc', hoy)
+
+    const totalVentas = (ventasRes || []).reduce((s, v) => s + v.total, 0)
+    const ventaIds = (ventasRes || []).map(v => v.id)
+
+    let costoMercaderia = 0
+    if (ventaIds.length > 0) {
+      const { data: itemsData } = await supabase
+        .from('venta_items')
+        .select('articulo_id, cantidad')
+        .in('venta_id', ventaIds)
+
+      if (itemsData && itemsData.length > 0) {
+        const articuloIds = [...new Set(itemsData.map(i => i.articulo_id))]
+        const { data: articulosCosto } = await supabase
+          .from('articulos')
+          .select('id, costo_sin_iva')
+          .in('id', articuloIds)
+
+        const costoMap = new Map((articulosCosto || []).map(a => [a.id, a.costo_sin_iva || 0]))
+        costoMercaderia = itemsData.reduce((s, i) => s + i.cantidad * (costoMap.get(i.articulo_id) || 0), 0)
+      }
+    }
+
+    const margenPct = totalVentas > 0 ? (totalVentas - costoMercaderia) / totalVentas : 0
+    const objetivo = margenPct > 0 ? costosFijos / margenPct : 0
+    const diferencia = totalVentas - objetivo
+
+    setPuntoEquilibrio({ costosFijos, margenPct, objetivo, diferencia })
+  }
+
+  async function cargarVentasPorTurnoMes() {
+    const { data, error } = await supabase
+      .from('ventas')
+      .select('total, cierre_turno_id')
+      .eq('sucursal_id', 1)
+      .neq('estado_venta_id', 3)
+      .gte('fecha_utc', mesDesde)
+      .lte('fecha_utc', hoy)
+
+    if (error) throw error
+    if (!data || data.length === 0) return
+
+    const cierreIds = [...new Set(data.map(v => v.cierre_turno_id).filter(Boolean))]
+    let cierreTurnoMap: Map<number, number> = new Map()
+
+    if (cierreIds.length > 0) {
+      const { data: cierres } = await supabase
+        .from('cierres_turno')
+        .select('id, turno_id')
+        .in('id', cierreIds as number[])
+      ;(cierres || []).forEach(c => cierreTurnoMap.set(c.id, c.turno_id))
+    }
+
+    const manana = data.filter(v => v.cierre_turno_id && cierreTurnoMap.get(v.cierre_turno_id) === 1)
+      .reduce((s, v) => s + v.total, 0)
+    const tarde = data.filter(v => v.cierre_turno_id && cierreTurnoMap.get(v.cierre_turno_id) === 2)
+      .reduce((s, v) => s + v.total, 0)
+
+    setVentasPorTurnoMes({ manana, tarde })
+  }
+
+  async function cargarProductoDestacado() {
+    // "Esta semana" = últimos 7 días corridos (incluye hoy)
+    const hace7Dias = new Date()
+    hace7Dias.setDate(hace7Dias.getDate() - 6)
+    const desde = hace7Dias.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+
+    const { data: ventasRes } = await supabase
+      .from('ventas')
+      .select('id')
+      .eq('sucursal_id', 1)
+      .neq('estado_venta_id', 3)
+      .gte('fecha_utc', desde)
+      .lte('fecha_utc', hoy)
+
+    const ventaIds = (ventasRes || []).map(v => v.id)
+    if (ventaIds.length === 0) return
+
+    const { data: itemsData } = await supabase
+      .from('venta_items')
+      .select('articulo_id, subtotal')
+      .in('venta_id', ventaIds)
+
+    if (!itemsData || itemsData.length === 0) return
+
+    const totalesPorArticulo = new Map<number, number>()
+    itemsData.forEach(i => {
+      totalesPorArticulo.set(i.articulo_id, (totalesPorArticulo.get(i.articulo_id) || 0) + i.subtotal)
+    })
+
+    let mejorId: number | null = null
+    let mejorTotal = 0
+    totalesPorArticulo.forEach((total, id) => {
+      if (total > mejorTotal) { mejorTotal = total; mejorId = id }
+    })
+
+    if (mejorId === null) return
+
+    const { data: articulo } = await supabase
+      .from('articulos')
+      .select('nombre')
+      .eq('id', mejorId)
+      .single()
+
+    setProductoDestacado({ nombre: articulo?.nombre || '—', total: mejorTotal })
+  }
+
+  async function cargarUltimaDiferenciaCaja() {
+    const { data } = await supabase
+      .from('cierres_turno')
+      .select('diferencia')
+      .eq('sucursal_id', 1)
+      .not('cerrado_en', 'is', null)
+      .order('cerrado_en', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    setUltimaDiferenciaCaja(data?.diferencia ?? null)
+  }
+
+  async function cargarRitmoVentas() {
+    // Promedio diario de los últimos 3 meses COMPLETOS (sin contar el mes en
+    // curso), comparado contra lo vendido en lo que va del mes actual
+    // ajustado al mismo número de días — así no se compara un mes a mitad
+    // de camino contra meses ya cerrados.
+    const fechaRef = new Date()
+    const inicio3Meses = new Date(fechaRef.getFullYear(), fechaRef.getMonth() - 3, 1)
+    const inicio3MesesStr = inicio3Meses.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+
+    const { data } = await supabase
+      .from('ventas')
+      .select('total')
+      .eq('sucursal_id', 1)
+      .neq('estado_venta_id', 3)
+      .gte('fecha_utc', inicio3MesesStr)
+      .lt('fecha_utc', mesDesde)
+
+    const totalUltimos3Meses = (data || []).reduce((s, v) => s + v.total, 0)
+    const promedioDiario = totalUltimos3Meses / 90 // aproximado, no ajusta días exactos por mes
+
+    const diaDelMes = new Date().getDate()
+    const esperadoAEstaAltura = promedioDiario * diaDelMes
+
+    if (esperadoAEstaAltura <= 0) { setRitmoVentas(null); return }
+
+    // ventasMes todavía no está en el estado en este punto (corre en
+    // paralelo) — se recalcula liviano acá mismo.
+    const { data: ventasMesData } = await supabase
+      .from('ventas')
+      .select('total')
+      .eq('sucursal_id', 1)
+      .neq('estado_venta_id', 3)
+      .gte('fecha_utc', mesDesde)
+      .lte('fecha_utc', hoy)
+
+    const ventasMes = (ventasMesData || []).reduce((s, v) => s + v.total, 0)
+    setRitmoVentas(ventasMes / esperadoAEstaAltura)
   }
 
   async function cargarStockMinimo() {
@@ -231,7 +469,6 @@ export default function DashboardPage() {
     const enMinimo = stocks.filter(s => s.stock_actual <= s.stock_min)
     if (enMinimo.length === 0) return
 
-    // Query separada para nombres de artículos
     const articuloIds = enMinimo.map(s => s.articulo_id)
     const { data: articulos } = await supabase
       .from('articulos')
@@ -248,7 +485,33 @@ export default function DashboardPage() {
     })))
   }
 
+  async function calcularStockValorizado() {
+    setCalculandoStock(true)
+    try {
+      const { data: stocks } = await supabase
+        .from('articulo_stock')
+        .select('articulo_id, stock_actual')
+        .eq('sucursal_id', 1)
+        .gt('stock_actual', 0)
+
+      if (!stocks || stocks.length === 0) { setStockValorizado(0); return }
+
+      const articuloIds = [...new Set(stocks.map(s => s.articulo_id))]
+      const { data: articulos } = await supabase
+        .from('articulos')
+        .select('id, costo_sin_iva')
+        .in('id', articuloIds)
+
+      const costoMap = new Map((articulos || []).map(a => [a.id, a.costo_sin_iva || 0]))
+      const total = stocks.reduce((s, item) => s + item.stock_actual * (costoMap.get(item.articulo_id) || 0), 0)
+      setStockValorizado(total)
+    } finally {
+      setCalculandoStock(false)
+    }
+  }
+
   const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
+  const fmtPct = (n: number) => (n * 100).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%'
   const fmtHora = (s: string) => new Date(s).toLocaleTimeString('es-AR', {
     hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires'
   })
@@ -266,6 +529,32 @@ export default function DashboardPage() {
   )
 
   const diferenciaMes = resumenMes.ingresos - resumenMes.egresos
+
+  // ── Semáforo "Clima del negocio" ──────────────────────────────────────
+  const estadoCaja: EstadoSemaforo = ultimaDiferenciaCaja === null ? 'neutro'
+    : Math.abs(ultimaDiferenciaCaja) <= 500 ? 'verde'
+    : Math.abs(ultimaDiferenciaCaja) <= 2000 ? 'ambar' : 'rojo'
+
+  const estadoStock: EstadoSemaforo = stockMinimo.length === 0 ? 'verde'
+    : stockMinimo.length <= 3 ? 'ambar' : 'rojo'
+
+  const estadoMargen: EstadoSemaforo = resumenMes.margenPct >= 0.30 ? 'verde'
+    : resumenMes.margenPct >= 0.20 ? 'ambar' : 'rojo'
+
+  const estadoRitmo: EstadoSemaforo = ritmoVentas === null ? 'neutro'
+    : ritmoVentas >= 1 ? 'verde'
+    : ritmoVentas >= 0.85 ? 'ambar' : 'rojo'
+
+  const colorSemaforo: Record<EstadoSemaforo, string> = {
+    verde: 'bg-[#00a19a]',
+    ambar: 'bg-[#D97706]',
+    rojo: 'bg-[#DC2626]',
+    neutro: 'bg-gray-300',
+  }
+
+  // ── Gráfico de torta (donut CSS, sin librerías) ───────────────────────
+  const totalTurnoMes = ventasPorTurnoMes.manana + ventasPorTurnoMes.tarde
+  const pctManana = totalTurnoMes > 0 ? (ventasPorTurnoMes.manana / totalTurnoMes) * 100 : 0
 
   return (
     <div className="space-y-6">
@@ -314,39 +603,88 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Ventas del día */}
-      <div>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-          Ventas del día —{' '}
-          {new Date().toLocaleDateString('es-AR', {
-            weekday: 'long', day: 'numeric', month: 'long',
-            timeZone: 'America/Argentina/Buenos_Aires'
-          })}
-        </h2>
-        <div className="grid grid-cols-3 gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Clock className="w-4 h-4 text-gray-400" />
-              <p className="text-xs text-gray-500 font-medium">Turno Mañana</p>
-            </div>
-            <p className="text-2xl font-bold text-[#3c3c3b]">{fmt(ventasManana.total)}</p>
-            <p className="text-xs text-gray-400 mt-1">{ventasManana.cantidad} {ventasManana.cantidad === 1 ? 'venta' : 'ventas'}</p>
+      {/* Clima del negocio */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Clima del negocio</h2>
+        <div className="grid grid-cols-4 gap-4">
+          <div className="flex items-center gap-2">
+            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${colorSemaforo[estadoCaja]}`} />
+            <span className="text-sm text-gray-600">Caja</span>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Clock className="w-4 h-4 text-gray-400" />
-              <p className="text-xs text-gray-500 font-medium">Turno Tarde</p>
-            </div>
-            <p className="text-2xl font-bold text-[#3c3c3b]">{fmt(ventasTarde.total)}</p>
-            <p className="text-xs text-gray-400 mt-1">{ventasTarde.cantidad} {ventasTarde.cantidad === 1 ? 'venta' : 'ventas'}</p>
+          <div className="flex items-center gap-2">
+            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${colorSemaforo[estadoStock]}`} />
+            <span className="text-sm text-gray-600">Stock</span>
           </div>
-          <div className="bg-[#3c3c3b] rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <ShoppingCart className="w-4 h-4 text-white/70" />
-              <p className="text-xs text-white/70 font-medium">Total del día</p>
+          <div className="flex items-center gap-2">
+            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${colorSemaforo[estadoMargen]}`} />
+            <span className="text-sm text-gray-600">Margen ({fmtPct(resumenMes.margenPct)})</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${colorSemaforo[estadoRitmo]}`} />
+            <span className="text-sm text-gray-600">Ritmo de ventas</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Ventas del día + Punto de equilibrio */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+            Ventas del día —{' '}
+            {new Date().toLocaleDateString('es-AR', {
+              weekday: 'long', day: 'numeric', month: 'long',
+              timeZone: 'America/Argentina/Buenos_Aires'
+            })}
+          </h2>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-white rounded-lg border border-gray-200 p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="w-4 h-4 text-gray-400" />
+                <p className="text-xs text-gray-500 font-medium">Mañana</p>
+              </div>
+              <p className="text-lg font-bold text-[#3c3c3b]">{fmt(ventasManana.total)}</p>
+              <p className="text-xs text-gray-400">{ventasManana.cantidad} {ventasManana.cantidad === 1 ? 'venta' : 'ventas'}</p>
             </div>
-            <p className="text-2xl font-bold text-white">{fmt(ventasDia.total)}</p>
-            <p className="text-xs text-white/50 mt-1">{ventasDia.cantidad} {ventasDia.cantidad === 1 ? 'venta' : 'ventas'}</p>
+            <div className="bg-white rounded-lg border border-gray-200 p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="w-4 h-4 text-gray-400" />
+                <p className="text-xs text-gray-500 font-medium">Tarde</p>
+              </div>
+              <p className="text-lg font-bold text-[#3c3c3b]">{fmt(ventasTarde.total)}</p>
+              <p className="text-xs text-gray-400">{ventasTarde.cantidad} {ventasTarde.cantidad === 1 ? 'venta' : 'ventas'}</p>
+            </div>
+            <div className="bg-[#3c3c3b] rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <ShoppingCart className="w-4 h-4 text-white/70" />
+                <p className="text-xs text-white/70 font-medium">Total</p>
+              </div>
+              <p className="text-lg font-bold text-white">{fmt(ventasDia.total)}</p>
+              <p className="text-xs text-white/50">{ventasDia.cantidad} {ventasDia.cantidad === 1 ? 'venta' : 'ventas'}</p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+            <Target className="w-4 h-4 text-gray-400" />
+            Punto de equilibrio del mes
+          </h2>
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
+              <div
+                className="h-full bg-[#00a19a] rounded-full transition-all"
+                style={{ width: `${Math.min(100, puntoEquilibrio.objetivo > 0 ? (resumenMes.ventas / puntoEquilibrio.objetivo) * 100 : 0)}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-gray-400 mb-3">
+              <span>{fmt(resumenMes.ventas)} vendido</span>
+              <span>Objetivo: {fmt(puntoEquilibrio.objetivo)}</span>
+            </div>
+            <p className={`text-lg font-bold ${puntoEquilibrio.diferencia >= 0 ? 'text-[#00a19a]' : 'text-[#D97706]'}`}>
+              {puntoEquilibrio.diferencia >= 0
+                ? `Superado por ${fmt(puntoEquilibrio.diferencia)}`
+                : `Faltan ${fmt(Math.abs(puntoEquilibrio.diferencia))}`}
+            </p>
           </div>
         </div>
       </div>
@@ -381,16 +719,91 @@ export default function DashboardPage() {
             </div>
             <p className="text-xl font-bold text-red-700">{fmt(resumenMes.egresos)}</p>
           </div>
-          <div className={`rounded-lg border p-4 ${diferenciaMes >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
+          <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4">
             <div className="flex items-center gap-2 mb-3">
-              <TrendingUp className={`w-4 h-4 ${diferenciaMes >= 0 ? 'text-blue-500' : 'text-orange-500'}`} />
-              <p className={`text-xs font-medium ${diferenciaMes >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>Diferencia</p>
+              <TrendingUp className="w-4 h-4 text-[#00a19a]" />
+              <p className="text-xs text-[#00a19a] font-medium">Margen real</p>
             </div>
-            <p className={`text-xl font-bold ${diferenciaMes >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
-              {diferenciaMes >= 0 ? '+' : ''}{fmt(diferenciaMes)}
-            </p>
+            <p className="text-xl font-bold text-[#00a19a]">{fmtPct(resumenMes.margenPct)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{fmt(resumenMes.ventas - resumenMes.costoMercaderia)}</p>
           </div>
         </div>
+      </div>
+
+      {/* Torta por turno + Producto destacado */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Ventas del mes por turno</h2>
+          {totalTurnoMes === 0 ? (
+            <p className="text-sm text-gray-400">Sin ventas registradas este mes.</p>
+          ) : (
+            <div className="flex items-center gap-4">
+              <div
+                className="w-20 h-20 rounded-full shrink-0"
+                style={{ background: `conic-gradient(#00a19a 0% ${pctManana}%, #0f6b66 ${pctManana}% 100%)` }}
+              >
+                <div className="w-11 h-11 bg-white rounded-full m-[18px]" />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#00a19a]" />
+                  <span className="text-gray-600">Mañana</span>
+                  <span className="font-semibold text-[#3c3c3b]">{fmt(ventasPorTurnoMes.manana)}</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#0f6b66]" />
+                  <span className="text-gray-600">Tarde</span>
+                  <span className="font-semibold text-[#3c3c3b]">{fmt(ventasPorTurnoMes.tarde)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+            <Award className="w-4 h-4 text-gray-400" />
+            Producto destacado — últimos 7 días
+          </h2>
+          {productoDestacado ? (
+            <>
+              <p className="text-lg font-bold text-[#3c3c3b]">{productoDestacado.nombre}</p>
+              <p className="text-sm text-[#00a19a] font-semibold mt-1">{fmt(productoDestacado.total)} vendido</p>
+            </>
+          ) : (
+            <p className="text-sm text-gray-400">Sin ventas registradas en los últimos 7 días.</p>
+          )}
+        </div>
+      </div>
+
+      {/* Stock valorizado (colapsado por defecto — evita el cálculo pesado en cada carga) */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <button
+          onClick={() => setMostrarStockValorizado(!mostrarStockValorizado)}
+          className="w-full flex items-center justify-between text-left"
+        >
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-gray-400" />
+            Stock valorizado
+          </h2>
+          {mostrarStockValorizado ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+        </button>
+
+        {mostrarStockValorizado && (
+          <div className="mt-3">
+            {stockValorizado === null ? (
+              <button
+                onClick={calcularStockValorizado}
+                disabled={calculandoStock}
+                className="bg-[#00a19a] text-white px-4 py-2 rounded text-sm hover:bg-[#00a19a]/90 transition-colors disabled:opacity-50"
+              >
+                {calculandoStock ? 'Calculando...' : 'Calcular'}
+              </button>
+            ) : (
+              <p className="text-2xl font-bold text-[#3c3c3b]">{fmt(stockValorizado)}</p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Stock mínimo */}
