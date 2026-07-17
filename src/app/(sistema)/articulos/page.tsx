@@ -79,6 +79,7 @@ export default function DashboardPage() {
   const [ritmoVentas, setRitmoVentas] = useState<number | null>(null)
 
   const [mostrarStockValorizado, setMostrarStockValorizado] = useState(false)
+  const [mostrarStockMinimo, setMostrarStockMinimo] = useState(true)
   const [stockValorizado, setStockValorizado] = useState<number | null>(null)
   const [calculandoStock, setCalculandoStock] = useState(false)
 
@@ -794,33 +795,42 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Stock mínimo */}
+      {/* Stock mínimo (colapsable, mismo patrón que Stock Valorizado) */}
       {stockMinimo.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-orange-400" />
-            Artículos en stock mínimo ({stockMinimo.length})
-          </h2>
-          <div className="bg-white rounded-lg border border-orange-200 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-orange-50 border-b border-orange-200">
-                <tr>
-                  <th className="text-left px-4 py-2 text-xs text-orange-700 font-semibold">Artículo</th>
-                  <th className="text-right px-4 py-2 text-xs text-orange-700 font-semibold">Stock actual</th>
-                  <th className="text-right px-4 py-2 text-xs text-orange-700 font-semibold">Mínimo</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {stockMinimo.map(a => (
-                  <tr key={a.id} className="hover:bg-orange-50/50">
-                    <td className="px-4 py-2 text-gray-700">{a.nombre}</td>
-                    <td className="px-4 py-2 text-right font-semibold text-red-600">{a.stock_actual}</td>
-                    <td className="px-4 py-2 text-right text-gray-500">{a.stock_min}</td>
+        <div className="bg-white rounded-lg border border-orange-200 p-4">
+          <button
+            onClick={() => setMostrarStockMinimo(!mostrarStockMinimo)}
+            className="w-full flex items-center justify-between text-left"
+          >
+            <h2 className="text-sm font-semibold text-orange-700 uppercase tracking-wide flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-orange-400" />
+              Artículos en stock mínimo ({stockMinimo.length})
+            </h2>
+            {mostrarStockMinimo ? <ChevronUp className="w-4 h-4 text-orange-400" /> : <ChevronDown className="w-4 h-4 text-orange-400" />}
+          </button>
+
+          {mostrarStockMinimo && (
+            <div className="mt-3 border border-orange-200 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-orange-50 border-b border-orange-200">
+                  <tr>
+                    <th className="text-left px-4 py-2 text-xs text-orange-700 font-semibold">Artículo</th>
+                    <th className="text-right px-4 py-2 text-xs text-orange-700 font-semibold">Stock actual</th>
+                    <th className="text-right px-4 py-2 text-xs text-orange-700 font-semibold">Mínimo</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {stockMinimo.map(a => (
+                    <tr key={a.id} className="hover:bg-orange-50/50">
+                      <td className="px-4 py-2 text-gray-700">{a.nombre}</td>
+                      <td className="px-4 py-2 text-right font-semibold text-red-600">{a.stock_actual}</td>
+                      <td className="px-4 py-2 text-right text-gray-500">{a.stock_min}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
