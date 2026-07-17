@@ -1012,9 +1012,9 @@ export default function CierreTurnoPage() {
                   <th className="text-left px-4 py-2 text-xs text-gray-500">Responsable</th>
                   <th className="text-left px-4 py-2 text-xs text-gray-500">Apertura</th>
                   <th className="text-left px-4 py-2 text-xs text-gray-500">Cierre</th>
+                  <th className="text-right px-4 py-2 text-xs text-gray-500">Dinero apertura</th>
                   <th className="text-right px-4 py-2 text-xs text-gray-500">Ingresos</th>
                   <th className="text-right px-4 py-2 text-xs text-gray-500">Egresos</th>
-                  <th className="text-right px-4 py-2 text-xs text-gray-500">Dinero apertura</th>
                   <th className="text-right px-4 py-2 text-xs text-gray-500">Dinero cierre</th>
                   <th className="text-right px-4 py-2 text-xs text-gray-500">Diferencia</th>
                   <th className="text-left px-4 py-2 text-xs text-gray-500">Estado</th>
@@ -1036,14 +1036,14 @@ export default function CierreTurnoPage() {
                       </td>
                       <td className="px-4 py-2 text-gray-500">{fmtFecha(c.creado_en)}</td>
                       <td className="px-4 py-2 text-gray-500">{c.cerrado_en ? fmtFecha(c.cerrado_en) : '—'}</td>
+                      <td className="px-4 py-2 text-right text-gray-700">
+                        {fmt(c.apertura_contada ?? c.apertura)}
+                      </td>
                       <td className="px-4 py-2 text-right text-green-700">
                         {c.ingresos_sistema ? `+${fmt(c.ingresos_sistema)}` : '—'}
                       </td>
                       <td className="px-4 py-2 text-right text-red-700">
                         {c.egresos_sistema ? `-${fmt(c.egresos_sistema)}` : '—'}
-                      </td>
-                      <td className="px-4 py-2 text-right text-gray-700">
-                        {fmt(c.apertura_contada ?? c.apertura)}
                       </td>
                       <td className="px-4 py-2 text-right text-gray-700">
                         {c.efectivo_real !== null ? fmt(c.efectivo_real) : '—'}
