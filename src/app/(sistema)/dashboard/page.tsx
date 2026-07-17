@@ -746,11 +746,11 @@ export default function DashboardPage() {
 
         <div>
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Clima del negocio</h2>
-          <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+          <div className="bg-white rounded-lg border border-gray-200 grid grid-cols-2 gap-px bg-gray-100 overflow-hidden">
             {climaItems.map(item => {
               const Icon = item.icon
               return (
-                <div key={item.label} className="flex items-center gap-3 p-3">
+                <div key={item.label} className="flex items-center gap-3 p-3 bg-white">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${estiloEstado[item.estado]}`}>
                     <Icon className="w-4 h-4" />
                   </div>
