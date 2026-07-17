@@ -17,19 +17,19 @@ completar o corregir la próxima vez que se toquen.
 
 | Ruta | Qué hace |
 |---|---|
-| `articulos/page.tsx` | Listado de artículos. Filtros Disponibilidad (local/web/todos) y Stock (con/sin/todos), búsqueda tokenizada sin acentos (incluye rubro y marca). Botón "Actualizar precios" visible solo Admin, lleva a `articulos/precios/page.tsx`. |
+| `articulos/page.tsx` | Listado de artículos. Filtros Disponibilidad (local/web/todos), Stock (Todos/Con stock/Sin stock/**Con mínimo configurado**/**Bajo mínimo** — 2 últimos agregados 17/07), búsqueda tokenizada sin acentos (incluye rubro y marca). **17/07:** columna nueva "Mín." (stock mínimo), fila resaltada en naranja si está bajo mínimo, combo de Marca filtrado dinámicamente según el Rubro elegido. Botón "Actualizar precios" visible solo Admin, lleva a `articulos/precios/page.tsx`. |
 | `articulos/nuevo/page.tsx` | Alta de artículo nuevo (usa el formulario compartido `ArticuloForm.tsx`). |
 | `articulos/[id]/page.tsx` | Edición de artículo existente (mismo formulario compartido). |
 | `articulos/precios/page.tsx` | Pantalla unificada de actualización de precios (reemplaza la vieja `compras/[id]/precios/`). Filtros iguales a Artículos + "OC pendiente" + "Solo desactualizados". Utilidad % = (Precio-Costo)/Costo×100. Ajuste masivo por % con preview. Admin-only. |
 | `cierre-turno/page.tsx` | Pantalla **Caja**: apertura, cierre, retiro y reapertura de turno con auditoría. Fix de "Ingresos efectivo" duplicado (excluye `origen_tipo='venta'`). |
 | `compras/page.tsx` | Listado de Órdenes de Compra. Detalle expandible con ítems, columnas Compra/Flete/Total, fila ámbar para ítems de ajuste por redondeo. Iconos de color en Acciones. |
 | `compras/nueva/page.tsx` | Alta de nueva Orden de Compra. Genera movimiento de mercadería/flete al guardar, valida contra `monto_comprobante`, fix de decimales (`parsearMonto`). |
-| `compras/[id]/page.tsx` | Edición de Orden de Compra existente. Revierte y re-aplica stock/costos si estaba Confirmada; `sincronizarMovimiento()` para no duplicar movimientos. |
+| `compras/[id]/page.tsx` | Edición de Orden de Compra existente. Revierte y re-aplica stock/costos si estaba Confirmada; `sincronizarMovimiento()` para no duplicar movimientos. **17/07:** aclarado el texto del botón "Corrijo yo manualmente" en el aviso de diferencia contra comprobante (no guardaba nada, solo cerraba el aviso — causó una edición perdida sin que Ariel lo notara); ensanchada la columna "Desc. %" (se cortaban decimales largos). |
 | `compras/[id]/page_compras_id_old.tsx` | `[?]` Versión anterior/backup del archivo de edición de Compras (no forma parte del build activo). Candidato a borrar. |
 | `configuracion/page.tsx` | `[?]` Pantalla de configuración general del sistema — sin detalle reciente registrado. |
-| `dashboard/page.tsx` | Dashboard principal. Fix de "Ingresos efectivo" duplicado, banner de turno abierto, widget "Efectivo en caja", excluye `categoria_gasto_id=13` (movimientos internos de Caja) del resumen mensual. |
+| `dashboard/page.tsx` | Dashboard principal. **Rediseñado completo el 17/07** (ver `ESTADO-PROYECTO.md` sección 20, Bloque 4): banner de turno → Ventas del día → "Julio de 2026" (5 tarjetas: Ventas/Ingresos/Egresos/Diferencia/torta por turno) → Punto de Equilibrio (tarjeta única, mes actual estimado + mes anterior cerrado) → Clima del negocio (4 indicadores con ícono, comparte fila con Punto de Equilibrio) → Stock Valorizado (colapsable) → Artículos en stock mínimo (colapsable, antes siempre visible). |
 | `diagnostico/page.tsx` | Herramienta temporal para diagnosticar el bug del scanner de código de barras. **Pendiente borrar** — ya cumplió su función. |
-| `movimientos/page.tsx` | Listado de movimientos financieros (ledger). Filtros Día/Mes/Año/Libre/Todos con totales arriba. Checkbox "Excluir movimientos internos de Caja". |
+| `movimientos/page.tsx` | Listado de movimientos financieros (ledger). Filtros Día/Mes/Año/Libre/Todos con totales arriba. Checkbox "Excluir movimientos internos de Caja". **17/07:** filtro nuevo por Medio de Pago (para trazabilidad de efectivo). |
 | `movimientos/nuevo/page.tsx` | Alta de movimiento financiero manual. Fix de decimales (`parsearMonto`). |
 | `movimientos/[id]/page.tsx` | Edición de movimiento financiero, usa `MovimientoForm.tsx` compartido. Gate: Admin siempre puede, otro usuario solo si `movimientos.cierre_turno_id` = cierre activo; solo movimientos manuales (`origen_tipo IS NULL`). |
 | `reportes/page.tsx` | `[?]` Módulo Reportes — pendiente de desarrollo. |
@@ -44,7 +44,7 @@ completar o corregir la próxima vez que se toquen.
 
 | Ruta | Qué hace |
 |---|---|
-| `api/ventas/route.ts` | Confirma una venta desde el POS: inserta `ventas`/`venta_items`/`venta_pagos`, genera el movimiento financiero y el movimiento de stock. **Pipeline de fiscalización AFIP/ARCA vía TusFacturasAPP ACTIVO EN PRODUCCIÓN desde 14/07** (reserva de numeración, INSERT en `comprobantes`, llamado a `emitirFacturaC`, actualización de estado fiscal), gateado por `fiscalizacionActiva()` / `FISCALIZACION_TUSFACTURAS_ACTIVA=true`. Corregido el 14/07: nombre real del campo de respuesta es `vencimiento_cae` (no `cae_vencimiento`), y se recorta el espacio final del CAE (`.trim()`). |
+| `api/ventas/route.ts` | Confirma una venta desde el POS: inserta `ventas`/`venta_items`/`venta_pagos`, genera el movimiento financiero y el movimiento de stock. Pipeline de fiscalización AFIP/ARCA vía TusFacturasAPP activo en producción desde 14/07, gateado por `fiscalizacionActiva()`. **17/07: fix de bug real** — antes el movimiento financiero de la venta se cargaba en una sola fila con el medio de pago del PRIMER ítem y el TOTAL completo; en ventas con pago mixto (ej. Efectivo + Transferencia) esto inflaba artificialmente un medio de pago. Ahora inserta una fila de `movimientos` por cada medio de pago usado, repartido proporcionalmente sobre el total real. |
 
 ## Resto de `src/app/`
 
@@ -67,7 +67,7 @@ completar o corregir la próxima vez que se toquen.
 | `ventas/BuscadorProductos.tsx` | Buscador de artículos en Ventas POS. Catálogo en memoria, búsqueda tokenizada, blindaje anti-rebote de scanner. |
 | `ventas/CarritoItems.tsx` | Carrito de ítems dentro de Ventas POS. |
 | `ventas/EditarItemsVentaModal.tsx` | Modal "Editar ítems" (Caso A) — edición de artículos/cantidades en ventas Guardadas, delta de stock, historial de auditoría, diferencia de cobro. |
-| `ventas/PanelPagos.tsx` | Panel de medios de pago multi-pago en Ventas POS. |
+| `ventas/PanelPagos.tsx` | Panel de medios de pago multi-pago en Ventas POS. **17/07:** se agregó poder editar un pago ya cargado (antes solo se podía eliminar y recargar de cero) — botón ✎ junto a la ✕ de cada pago, carga los datos de vuelta en el formulario. |
 
 ## `src/lib/`
 
@@ -95,4 +95,4 @@ completar o corregir la próxima vez que se toquen.
 
 ---
 
-*Última actualización: 14/07/2026 — sesión de activación real de TusFacturasAPP: correcciones en `tipos.ts`, `mapeo.ts` y `api/ventas/route.ts` (ver `ESTADO-PROYECTO.md` sección 19 para el detalle completo de bugs encontrados y corregidos).*
+*Última actualización: 17/07/2026 — sesión 15-17/07: fix de pagos mixtos en `api/ventas/route.ts`, edición de pagos en `PanelPagos.tsx`, aclaración de UX en `compras/[id]/page.tsx`, filtro de Medio de Pago en `movimientos/page.tsx`, rediseño completo de `dashboard/page.tsx`, y columna/filtros de stock mínimo + Marca dependiente de Rubro en `articulos/page.tsx` (ver `ESTADO-PROYECTO.md` sección 20 para el detalle completo).*

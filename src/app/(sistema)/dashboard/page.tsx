@@ -79,7 +79,7 @@ export default function DashboardPage() {
   const [ritmoVentas, setRitmoVentas] = useState<number | null>(null)
 
   const [mostrarStockValorizado, setMostrarStockValorizado] = useState(false)
-  const [mostrarStockMinimo, setMostrarStockMinimo] = useState(true)
+  const [mostrarStockMinimo, setMostrarStockMinimo] = useState(false)
   const [stockValorizado, setStockValorizado] = useState<number | null>(null)
   const [calculandoStock, setCalculandoStock] = useState(false)
 
@@ -628,29 +628,6 @@ export default function DashboardPage() {
             </div>
             <p className="text-xl font-bold text-[#3c3c3b]">{fmt(resumenMes.ventas)}</p>
           </div>
-          <div className="bg-green-50 rounded-lg border border-green-200 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingUp className="w-4 h-4 text-green-500" />
-              <p className="text-xs text-green-600 font-medium">Ingresos</p>
-            </div>
-            <p className="text-xl font-bold text-green-700">{fmt(resumenMes.ingresos)}</p>
-          </div>
-          <div className="bg-red-50 rounded-lg border border-red-200 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingDown className="w-4 h-4 text-red-500" />
-              <p className="text-xs text-red-600 font-medium">Egresos</p>
-            </div>
-            <p className="text-xl font-bold text-red-700">{fmt(resumenMes.egresos)}</p>
-          </div>
-          <div className={`rounded-lg border p-4 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingUp className={`w-4 h-4 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-500' : 'text-orange-500'}`} />
-              <p className={`text-xs font-medium ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>Diferencia</p>
-            </div>
-            <p className={`text-xl font-bold ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
-              {(resumenMes.ingresos - resumenMes.egresos) >= 0 ? '+' : ''}{fmt(resumenMes.ingresos - resumenMes.egresos)}
-            </p>
-          </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <p className="text-xs text-gray-500 font-medium mb-2">Por turno</p>
             {totalTurnoMes === 0 ? (
@@ -675,6 +652,29 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
+          </div>
+          <div className="bg-green-50 rounded-lg border border-green-200 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className="w-4 h-4 text-green-500" />
+              <p className="text-xs text-green-600 font-medium">Ingresos</p>
+            </div>
+            <p className="text-xl font-bold text-green-700">{fmt(resumenMes.ingresos)}</p>
+          </div>
+          <div className="bg-red-50 rounded-lg border border-red-200 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingDown className="w-4 h-4 text-red-500" />
+              <p className="text-xs text-red-600 font-medium">Egresos</p>
+            </div>
+            <p className="text-xl font-bold text-red-700">{fmt(resumenMes.egresos)}</p>
+          </div>
+          <div className={`rounded-lg border p-4 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className={`w-4 h-4 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-500' : 'text-orange-500'}`} />
+              <p className={`text-xs font-medium ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>Diferencia</p>
+            </div>
+            <p className={`text-xl font-bold ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
+              {(resumenMes.ingresos - resumenMes.egresos) >= 0 ? '+' : ''}{fmt(resumenMes.ingresos - resumenMes.egresos)}
+            </p>
           </div>
         </div>
       </div>

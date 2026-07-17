@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 14/07/2026 — **Fiscalización AFIP/ARCA vía TusFacturasAPP ACTIVA EN PRODUCCIÓN REAL.** `FISCALIZACION_TUSFACTURAS_ACTIVA=true` en Vercel desde hoy. Primera venta real fiscalizada desde el sistema propio (no Cover) emitida con éxito. Se encontraron y corrigieron 8+ bugs durante la activación (todos documentados en sección 19). Las 2 ventas de prueba realizadas durante la validación fueron anuladas correctamente mediante Notas de Crédito C reales (no con SQL, porque ya tenían CAE real de ARCA).
-**Estado general:** 🟢 Sistema en producción real y **fiscalizando de verdad**. Módulos Compras, Ventas, Editar ítems, Caja, Dashboard, Movimientos, pantalla unificada de Precios, Fiscalización AFIP/ARCA: todos estables y en uso real.
-**Próxima acción concreta:** Seguir de cerca las próximas ventas reales fiscalizadas por el personal del local (Agustín incluido) para detectar cualquier caso no cubierto en las pruebas (ej. venta con múltiples ítems, venta con cliente real con CUIT/DNI cargado — todavía no probado, solo Consumidor Final). Definir si la baja de Cover (objetivo original 12/07, vencido) ya puede confirmarse ahora que la fiscalización real funciona.
+**Última actualización:** 17/07/2026 — Sesión larga (15-17/07) con foco en: respaldo completo de datos de Cover antes de perder el acceso (confirmado sin pérdidas), corrección de un bug real en el ledger de ventas con pago mixto (cada medio de pago ahora genera su propia fila de movimiento), reconciliación completa del efectivo histórico en Caja/Movimientos, cálculo de `stock_min` para 219 artículos en base al historial real de ventas de Cover, y un rediseño grande del Dashboard (Clima del negocio, Punto de Equilibrio, gráfico por turno) más mejoras en Artículos (columna Stock mín., filtros, combo Marca dependiente de Rubro).
+**Estado general:** 🟢 Sistema en producción real, fiscalizando de verdad, con datos de Caja/Movimientos ya reconciliados contra el efectivo físico real. Cover puede darse de baja sin pérdida de información (respaldo completo verificado).
+**Próxima acción concreta:** Seguir de cerca las próximas ventas reales del local. Evaluar con Ariel si arrancar el desarrollo de autocompletado de pagos por Mercado Pago (Opción A: webhooks pasivos — ver sección 20). Revisar manualmente el resto del catálogo por posibles números de stock "raros" (Ariel en curso). Construir eventualmente una pantalla de permisos granulares para poder volver a restringir a Agustín de rol_id=1 (Admin temporal) a algo más acotado.
 
 ---
 
@@ -95,6 +95,18 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 - [ ] Probar fiscalización con venta de múltiples ítems (todo lo probado fue de 1 solo ítem)
 - [ ] Evaluar si conviene trackear la numeración de Notas de Crédito en `numeracion_comprobantes` (hoy se le pidió a TusFacturasAPP que asigne el número automáticamente, sin fila propia en esa tabla para `tipo_comprobante_id=3`)
 - [ ] Crear concepto de gasto específico "TusFacturasAPP" ya usado en el primer pago mensual (categoría Sistema, id=8) — confirmar que quedó bien cargado
+- [ ] **Filtro "Bajo mínimo" en `articulos/page.tsx`** — ✅ resuelto 17/07 (ver sección 20). Query de referencia:
+  ```sql
+  SELECT a.id, a.nombre, a.codigo_interno, ast.stock_actual, ast.stock_min, (ast.stock_min - ast.stock_actual) AS faltante
+  FROM articulo_stock ast JOIN articulos a ON a.id = ast.articulo_id
+  WHERE ast.sucursal_id = 1 AND ast.stock_min > 0 AND ast.stock_actual <= ast.stock_min
+  ORDER BY faltante DESC;
+  ```
+- [ ] **Autocompletar número de operación de pagos con posnet (Mercado Pago)** — decidido enfoque de 2 fases (17/07): **Opción A** (pasiva) — el sistema escucha webhooks de Mercado Pago y sugiere autocompletar el número de operación cuando detecta un pago reciente de monto coincidente; **Opción B** (activa) — el sistema le manda el cobro directo al posnet por Point API, sin intervención del cajero. La infraestructura de la Opción A (webhook + tabla de pagos recibidos) es la base de la B, no es trabajo separado. Pendiente: Ariel debe generar un Access Token de producción en el portal de desarrolladores de Mercado Pago para arrancar.
+- [ ] Rol de Agustín — pasado a `rol_id=1` (Admin) el 17/07 **a propósito, temporal**, hasta construir una pantalla de permisos granulares por pantalla/acción y volver a restringirlo (hoy ve costos y todo lo admin-only).
+- [ ] Revisar manualmente el resto del catálogo por posibles descuadres de stock similares a los 2 encontrados el 17/07 (Ariel en curso, sin compras recientes que hubieran corregido el número solo)
+- [ ] Evaluar agregar % de colchón sobre los `stock_min` calculados el 17/07 (hoy sin colchón, redondeo simple hacia arriba) si mejora el volumen de ventas
+- [ ] Circuito de Nota de Crédito dentro del sistema, resolviendo el gap de `comprobantes.venta_id UNIQUE` (recordatorio, ya estaba en sección 6 desde el 14/07)
 
 ---
 
@@ -199,3 +211,77 @@ Nuestro JSON no envía el bloque `"pagos"` del comprobante — la información d
 4. Diseñar el circuito completo de Nota de Crédito dentro del sistema, resolviendo el gap de `comprobantes.venta_id UNIQUE`.
 5. Definir con Ariel si la baja de Cover ya puede confirmarse.
 6. Replicar toda la integración TusFacturasAPP en sandbox (sigue desincronizado).
+
+---
+
+## 20. Sesión 15-17/07/2026 — Respaldo de Cover, bug de pagos mixtos, reconciliación de Caja, stock mínimo real y rediseño del Dashboard
+
+### Bloque 1 — Respaldo completo de Cover antes de la baja
+Se armó un checklist completo (fiscal → artículos → ventas histórico) y se descargaron y verificaron uno por uno:
+- **Libro IVA Ventas** (2024-2026, 1.772 facturas reales) — cruzado contra las 25 ventas del período paralelo marcadas "Fiscalizado externamente"; se vincularon 24 automáticamente por fecha+monto y 1 (venta #1329, $38.000) se encontró **pendiente de fiscalización manual en Cover** (quedó atascada por el mismo tipo de error de numeración desincronizada que tuvimos nosotros) — Ariel la refacturó manualmente con fecha 15/07, quedó como Factura C 0003-00000427, vinculada en `ventas.observaciones`.
+- **Libro IVA Compras** — confirmado vacío en todo el rango (nunca se cargaron compras en Cover).
+- **Posición IVA, Comprobantes Impagos, Cuenta Corriente, Saldos Consolidados** — todo en $0, sin deuda de clientes sin migrar.
+- **Listado de Artículos de Cover** (492) cruzado contra el catálogo propio (488) — 0 artículos realmente faltantes (3 diferencias eran solo un código de barras corregido en la migración).
+- Se armó un ZIP de respaldo (`respaldo_cover_15-07-2026.zip`) con todo organizado + README, entregado a Ariel para guardar aparte.
+- **Conclusión: Cover puede darse de baja sin ningún riesgo de pérdida de información.**
+
+### Bloque 2 — Bug real encontrado: ventas con pago mixto no se registraban bien en el ledger
+Ariel notó que el efectivo calculado en Movimientos ($18.700 en julio) no coincidía con el efectivo real en caja ($24.050). Investigando se encontró:
+1. **Bug de fondo en `api/ventas/route.ts`**: el `INSERT` a `movimientos` usaba `medio_pago_id: pagos[0].medio_pago_id` y `monto: total` — es decir, cualquier venta con **pago mixto** (ej. parte Efectivo + parte Transferencia) le asignaba el **total completo** de la venta al medio de pago del primer ítem cargado, inflando ese medio artificialmente. **Fix:** el `INSERT` ahora genera **una fila de movimiento por cada medio de pago usado**, repartido proporcionalmente sobre el total real (así el vuelto en efectivo, si lo hay, no infla el número).
+2. Corrección retroactiva de la venta #1378 (la única detectada con este problema hasta ahora): se dividió su movimiento de $33.000 en $10.000 Efectivo + $23.000 Transferencia, con un ajuste adicional de `creado_en` porque el segundo `INSERT` manual no había copiado ese campo (quedó con la fecha de hoy en vez de la fecha real de la venta, y el filtro por día usa `creado_en`, no `fecha_utc`).
+3. Se corrigió también un movimiento cargado con el medio de pago equivocado (Sueldo a Agustín del 08/07, cargado como Efectivo cuando en realidad fue Transferencia).
+4. Se identificó que el **saldo inicial de efectivo al arrancar el sistema** ($5.350, `cierres_turno.id=11`, `apertura_contada`) nunca había generado una fila en `movimientos` — es un "movimiento invisible" del mismo tipo. Se cargó como Ingreso categoría Caja, fecha 01/07/2026 (fecha real de la primera apertura).
+
+**Resultado final: el histórico completo de Movimientos filtrado por Efectivo ($24.050) ahora coincide exacto con el efectivo físico real en caja.**
+
+### Bloque 3 — Stock mínimo calculado con datos reales de Cover
+A partir del archivo `Detalle_Ventas_0239_20240101_20260731.xlsx` (ya guardado del respaldo), se calculó el promedio de ventas semanales de los últimos 6 meses (26 semanas) por artículo, cruzando el `ID` de Cover contra el código de barras (y por nombre para los que cambiaron de código en la migración — 100% de cruce logrado, 219 artículos con venta real en el período).
+
+Se cargó `articulo_stock.stock_min = ceil(promedio_semanal)` para esos 219 artículos (sin colchón, redondeo simple), dejando sin mínimo configurado al resto del catálogo (sin rotación reciente, no tiene sentido pedirle un piso de stock). Ariel revisó la lista completa a mano y ajustó:
+- **33 artículos** con mínimo llevado a **0** (productos que ya no se van a reponer / discontinuados según criterio de Ariel).
+- **60 artículos** con mínimo **1 → 2** (ajuste de criterio propio).
+- **Rubros Barras de proteína / Geles / Geles Cafeina**: de los que ya tenían un mínimo configurado (48 de 124 totales en esos 3 rubros), se subió a **mínimo 6** (media caja — las cajas traen 12 o 20 unidades).
+- **2 correcciones de stock real** encontradas durante la revisión (números "raros" sin explicación de compra reciente): artículo 1136 (`stock_actual` de -2 a 6, real) y artículo 1189 (de -1 a 0, real). Pendiente: Ariel sigue revisando el resto del catálogo por su cuenta.
+
+### Bloque 4 — Rediseño completo del Dashboard
+Varias rondas de iteración con Ariel, terminó así (orden de arriba a abajo):
+1. Banner de turno (sin cambios).
+2. Ventas del día (3 tarjetas: Mañana/Tarde/Total).
+3. "Julio de 2026" — 5 tarjetas: Ventas, Ingresos, Egresos, **Diferencia** (Ingresos−Egresos, restaurado — se había reemplazado por "Margen real %" en una iteración intermedia pero quedaba duplicado con Clima del negocio, así que se revirtió), y gráfico de torta por turno (donut CSS puro, sin librerías, compacto como 5ta tarjeta).
+4. **Punto de Equilibrio** — una sola tarjeta con "Este mes (estimado)" arriba y "Mes anterior (cerrado)" abajo, separadas por una línea. El objetivo del mes en curso usa los **costos fijos reales del mes anterior** (ya cerrado, con todos los gastos cargados) dividido por el **margen real del mes en curso** — evita el problema de que a mitad de mes todavía no estén cargados gastos grandes como alquiler/sueldos, lo cual habría hecho ver el objetivo artificialmente bajo. Costos Fijos = todos los egresos del mes EXCEPTO categoría "Compras Mercadería" (ya está contemplada en el margen de contribución) y "Retiro de caja" (no es gasto real).
+5. **Clima del negocio** — 4 indicadores compactos con ícono en círculo de color (Persian Green / ámbar `#D97706` / rojo `#DC2626`, dentro de la paleta de marca): Caja (diferencia del último cierre), Stock (artículos bajo mínimo), Margen (lectura cualitativa "Saludable/Ajustado/Bajo", sin repetir el % que ya se ve en la fila de arriba), Ritmo de ventas (contra promedio de los últimos 3 meses ajustado por día del mes). Comparte fila con Punto de Equilibrio (2/3 + 1/3).
+6. Stock Valorizado — colapsable, cálculo bajo demanda con botón (evita el query pesado en cada carga de pantalla).
+7. Artículos en stock mínimo — también colapsable ahora (antes siempre visible), arranca abierto por defecto.
+
+**Descartado durante la conversación:** "Insights en lenguaje natural", "Contador de ahorro por dejar Cover" (Ariel: "ya fue Cover"), "Pulso del local" (feed en vivo), "Dashboard que cambia según hora del día", y "Producto destacado" (se armó y se sacó — no convenció).
+
+### Bloque 5 — Mejoras en pantalla de Artículos
+- Nueva columna **"Mín."** (stock mínimo) en la tabla.
+- Fila resaltada en naranja cuando el artículo está bajo mínimo.
+- 2 opciones nuevas en el filtro de Stock: **"Con mínimo configurado"** y **"Bajo mínimo"**.
+- El combo de **Marca ahora depende del Rubro** seleccionado — solo lista marcas que tienen al menos un artículo en ese rubro (con reseteo automático si la marca elegida deja de tener sentido al cambiar de rubro).
+
+### Bloque 6 — Otros cambios sueltos de la sesión
+- **`PanelPagos.tsx` (Ventas POS):** se agregó la posibilidad de editar un pago ya cargado (antes solo se podía eliminar y recargar de cero, perdiendo el número de operación tipeado). Se encontró y corrigió un bug de desborde horizontal introducido por el propio cambio (el botón "Cancelar" se sacó de la fila y pasó a ser un link de texto debajo).
+- **`compras/[id]/page.tsx`:** se identificó la causa raíz de una edición de Orden de Compra que "se perdió" — el botón "Corrijo yo manualmente" del aviso de diferencia contra el comprobante no guardaba nada, solo cerraba el aviso; se corrigió el texto para que sea explícito ("Volver a corregir un ítem (todavía no se guardó nada)"). También se ensanchó la columna "Desc. %" (los decimales largos, ej. "7,6923", se cortaban visualmente).
+- **`movimientos/page.tsx`:** nuevo filtro por Medio de Pago, para poder hacer trazabilidad de efectivo.
+- Nuevo transportista "Servicios del Valle", marca "BSN" reactivada (estaba cargada pero inactiva).
+- Nuevo concepto de gasto **"Comisión intermediación mayorista"** (categoría Otros Ingresos, id=11) — Agustín tiene un centro de venta propio en un gimnasio; Ariel le compra a sus mayoristas y le cobra 7% de comisión por el servicio (la mercadería nunca ingresa a Habitus SD).
+- Rol de Agustín pasado de Encargado a Admin (temporal, hasta tener permisos granulares).
+
+### Incidentes de deploy (no relacionados al código)
+Dos veces durante la sesión el push a GitHub no disparó el deploy automático en Vercel (mismo síntoma: commit visible en GitHub, Vercel sin registrarlo). La primera vez coincidió con un outage real de GitHub (confirmado en githubstatus.com); la segunda vez no había outage activo, se resolvió solo. En ambos casos el fix fue un "Create Deployment" manual desde Vercel eligiendo la rama `master` de nuevo (distinto del botón "Redeploy", que solo reconstruye lo último que Vercel ya tenía guardado). También hubo dos casos de archivo pegado en la carpeta equivocada (una vez `route.ts` dentro de `lib/tusfacturas/` en vez de `api/ventas/`, otra vez el Dashboard pegado en la carpeta de Artículos) — ambos detectados a tiempo revisando qué archivos aparecían modificados en el `git commit`.
+
+### Archivos modificados en esta sesión
+- `src/app/api/ventas/route.ts` — reparto proporcional de movimientos por medio de pago (Bloque 2).
+- `src/components/ventas/PanelPagos.tsx` — edición de pagos ya cargados.
+- `src/app/(sistema)/compras/[id]/page.tsx` — aclaración del botón de diferencia + ancho de columna.
+- `src/app/(sistema)/movimientos/page.tsx` — filtro por Medio de Pago.
+- `src/app/(sistema)/dashboard/page.tsx` — rediseño completo (Bloque 4).
+- `src/app/(sistema)/articulos/page.tsx` — columna/filtros de stock mínimo + Marca dependiente de Rubro (Bloque 5).
+
+### Pendiente para la próxima sesión
+1. Ariel termina de revisar el catálogo por posibles descuadres de stock adicionales.
+2. Definir si se arranca el desarrollo de Mercado Pago (Opción A) — esperando que Ariel genere el Access Token.
+3. Construir pantalla de permisos granulares y volver a restringir el rol de Agustín.
+4. Seguir con los pendientes ya anotados de sesiones previas (NC, Correcciones, sandbox desincronizado, etc. — ver sección 6).
