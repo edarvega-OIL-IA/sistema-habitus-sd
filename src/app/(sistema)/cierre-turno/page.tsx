@@ -46,6 +46,21 @@ interface RetiroCaja {
   fecha_utc: string
 }
 
+interface HistorialCierre {
+  id: number
+  fecha: string
+  creado_en: string
+  cerrado_en: string | null
+  apertura: number
+  apertura_contada: number | null
+  diferencia_apertura: number | null
+  efectivo_real: number | null
+  diferencia: number | null
+  estado_cierre_turno_id: number
+  turnos: { nombre: string } | null
+  usuarios: { nombre: string; apellido: string } | null
+}
+
 type Vista = 'principal' | 'abrir' | 'cerrar' | 'retiro' | 'historial' | 'reapertura'
 
 export default function CierreTurnoPage() {
@@ -85,6 +100,10 @@ export default function CierreTurnoPage() {
   const [ultimaApertura, setUltimaApertura] = useState<number>(0)
   const [ultimoCierreId, setUltimoCierreId] = useState<number | null>(null)
   const [motivoReapertura, setMotivoReapertura] = useState<string>('')
+
+  // Historial de cajas (todas, abiertas y cerradas)
+  const [historialCierres, setHistorialCierres] = useState<HistorialCierre[]>([])
+  const [loadingHistorial, setLoadingHistorial] = useState(true)
 
   useEffect(() => {
     inicializar()
@@ -133,8 +152,31 @@ export default function CierreTurnoPage() {
 
       setUltimaApertura(ultimoCierre?.efectivo_real ?? 0)
       setUltimoCierreId(ultimoCierre?.id ?? null)
+
+      await cargarHistorialCierres()
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function cargarHistorialCierres() {
+    setLoadingHistorial(true)
+    try {
+      const { data } = await supabase
+        .from('cierres_turno')
+        .select(`
+          id, fecha, creado_en, cerrado_en, apertura, apertura_contada, diferencia_apertura,
+          efectivo_real, diferencia, estado_cierre_turno_id,
+          turnos ( nombre ),
+          usuarios ( nombre, apellido )
+        `)
+        .eq('sucursal_id', sucursalId)
+        .order('creado_en', { ascending: false })
+        .limit(30)
+
+      setHistorialCierres((data as any[]) || [])
+    } finally {
+      setLoadingHistorial(false)
     }
   }
 
@@ -269,6 +311,7 @@ export default function CierreTurnoPage() {
 
       setAperturaConfirmada('')
       await cargarTurnoAbierto()
+      await cargarHistorialCierres()
       setVista('principal')
     } catch (err: any) {
       setError(err.message)
@@ -299,6 +342,7 @@ export default function CierreTurnoPage() {
       setRetiros([])
       setEfectivoContado('')
       setObservacionesCierre('')
+      await cargarHistorialCierres()
       setVista('principal')
     } catch (err: any) {
       setError(err.message)
@@ -946,6 +990,87 @@ export default function CierreTurnoPage() {
           </div>
         </div>
       )}
+
+      {/* Historial de cajas */}
+      <div className="mt-6 bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+          <h2 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Historial de cajas</h2>
+        </div>
+        {loadingHistorial ? (
+          <p className="text-sm text-gray-400 px-4 py-6 text-center">Cargando...</p>
+        ) : historialCierres.length === 0 ? (
+          <p className="text-sm text-gray-400 px-4 py-6 text-center">Todavía no hay cajas registradas.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left px-4 py-2 text-xs text-gray-500">Fecha</th>
+                  <th className="text-left px-4 py-2 text-xs text-gray-500">Turno</th>
+                  <th className="text-left px-4 py-2 text-xs text-gray-500">Responsable</th>
+                  <th className="text-left px-4 py-2 text-xs text-gray-500">Apertura</th>
+                  <th className="text-left px-4 py-2 text-xs text-gray-500">Cierre</th>
+                  <th className="text-right px-4 py-2 text-xs text-gray-500">Dinero apertura</th>
+                  <th className="text-right px-4 py-2 text-xs text-gray-500">Dinero cierre</th>
+                  <th className="text-right px-4 py-2 text-xs text-gray-500">Diferencia</th>
+                  <th className="text-left px-4 py-2 text-xs text-gray-500">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {historialCierres.map(c => {
+                  const abierto = c.estado_cierre_turno_id === 1
+                  const diferenciaFinal = c.diferencia ?? 0
+                  const cuadrada = c.estado_cierre_turno_id === 2
+                  return (
+                    <tr key={c.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2 text-gray-700">
+                        {c.fecha.split('-').reverse().join('/')}
+                      </td>
+                      <td className="px-4 py-2 text-gray-700">{c.turnos?.nombre ?? '—'}</td>
+                      <td className="px-4 py-2 text-gray-700">
+                        {c.usuarios ? `${c.usuarios.nombre} ${c.usuarios.apellido}` : '—'}
+                      </td>
+                      <td className="px-4 py-2 text-gray-500">{fmtFecha(c.creado_en)}</td>
+                      <td className="px-4 py-2 text-gray-500">{c.cerrado_en ? fmtFecha(c.cerrado_en) : '—'}</td>
+                      <td className="px-4 py-2 text-right text-gray-700">
+                        {fmt(c.apertura_contada ?? c.apertura)}
+                      </td>
+                      <td className="px-4 py-2 text-right text-gray-700">
+                        {c.efectivo_real !== null ? fmt(c.efectivo_real) : '—'}
+                      </td>
+                      <td className={`px-4 py-2 text-right font-medium ${
+                        abierto ? 'text-gray-400'
+                        : cuadrada ? 'text-[#00a19a]'
+                        : diferenciaFinal > 0 ? 'text-blue-600' : 'text-red-600'
+                      }`}>
+                        {abierto ? '—' : `${diferenciaFinal >= 0 ? '+' : ''}${fmt(diferenciaFinal)}`}
+                      </td>
+                      <td className="px-4 py-2">
+                        {abierto ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-[#00a19a] bg-[#00a19a]/10 px-2 py-0.5 rounded-full">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#00a19a] animate-pulse" />
+                            Abierta
+                          </span>
+                        ) : cuadrada ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-[#00a19a] bg-[#00a19a]/10 px-2 py-0.5 rounded-full">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Cuadrada
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">
+                            <AlertCircle className="w-3 h-3" />
+                            Con diferencia
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
