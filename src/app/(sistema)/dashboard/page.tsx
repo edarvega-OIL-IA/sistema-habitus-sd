@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { ShoppingCart, TrendingUp, TrendingDown, Package, Clock, AlertTriangle, Target, Award, Wallet, ChevronDown, ChevronUp } from 'lucide-react'
+import { ShoppingCart, TrendingUp, TrendingDown, Package, Clock, AlertTriangle, Target, Wallet, ChevronDown, ChevronUp, Percent, Activity } from 'lucide-react'
 
 interface VentasTurno {
   total: number
@@ -36,20 +36,24 @@ interface CajaEstado {
 }
 
 interface PuntoEquilibrio {
-  costosFijos: number
-  margenPct: number
-  objetivo: number
-  diferencia: number // positivo = superado, negativo = falta
+  // Mes actual — objetivo ESTIMADO usando los costos fijos REALES del mes
+  // anterior (el mes en curso todavía no tiene todos sus gastos cargados:
+  // alquiler, parte de sueldos, etc. se pagan después del 20) y el margen
+  // REAL de lo vendido en lo que va del mes actual.
+  objetivoEsteMes: number
+  ventasEsteMes: number
+  diferenciaEsteMes: number
+  // Mes anterior — ya cerrado, con TODOS sus movimientos cargados, así que
+  // este número es fijo y no cambia más. Sirve de referencia de contraste.
+  hayDatosMesAnterior: boolean
+  objetivoMesAnterior: number
+  ventasMesAnterior: number
+  diferenciaMesAnterior: number
 }
 
 interface VentasPorTurnoMes {
   manana: number
   tarde: number
-}
-
-interface ProductoDestacado {
-  nombre: string
-  total: number
 }
 
 type EstadoSemaforo = 'verde' | 'ambar' | 'rojo' | 'neutro'
@@ -66,11 +70,13 @@ export default function DashboardPage() {
   const [ventasDia, setVentasDia] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [resumenMes, setResumenMes] = useState<ResumenMes>({ ventas: 0, ingresos: 0, egresos: 0, costoMercaderia: 0, margenPct: 0 })
   const [stockMinimo, setStockMinimo] = useState<ArticuloStockMinimo[]>([])
-  const [puntoEquilibrio, setPuntoEquilibrio] = useState<PuntoEquilibrio>({ costosFijos: 0, margenPct: 0, objetivo: 0, diferencia: 0 })
+  const [puntoEquilibrio, setPuntoEquilibrio] = useState<PuntoEquilibrio>({
+    objetivoEsteMes: 0, ventasEsteMes: 0, diferenciaEsteMes: 0,
+    hayDatosMesAnterior: false, objetivoMesAnterior: 0, ventasMesAnterior: 0, diferenciaMesAnterior: 0,
+  })
   const [ventasPorTurnoMes, setVentasPorTurnoMes] = useState<VentasPorTurnoMes>({ manana: 0, tarde: 0 })
-  const [productoDestacado, setProductoDestacado] = useState<ProductoDestacado | null>(null)
   const [ultimaDiferenciaCaja, setUltimaDiferenciaCaja] = useState<number | null>(null)
-  const [ritmoVentas, setRitmoVentas] = useState<number | null>(null) // ventas del mes / esperado a esta altura del mes
+  const [ritmoVentas, setRitmoVentas] = useState<number | null>(null)
 
   const [mostrarStockValorizado, setMostrarStockValorizado] = useState(false)
   const [stockValorizado, setStockValorizado] = useState<number | null>(null)
@@ -92,7 +98,6 @@ export default function DashboardPage() {
         cargarStockMinimo(),
         cargarPuntoEquilibrio(),
         cargarVentasPorTurnoMes(),
-        cargarProductoDestacado(),
         cargarUltimaDiferenciaCaja(),
         cargarRitmoVentas(),
       ])
@@ -214,89 +219,16 @@ export default function DashboardPage() {
     setVentasDia({ total: data.reduce((s, v) => s + v.total, 0), cantidad: data.length })
   }
 
-  async function cargarResumenMes() {
-    const [ventasRes, movRes] = await Promise.all([
-      supabase
-        .from('ventas')
-        .select('id, total')
-        .eq('sucursal_id', 1)
-        .neq('estado_venta_id', 3)
-        .gte('fecha_utc', mesDesde)
-        .lte('fecha_utc', hoy),
-      supabase
-        .from('movimientos')
-        .select('tipo, monto')
-        .eq('sucursal_id', 1)
-        .eq('anulado', false)
-        .gte('mes_contable', mesDesde),
-    ])
-
-    if (ventasRes.error) throw ventasRes.error
-    if (movRes.error) throw movRes.error
-
-    const totalVentas = (ventasRes.data || []).reduce((s, v) => s + v.total, 0)
-    const ingresos = (movRes.data || []).filter(m => m.tipo === 'Ingreso').reduce((s, m) => s + m.monto, 0)
-    const egresos = (movRes.data || []).filter(m => m.tipo === 'Egreso').reduce((s, m) => s + m.monto, 0)
-
-    // Margen real: costo de la mercadería vendida este mes, contra costo ACTUAL
-    // de cada artículo (no el costo histórico al momento de la venta, que no
-    // se guarda por ítem — simplificación aceptada, el margen puede variar
-    // levemente si el costo de un artículo cambió durante el mes).
-    let costoMercaderia = 0
-    const ventaIds = (ventasRes.data || []).map(v => v.id)
-    if (ventaIds.length > 0) {
-      const { data: itemsData } = await supabase
-        .from('venta_items')
-        .select('articulo_id, cantidad')
-        .in('venta_id', ventaIds)
-
-      if (itemsData && itemsData.length > 0) {
-        const articuloIds = [...new Set(itemsData.map(i => i.articulo_id))]
-        const { data: articulosCosto } = await supabase
-          .from('articulos')
-          .select('id, costo_sin_iva')
-          .in('id', articuloIds)
-
-        const costoMap = new Map((articulosCosto || []).map(a => [a.id, a.costo_sin_iva || 0]))
-        costoMercaderia = itemsData.reduce((s, i) => s + i.cantidad * (costoMap.get(i.articulo_id) || 0), 0)
-      }
-    }
-
-    const margenPct = totalVentas > 0 ? (totalVentas - costoMercaderia) / totalVentas : 0
-
-    setResumenMes({ ventas: totalVentas, ingresos, egresos, costoMercaderia, margenPct })
-  }
-
-  async function cargarPuntoEquilibrio() {
-    // Costos Fijos = todos los egresos del mes, EXCEPTO:
-    // - categoria_gasto_id=1 (Compras Mercadería): ya está contemplado
-    //   dentro del margen de contribución (costo de mercadería vendida) —
-    //   contarlo acá también sería descontarlo dos veces.
-    // - concepto_gasto_id=41 (Retiro de caja en efectivo): no es un gasto
-    //   real del negocio, es solo un movimiento interno de plata.
-    const { data, error } = await supabase
-      .from('movimientos')
-      .select('monto, categoria_gasto_id, concepto_gasto_id')
-      .eq('sucursal_id', 1)
-      .eq('tipo', 'Egreso')
-      .eq('anulado', false)
-      .gte('mes_contable', mesDesde)
-
-    if (error) throw error
-
-    const costosFijos = (data || [])
-      .filter(m => m.categoria_gasto_id !== 1 && m.concepto_gasto_id !== 41)
-      .reduce((s, m) => s + m.monto, 0)
-
-    // Reutiliza margenPct de resumenMes — se recalcula acá para no depender
-    // del orden de ejecución entre las dos funciones (ambas corren en paralelo).
+  // Calcula ventas totales + costo real de mercadería vendida para un rango
+  // de fechas [desde, hasta] — reutilizado para mes actual y mes anterior.
+  async function calcularVentasYCosto(desde: string, hasta: string) {
     const { data: ventasRes } = await supabase
       .from('ventas')
       .select('id, total')
       .eq('sucursal_id', 1)
       .neq('estado_venta_id', 3)
-      .gte('fecha_utc', mesDesde)
-      .lte('fecha_utc', hoy)
+      .gte('fecha_utc', desde)
+      .lte('fecha_utc', hasta)
 
     const totalVentas = (ventasRes || []).reduce((s, v) => s + v.total, 0)
     const ventaIds = (ventasRes || []).map(v => v.id)
@@ -320,11 +252,77 @@ export default function DashboardPage() {
       }
     }
 
-    const margenPct = totalVentas > 0 ? (totalVentas - costoMercaderia) / totalVentas : 0
-    const objetivo = margenPct > 0 ? costosFijos / margenPct : 0
-    const diferencia = totalVentas - objetivo
+    return { totalVentas, costoMercaderia }
+  }
 
-    setPuntoEquilibrio({ costosFijos, margenPct, objetivo, diferencia })
+  async function cargarResumenMes() {
+    const { totalVentas, costoMercaderia } = await calcularVentasYCosto(mesDesde, hoy)
+
+    const { data: movData, error: movError } = await supabase
+      .from('movimientos')
+      .select('tipo, monto')
+      .eq('sucursal_id', 1)
+      .eq('anulado', false)
+      .gte('mes_contable', mesDesde)
+
+    if (movError) throw movError
+
+    const ingresos = (movData || []).filter(m => m.tipo === 'Ingreso').reduce((s, m) => s + m.monto, 0)
+    const egresos = (movData || []).filter(m => m.tipo === 'Egreso').reduce((s, m) => s + m.monto, 0)
+    const margenPct = totalVentas > 0 ? (totalVentas - costoMercaderia) / totalVentas : 0
+
+    setResumenMes({ ventas: totalVentas, ingresos, egresos, costoMercaderia, margenPct })
+  }
+
+  // Costos Fijos de un mes = egresos EXCEPTO Compras Mercadería (categoria_gasto_id=1,
+  // ya contemplada en el margen de contribución) y Retiro de caja (concepto_gasto_id=41,
+  // no es un gasto real del negocio).
+  async function calcularCostosFijos(mesContable: string) {
+    const { data } = await supabase
+      .from('movimientos')
+      .select('monto, categoria_gasto_id, concepto_gasto_id')
+      .eq('sucursal_id', 1)
+      .eq('tipo', 'Egreso')
+      .eq('anulado', false)
+      .eq('mes_contable', mesContable)
+
+    return (data || [])
+      .filter(m => m.categoria_gasto_id !== 1 && m.concepto_gasto_id !== 41)
+      .reduce((s, m) => s + m.monto, 0)
+  }
+
+  async function cargarPuntoEquilibrio() {
+    // Rango del mes anterior calendario (independiente de cuántos días tenga)
+    const [anioActual, mesActualNum] = mesDesde.split('-').map(Number)
+    const fechaMesAnterior = new Date(anioActual, mesActualNum - 2, 1) // -2 porque Date usa mes 0-indexado y ya restamos 1 mes
+    const mesAnteriorDesde = fechaMesAnterior.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+    const ultimoDiaMesAnterior = new Date(anioActual, mesActualNum - 1, 0)
+    const mesAnteriorHasta = ultimoDiaMesAnterior.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+
+    const [costosFijosMesAnterior, costosFijosParaEstimar, { totalVentas: ventasEsteMes, costoMercaderia: costoEsteMes }, { totalVentas: ventasMesAnterior, costoMercaderia: costoMesAnterior }] = await Promise.all([
+      calcularCostosFijos(mesAnteriorDesde),
+      calcularCostosFijos(mesAnteriorDesde), // mismo valor — se usa como base del objetivo estimado de este mes
+      calcularVentasYCosto(mesDesde, hoy),
+      calcularVentasYCosto(mesAnteriorDesde, mesAnteriorHasta),
+    ])
+
+    const hayDatosMesAnterior = costosFijosMesAnterior > 0 || ventasMesAnterior > 0
+
+    // Mes actual: objetivo estimado = costos fijos REALES del mes anterior /
+    // margen REAL de lo vendido en lo que va de este mes.
+    const margenEsteMes = ventasEsteMes > 0 ? (ventasEsteMes - costoEsteMes) / ventasEsteMes : 0
+    const objetivoEsteMes = margenEsteMes > 0 ? costosFijosParaEstimar / margenEsteMes : 0
+    const diferenciaEsteMes = ventasEsteMes - objetivoEsteMes
+
+    // Mes anterior: ya cerrado, con sus propios costos fijos y margen reales — fijo para siempre.
+    const margenMesAnterior = ventasMesAnterior > 0 ? (ventasMesAnterior - costoMesAnterior) / ventasMesAnterior : 0
+    const objetivoMesAnterior = margenMesAnterior > 0 ? costosFijosMesAnterior / margenMesAnterior : 0
+    const diferenciaMesAnterior = ventasMesAnterior - objetivoMesAnterior
+
+    setPuntoEquilibrio({
+      objetivoEsteMes, ventasEsteMes, diferenciaEsteMes,
+      hayDatosMesAnterior, objetivoMesAnterior, ventasMesAnterior, diferenciaMesAnterior,
+    })
   }
 
   async function cargarVentasPorTurnoMes() {
@@ -358,52 +356,6 @@ export default function DashboardPage() {
     setVentasPorTurnoMes({ manana, tarde })
   }
 
-  async function cargarProductoDestacado() {
-    // "Esta semana" = últimos 7 días corridos (incluye hoy)
-    const hace7Dias = new Date()
-    hace7Dias.setDate(hace7Dias.getDate() - 6)
-    const desde = hace7Dias.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
-
-    const { data: ventasRes } = await supabase
-      .from('ventas')
-      .select('id')
-      .eq('sucursal_id', 1)
-      .neq('estado_venta_id', 3)
-      .gte('fecha_utc', desde)
-      .lte('fecha_utc', hoy)
-
-    const ventaIds = (ventasRes || []).map(v => v.id)
-    if (ventaIds.length === 0) return
-
-    const { data: itemsData } = await supabase
-      .from('venta_items')
-      .select('articulo_id, subtotal')
-      .in('venta_id', ventaIds)
-
-    if (!itemsData || itemsData.length === 0) return
-
-    const totalesPorArticulo = new Map<number, number>()
-    itemsData.forEach(i => {
-      totalesPorArticulo.set(i.articulo_id, (totalesPorArticulo.get(i.articulo_id) || 0) + i.subtotal)
-    })
-
-    let mejorId: number | null = null
-    let mejorTotal = 0
-    totalesPorArticulo.forEach((total, id) => {
-      if (total > mejorTotal) { mejorTotal = total; mejorId = id }
-    })
-
-    if (mejorId === null) return
-
-    const { data: articulo } = await supabase
-      .from('articulos')
-      .select('nombre')
-      .eq('id', mejorId)
-      .single()
-
-    setProductoDestacado({ nombre: articulo?.nombre || '—', total: mejorTotal })
-  }
-
   async function cargarUltimaDiferenciaCaja() {
     const { data } = await supabase
       .from('cierres_turno')
@@ -418,10 +370,6 @@ export default function DashboardPage() {
   }
 
   async function cargarRitmoVentas() {
-    // Promedio diario de los últimos 3 meses COMPLETOS (sin contar el mes en
-    // curso), comparado contra lo vendido en lo que va del mes actual
-    // ajustado al mismo número de días — así no se compara un mes a mitad
-    // de camino contra meses ya cerrados.
     const fechaRef = new Date()
     const inicio3Meses = new Date(fechaRef.getFullYear(), fechaRef.getMonth() - 3, 1)
     const inicio3MesesStr = inicio3Meses.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
@@ -435,15 +383,13 @@ export default function DashboardPage() {
       .lt('fecha_utc', mesDesde)
 
     const totalUltimos3Meses = (data || []).reduce((s, v) => s + v.total, 0)
-    const promedioDiario = totalUltimos3Meses / 90 // aproximado, no ajusta días exactos por mes
+    const promedioDiario = totalUltimos3Meses / 90
 
     const diaDelMes = new Date().getDate()
     const esperadoAEstaAltura = promedioDiario * diaDelMes
 
     if (esperadoAEstaAltura <= 0) { setRitmoVentas(null); return }
 
-    // ventasMes todavía no está en el estado en este punto (corre en
-    // paralelo) — se recalcula liviano acá mismo.
     const { data: ventasMesData } = await supabase
       .from('ventas')
       .select('total')
@@ -528,9 +474,7 @@ export default function DashboardPage() {
     </div>
   )
 
-  const diferenciaMes = resumenMes.ingresos - resumenMes.egresos
-
-  // ── Semáforo "Clima del negocio" ──────────────────────────────────────
+  // ── Clima del negocio ──────────────────────────────────────────────────
   const estadoCaja: EstadoSemaforo = ultimaDiferenciaCaja === null ? 'neutro'
     : Math.abs(ultimaDiferenciaCaja) <= 500 ? 'verde'
     : Math.abs(ultimaDiferenciaCaja) <= 2000 ? 'ambar' : 'rojo'
@@ -545,12 +489,39 @@ export default function DashboardPage() {
     : ritmoVentas >= 1 ? 'verde'
     : ritmoVentas >= 0.85 ? 'ambar' : 'rojo'
 
-  const colorSemaforo: Record<EstadoSemaforo, string> = {
-    verde: 'bg-[#00a19a]',
-    ambar: 'bg-[#D97706]',
-    rojo: 'bg-[#DC2626]',
-    neutro: 'bg-gray-300',
+  const estiloEstado: Record<EstadoSemaforo, string> = {
+    verde: 'bg-[#00a19a]/10 text-[#00a19a]',
+    ambar: 'bg-orange-50 text-[#D97706]',
+    rojo: 'bg-red-50 text-[#DC2626]',
+    neutro: 'bg-gray-100 text-gray-400',
   }
+
+  const climaItems: { label: string; icon: any; estado: EstadoSemaforo; valor: string }[] = [
+    {
+      label: 'Caja',
+      icon: Wallet,
+      estado: estadoCaja,
+      valor: ultimaDiferenciaCaja === null ? 'Sin datos' : `Dif. último cierre: ${fmt(ultimaDiferenciaCaja)}`,
+    },
+    {
+      label: 'Stock',
+      icon: Package,
+      estado: estadoStock,
+      valor: stockMinimo.length === 0 ? 'Todo en orden' : `${stockMinimo.length} artículo${stockMinimo.length === 1 ? '' : 's'} bajo mínimo`,
+    },
+    {
+      label: 'Margen',
+      icon: Percent,
+      estado: estadoMargen,
+      valor: fmtPct(resumenMes.margenPct),
+    },
+    {
+      label: 'Ritmo de ventas',
+      icon: Activity,
+      estado: estadoRitmo,
+      valor: ritmoVentas === null ? 'Sin datos' : `${Math.round(ritmoVentas * 100)}% del esperado`,
+    },
+  ]
 
   // ── Gráfico de torta (donut CSS, sin librerías) ───────────────────────
   const totalTurnoMes = ventasPorTurnoMes.manana + ventasPorTurnoMes.tarde
@@ -603,93 +574,44 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Clima del negocio */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Clima del negocio</h2>
-        <div className="grid grid-cols-4 gap-4">
-          <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${colorSemaforo[estadoCaja]}`} />
-            <span className="text-sm text-gray-600">Caja</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${colorSemaforo[estadoStock]}`} />
-            <span className="text-sm text-gray-600">Stock</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${colorSemaforo[estadoMargen]}`} />
-            <span className="text-sm text-gray-600">Margen ({fmtPct(resumenMes.margenPct)})</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${colorSemaforo[estadoRitmo]}`} />
-            <span className="text-sm text-gray-600">Ritmo de ventas</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Ventas del día + Punto de equilibrio */}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            Ventas del día —{' '}
-            {new Date().toLocaleDateString('es-AR', {
-              weekday: 'long', day: 'numeric', month: 'long',
-              timeZone: 'America/Argentina/Buenos_Aires'
-            })}
-          </h2>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-white rounded-lg border border-gray-200 p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Clock className="w-4 h-4 text-gray-400" />
-                <p className="text-xs text-gray-500 font-medium">Mañana</p>
-              </div>
-              <p className="text-lg font-bold text-[#3c3c3b]">{fmt(ventasManana.total)}</p>
-              <p className="text-xs text-gray-400">{ventasManana.cantidad} {ventasManana.cantidad === 1 ? 'venta' : 'ventas'}</p>
-            </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Clock className="w-4 h-4 text-gray-400" />
-                <p className="text-xs text-gray-500 font-medium">Tarde</p>
-              </div>
-              <p className="text-lg font-bold text-[#3c3c3b]">{fmt(ventasTarde.total)}</p>
-              <p className="text-xs text-gray-400">{ventasTarde.cantidad} {ventasTarde.cantidad === 1 ? 'venta' : 'ventas'}</p>
-            </div>
-            <div className="bg-[#3c3c3b] rounded-lg p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <ShoppingCart className="w-4 h-4 text-white/70" />
-                <p className="text-xs text-white/70 font-medium">Total</p>
-              </div>
-              <p className="text-lg font-bold text-white">{fmt(ventasDia.total)}</p>
-              <p className="text-xs text-white/50">{ventasDia.cantidad} {ventasDia.cantidad === 1 ? 'venta' : 'ventas'}</p>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-            <Target className="w-4 h-4 text-gray-400" />
-            Punto de equilibrio del mes
-          </h2>
+      {/* Ventas del día */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+          Ventas del día —{' '}
+          {new Date().toLocaleDateString('es-AR', {
+            weekday: 'long', day: 'numeric', month: 'long',
+            timeZone: 'America/Argentina/Buenos_Aires'
+          })}
+        </h2>
+        <div className="grid grid-cols-3 gap-4">
           <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
-              <div
-                className="h-full bg-[#00a19a] rounded-full transition-all"
-                style={{ width: `${Math.min(100, puntoEquilibrio.objetivo > 0 ? (resumenMes.ventas / puntoEquilibrio.objetivo) * 100 : 0)}%` }}
-              />
+            <div className="flex items-center gap-2 mb-3">
+              <Clock className="w-4 h-4 text-gray-400" />
+              <p className="text-xs text-gray-500 font-medium">Turno Mañana</p>
             </div>
-            <div className="flex justify-between text-xs text-gray-400 mb-3">
-              <span>{fmt(resumenMes.ventas)} vendido</span>
-              <span>Objetivo: {fmt(puntoEquilibrio.objetivo)}</span>
+            <p className="text-2xl font-bold text-[#3c3c3b]">{fmt(ventasManana.total)}</p>
+            <p className="text-xs text-gray-400 mt-1">{ventasManana.cantidad} {ventasManana.cantidad === 1 ? 'venta' : 'ventas'}</p>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Clock className="w-4 h-4 text-gray-400" />
+              <p className="text-xs text-gray-500 font-medium">Turno Tarde</p>
             </div>
-            <p className={`text-lg font-bold ${puntoEquilibrio.diferencia >= 0 ? 'text-[#00a19a]' : 'text-[#D97706]'}`}>
-              {puntoEquilibrio.diferencia >= 0
-                ? `Superado por ${fmt(puntoEquilibrio.diferencia)}`
-                : `Faltan ${fmt(Math.abs(puntoEquilibrio.diferencia))}`}
-            </p>
+            <p className="text-2xl font-bold text-[#3c3c3b]">{fmt(ventasTarde.total)}</p>
+            <p className="text-xs text-gray-400 mt-1">{ventasTarde.cantidad} {ventasTarde.cantidad === 1 ? 'venta' : 'ventas'}</p>
+          </div>
+          <div className="bg-[#3c3c3b] rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <ShoppingCart className="w-4 h-4 text-white/70" />
+              <p className="text-xs text-white/70 font-medium">Total del día</p>
+            </div>
+            <p className="text-2xl font-bold text-white">{fmt(ventasDia.total)}</p>
+            <p className="text-xs text-white/50 mt-1">{ventasDia.cantidad} {ventasDia.cantidad === 1 ? 'venta' : 'ventas'}</p>
           </div>
         </div>
       </div>
 
-      {/* Resumen del mes */}
+      {/* Resumen del mes (incluye torta por turno como 5to elemento) */}
       <div>
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
           {new Date().toLocaleDateString('es-AR', {
@@ -697,7 +619,7 @@ export default function DashboardPage() {
             timeZone: 'America/Argentina/Buenos_Aires'
           }).replace(/^\w/, c => c.toUpperCase())}
         </h2>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-5 gap-4">
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <div className="flex items-center gap-2 mb-3">
               <ShoppingCart className="w-4 h-4 text-gray-400" />
@@ -725,58 +647,111 @@ export default function DashboardPage() {
               <p className="text-xs text-[#00a19a] font-medium">Margen real</p>
             </div>
             <p className="text-xl font-bold text-[#00a19a]">{fmtPct(resumenMes.margenPct)}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{fmt(resumenMes.ventas - resumenMes.costoMercaderia)}</p>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <p className="text-xs text-gray-500 font-medium mb-2">Por turno</p>
+            {totalTurnoMes === 0 ? (
+              <p className="text-xs text-gray-400 mt-4">Sin ventas este mes.</p>
+            ) : (
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-12 h-12 rounded-full shrink-0"
+                  style={{ background: `conic-gradient(#00a19a 0% ${pctManana}%, #0f6b66 ${pctManana}% 100%)` }}
+                >
+                  <div className="w-6 h-6 bg-white rounded-full m-3" />
+                </div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#00a19a]" />
+                    <span className="text-gray-600">M: {fmt(ventasPorTurnoMes.manana)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#0f6b66]" />
+                    <span className="text-gray-600">T: {fmt(ventasPorTurnoMes.tarde)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Torta por turno + Producto destacado */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Ventas del mes por turno</h2>
-          {totalTurnoMes === 0 ? (
-            <p className="text-sm text-gray-400">Sin ventas registradas este mes.</p>
-          ) : (
-            <div className="flex items-center gap-4">
+      {/* Punto de equilibrio */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+          <Target className="w-4 h-4 text-gray-400" />
+          Punto de equilibrio
+        </h2>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <p className="text-xs text-gray-500 font-medium mb-2">Este mes (estimado)</p>
+            <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
               <div
-                className="w-20 h-20 rounded-full shrink-0"
-                style={{ background: `conic-gradient(#00a19a 0% ${pctManana}%, #0f6b66 ${pctManana}% 100%)` }}
-              >
-                <div className="w-11 h-11 bg-white rounded-full m-[18px]" />
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#00a19a]" />
-                  <span className="text-gray-600">Mañana</span>
-                  <span className="font-semibold text-[#3c3c3b]">{fmt(ventasPorTurnoMes.manana)}</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#0f6b66]" />
-                  <span className="text-gray-600">Tarde</span>
-                  <span className="font-semibold text-[#3c3c3b]">{fmt(ventasPorTurnoMes.tarde)}</span>
-                </div>
-              </div>
+                className="h-full bg-[#00a19a] rounded-full transition-all"
+                style={{ width: `${Math.min(100, puntoEquilibrio.objetivoEsteMes > 0 ? (puntoEquilibrio.ventasEsteMes / puntoEquilibrio.objetivoEsteMes) * 100 : 0)}%` }}
+              />
             </div>
-          )}
-        </div>
+            <div className="flex justify-between text-xs text-gray-400 mb-3">
+              <span>{fmt(puntoEquilibrio.ventasEsteMes)} vendido</span>
+              <span>Objetivo: {fmt(puntoEquilibrio.objetivoEsteMes)}</span>
+            </div>
+            <p className={`text-lg font-bold ${puntoEquilibrio.diferenciaEsteMes >= 0 ? 'text-[#00a19a]' : 'text-[#D97706]'}`}>
+              {puntoEquilibrio.diferenciaEsteMes >= 0
+                ? `Superado por ${fmt(puntoEquilibrio.diferenciaEsteMes)}`
+                : `Faltan ${fmt(Math.abs(puntoEquilibrio.diferenciaEsteMes))}`}
+            </p>
+            <p className="text-[11px] text-gray-400 mt-2">
+              Objetivo basado en los costos fijos reales del mes anterior — el mes en curso todavía no tiene todos sus gastos cargados.
+            </p>
+          </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-            <Award className="w-4 h-4 text-gray-400" />
-            Producto destacado — últimos 7 días
-          </h2>
-          {productoDestacado ? (
-            <>
-              <p className="text-lg font-bold text-[#3c3c3b]">{productoDestacado.nombre}</p>
-              <p className="text-sm text-[#00a19a] font-semibold mt-1">{fmt(productoDestacado.total)} vendido</p>
-            </>
-          ) : (
-            <p className="text-sm text-gray-400">Sin ventas registradas en los últimos 7 días.</p>
-          )}
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <p className="text-xs text-gray-500 font-medium mb-2">Mes anterior (cerrado)</p>
+            {!puntoEquilibrio.hayDatosMesAnterior ? (
+              <p className="text-sm text-gray-400 mt-4">Sin datos suficientes del mes anterior todavía.</p>
+            ) : (
+              <>
+                <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
+                  <div
+                    className="h-full bg-gray-400 rounded-full"
+                    style={{ width: `${Math.min(100, puntoEquilibrio.objetivoMesAnterior > 0 ? (puntoEquilibrio.ventasMesAnterior / puntoEquilibrio.objetivoMesAnterior) * 100 : 0)}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs text-gray-400 mb-3">
+                  <span>{fmt(puntoEquilibrio.ventasMesAnterior)} vendido</span>
+                  <span>Objetivo: {fmt(puntoEquilibrio.objetivoMesAnterior)}</span>
+                </div>
+                <p className={`text-lg font-bold ${puntoEquilibrio.diferenciaMesAnterior >= 0 ? 'text-[#00a19a]' : 'text-[#D97706]'}`}>
+                  {puntoEquilibrio.diferenciaMesAnterior >= 0
+                    ? `Superado por ${fmt(puntoEquilibrio.diferenciaMesAnterior)}`
+                    : `No se alcanzó por ${fmt(Math.abs(puntoEquilibrio.diferenciaMesAnterior))}`}
+                </p>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Stock valorizado (colapsado por defecto — evita el cálculo pesado en cada carga) */}
+      {/* Clima del negocio */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Clima del negocio</h2>
+        <div className="grid grid-cols-4 gap-4">
+          {climaItems.map(item => {
+            const Icon = item.icon
+            return (
+              <div key={item.label} className="bg-white rounded-lg border border-gray-200 p-4">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center mb-3 ${estiloEstado[item.estado]}`}>
+                  <Icon className="w-4 h-4" />
+                </div>
+                <p className="text-xs text-gray-500 font-medium">{item.label}</p>
+                <p className="text-sm font-semibold text-[#3c3c3b] mt-0.5">{item.valor}</p>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Stock valorizado (colapsado por defecto) */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <button
           onClick={() => setMostrarStockValorizado(!mostrarStockValorizado)}
