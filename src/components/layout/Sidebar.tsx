@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { Menu, X } from 'lucide-react'
+import { Menu, X, ChevronDown } from 'lucide-react'
 
 const nav = [
   { label: 'Dashboard', href: '/dashboard', icon: '⊞' },
@@ -11,9 +11,17 @@ const nav = [
   { label: 'Ventas', href: '/ventas', icon: '🛒' },
   { label: 'Registro Ventas', href: '/ventas/registro', icon: '🧾' },
   { label: 'Movimientos', href: '/movimientos', icon: '💰' },
-  { label: 'Stock', href: '/stock', icon: '🔄' },
+  {
+    label: 'Artículos',
+    icon: '📦',
+    children: [
+      { label: 'Administrar Artículos', href: '/articulos' },
+      { label: 'Actualizar Precios', href: '/articulos/precios' },
+      { label: 'Historial de Artículos', href: '/articulos/historial' },
+      { label: 'Movimientos de Stock', href: '/stock' },
+    ],
+  },
   { label: 'Compras', href: '/compras', icon: '🚚' },
-  { label: 'Artículos', href: '/articulos', icon: '📦' },
   { label: 'Reportes', href: '/reportes', icon: '📊' },
   { label: 'Configuración', href: '/configuracion', icon: '⚙️' },
 ]
@@ -22,10 +30,28 @@ export default function Sidebar() {
   const pathname = usePathname()
   const [abierto, setAbierto] = useState(false)
 
+  // Grupo "Artículos" arranca abierto si la ruta actual pertenece a él
+  const grupoArticulosActivo = ['/articulos', '/stock'].some(h => pathname.startsWith(h))
+  const [grupoArticulosAbierto, setGrupoArticulosAbierto] = useState(grupoArticulosActivo)
+
   // Cierra el menú mobile automáticamente al navegar a otra pantalla
   useEffect(() => {
     setAbierto(false)
   }, [pathname])
+
+  function esActivo(href: string) {
+    // Prefijo más largo entre todas las rutas del menú que matchea el
+    // pathname actual — evita que, por ej., "/articulos" quede resaltado
+    // al mismo tiempo que "/articulos/precios".
+    const todasLasRutas = nav.flatMap(item => item.children ? item.children.map(c => c.href) : [item.href])
+    let mejor: string | null = null
+    for (const h of todasLasRutas) {
+      if (pathname === h || pathname.startsWith(h + '/')) {
+        if (!mejor || h.length > mejor.length) mejor = h
+      }
+    }
+    return href === mejor
+  }
 
   return (
     <>
@@ -66,13 +92,47 @@ export default function Sidebar() {
         </div>
         <nav className="flex-1 py-4 overflow-y-auto">
           {nav.map(item => {
-            const active = item.href === '/ventas' ? pathname === '/ventas' : pathname.startsWith(item.href)
+            if (item.children) {
+              const activo = grupoArticulosActivo
+              return (
+                <div key={item.label}>
+                  <button
+                    onClick={() => setGrupoArticulosAbierto(prev => !prev)}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                      activo ? 'text-white' : 'text-white/70 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    <span>{item.icon}</span>
+                    <span className="flex-1 text-left">{item.label}</span>
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${grupoArticulosAbierto ? 'rotate-180' : ''}`} />
+                  </button>
+                  {grupoArticulosAbierto && (
+                    <div className="pb-1">
+                      {item.children.map(child => (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          className={`flex items-center gap-3 pl-11 pr-4 py-2 text-sm transition-colors ${
+                            esActivo(child.href)
+                              ? 'bg-[#00a19a] text-white'
+                              : 'text-white/60 hover:text-white hover:bg-white/5'
+                          }`}
+                        >
+                          {child.label}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            }
+
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={`flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-                  active
+                  esActivo(item.href)
                     ? 'bg-[#00a19a] text-white'
                     : 'text-white/70 hover:text-white hover:bg-white/5'
                 }`}
