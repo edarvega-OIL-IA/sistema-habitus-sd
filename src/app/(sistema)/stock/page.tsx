@@ -48,8 +48,9 @@ export default function StockPage() {
     setCargando(false)
   }
 
-  async function eliminar(id: number, origenTipo: string | null) {
+  async function eliminar(id: number, origenTipo: string | null, subtipoNombre: string | undefined) {
     if (origenTipo) return // traba defensiva: nunca debería llegar acá un movimiento automático
+    if (subtipoNombre === 'Saldo inicial') return // se insertó con el trigger desactivado; borrarlo descuadraría el stock real
     if (!confirm('¿Eliminar este movimiento? El stock de todos los artículos será revertido.')) return
     setEliminando(id)
     const supabase = createClient()
@@ -71,7 +72,8 @@ export default function StockPage() {
   }
 
   const movimientosFiltrados = movimientos.filter(m => {
-    const matchOrigen = !excluirAutomaticos || !m.origen_tipo
+    const esSaldoInicial = m.subtipo_movimiento_stock?.nombre === 'Saldo inicial'
+    const matchOrigen = !excluirAutomaticos || (!m.origen_tipo && !esSaldoInicial)
     const matchTipo = !filtroTipo || m.tipo_movimiento_stock?.nombre === filtroTipo
     const matchTexto = !filtroTexto ||
       m.movimiento_stock_items?.some(i => i.articulo?.nombre.toLowerCase().includes(filtroTexto.toLowerCase())) ||
@@ -157,7 +159,7 @@ export default function StockPage() {
                 const resumen = items.length === 1
                   ? `${items[0].articulo?.nombre} (${items[0].cantidad})`
                   : `${items.length} artículos`
-                const esManual = !m.origen_tipo
+                const esManual = !m.origen_tipo && m.subtipo_movimiento_stock?.nombre !== 'Saldo inicial'
 
                 return (
                   <React.Fragment key={m.id}>
@@ -191,7 +193,7 @@ export default function StockPage() {
                             className="text-xs text-[#00a19a] hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed">
                             Editar
                           </button>
-                          <button onClick={() => eliminar(m.id, m.origen_tipo)}
+                          <button onClick={() => eliminar(m.id, m.origen_tipo, m.subtipo_movimiento_stock?.nombre)}
                             disabled={!esManual || eliminando === m.id}
                             className="text-xs text-red-500 hover:underline disabled:opacity-50 disabled:cursor-not-allowed">
                             {eliminando === m.id ? '...' : 'Eliminar'}
