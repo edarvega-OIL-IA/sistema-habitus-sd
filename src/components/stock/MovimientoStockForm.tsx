@@ -201,7 +201,7 @@ export default function MovimientoStockForm() {
             tipo_movimiento_stock_id: tipoId,
             subtipo_movimiento_stock_id: subtipoSeleccionado || null,
             deportista_id: esSponsoreо ? deportistaSeleccionado : null,
-            origen_tipo: 'manual',
+            origen_tipo: null,
             observaciones: observaciones || null,
           })
           .select('id')
