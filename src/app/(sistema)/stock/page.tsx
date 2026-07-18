@@ -21,6 +21,7 @@ export default function StockPage() {
   const [cargando, setCargando] = useState(true)
   const [filtroTipo, setFiltroTipo] = useState('')
   const [filtroTexto, setFiltroTexto] = useState('')
+  const [excluirAutomaticos, setExcluirAutomaticos] = useState(true)
   const [eliminando, setEliminando] = useState<number | null>(null)
   const [expandidos, setExpandidos] = useState<Set<number>>(new Set())
 
@@ -37,13 +38,11 @@ export default function StockPage() {
         deportista:deportistas(nombre, apellido),
         movimiento_stock_items(cantidad, articulo:articulos(nombre))
       `)
-      // Esta pantalla es solo para movimientos manuales (Consumo interno,
-      // Merma, Sponsoreo). Ventas y Compras generan sus propios movimientos
-      // de stock automáticamente (con origen_tipo='venta'/'compra') y tienen
-      // sus propias pantallas — no deben listarse ni editarse acá.
-      .is('origen_tipo', null)
+      // Trae TODOS los movimientos (manuales + venta + compra) para permitir
+      // seguimiento por artículo. El filtro de "solo manuales" ahora se
+      // aplica en cliente vía el checkbox "Excluir venta/compra".
       .order('fecha_utc', { ascending: false })
-      .limit(100)
+      .limit(300)
 
     setMovimientos((data as any) || [])
     setCargando(false)
@@ -72,12 +71,13 @@ export default function StockPage() {
   }
 
   const movimientosFiltrados = movimientos.filter(m => {
+    const matchOrigen = !excluirAutomaticos || !m.origen_tipo
     const matchTipo = !filtroTipo || m.tipo_movimiento_stock?.nombre === filtroTipo
     const matchTexto = !filtroTexto ||
       m.movimiento_stock_items?.some(i => i.articulo?.nombre.toLowerCase().includes(filtroTexto.toLowerCase())) ||
       m.deportista?.apellido.toLowerCase().includes(filtroTexto.toLowerCase()) ||
       m.subtipo_movimiento_stock?.nombre.toLowerCase().includes(filtroTexto.toLowerCase())
-    return matchTipo && matchTexto
+    return matchOrigen && matchTipo && matchTexto
   })
 
   // fecha_utc es tipo DATE (sin hora) — nunca usar new Date() sobre este
@@ -120,6 +120,12 @@ export default function StockPage() {
             placeholder="Nombre del artículo o deportista..."
             className="w-full h-8 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-[#00a19a]" />
         </div>
+        <label className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap pb-1.5">
+          <input type="checkbox" checked={excluirAutomaticos}
+            onChange={e => setExcluirAutomaticos(e.target.checked)}
+            className="w-4 h-4 accent-[#00a19a]" />
+          Excluir venta/compra
+        </label>
         <button onClick={() => { setFiltroTipo(''); setFiltroTexto('') }}
           className="h-8 px-3 border border-gray-300 rounded text-sm text-gray-500 hover:bg-gray-50">
           Limpiar
@@ -161,7 +167,8 @@ export default function StockPage() {
                         {m.tipo_movimiento_stock?.nombre}
                       </td>
                       <td className="px-4 py-3 text-center text-gray-500">
-                        {m.subtipo_movimiento_stock?.nombre ?? '—'}
+                        {m.subtipo_movimiento_stock?.nombre
+                          ?? (m.origen_tipo ? m.origen_tipo.charAt(0).toUpperCase() + m.origen_tipo.slice(1) : '—')}
                       </td>
                       <td className="px-4 py-3 text-[#3c3c3b]">
                         <button onClick={() => items.length > 1 && toggleExpandir(m.id)}
