@@ -97,6 +97,23 @@ export default function HistorialArticulosPage() {
   const subtipoPorId = useMemo(() => new Map(subtipos.map(s => [s.id, s.nombre])), [subtipos])
   const movimientoPorId = useMemo(() => new Map(movimientos.map(m => [m.id, m])), [movimientos])
 
+  // Marca depende del Rubro elegido: solo lista marcas con al menos un
+  // artículo en ese rubro (mismo patrón ya usado en Artículos).
+  const marcasDisponibles = useMemo(() => {
+    if (!filtroRubro) return marcas
+    const idsMarcaEnRubro = new Set(
+      articulos.filter(a => a.rubro_id === Number(filtroRubro) && a.marca_id).map(a => a.marca_id)
+    )
+    return marcas.filter(m => idsMarcaEnRubro.has(m.id))
+  }, [filtroRubro, marcas, articulos])
+
+  // Si la marca elegida deja de tener sentido al cambiar de rubro, se resetea
+  useEffect(() => {
+    if (filtroMarca && !marcasDisponibles.some(m => m.id === Number(filtroMarca))) {
+      setFiltroMarca('')
+    }
+  }, [marcasDisponibles, filtroMarca])
+
   // Mismo signo que el trigger fn_aplicar_item_stock: Egreso resta, todo lo demás suma
   function signo(tipoMovimientoId: number) {
     return tipoMovimientoId === 2 ? -1 : 1
@@ -221,7 +238,7 @@ export default function HistorialArticulosPage() {
           <select value={filtroMarca} onChange={e => setFiltroMarca(e.target.value)}
             className="w-full h-8 px-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-[#00a19a]">
             <option value="">Todas</option>
-            {marcas.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+            {marcasDisponibles.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
           </select>
         </div>
         <div className="md:col-span-2">
