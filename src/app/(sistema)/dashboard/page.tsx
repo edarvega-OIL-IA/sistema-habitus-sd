@@ -620,7 +620,7 @@ export default function DashboardPage() {
             timeZone: 'America/Argentina/Buenos_Aires'
           }).replace(/^\w/, c => c.toUpperCase())}
         </h2>
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <div className="flex items-center gap-2 mb-3">
               <ShoppingCart className="w-4 h-4 text-gray-400" />
@@ -680,8 +680,8 @@ export default function DashboardPage() {
       </div>
 
       {/* Punto de equilibrio + Clima del negocio, misma fila */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-2">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
             <Target className="w-4 h-4 text-gray-400" />
             Punto de equilibrio
