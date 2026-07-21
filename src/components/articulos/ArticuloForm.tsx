@@ -196,8 +196,8 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
         if (origen) {
           setNombreOrigenDuplicado(origen.nombre)
           reset({
-            nombre: '',
-            nombre_base: origen.nombre_base ?? null,
+            nombre: origen.nombre ?? '',
+            nombre_base: null,
             rubro_id: origen.rubro_id ? Number(origen.rubro_id) : 0,
             marca_id: origen.marca_id ? Number(origen.marca_id) : 0,
             codigo_interno: null,
@@ -213,10 +213,10 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
             disponible_local: origen.disponible_local ?? true,
             disponible_web: origen.disponible_web ?? false,
             visible_en_tienda: origen.visible_en_tienda ?? false,
-            atributo_nombre: origen.atributo_nombre ?? null,
-            atributo_valor: origen.atributo_valor ?? null,
-            peso_kg: origen.peso_kg ? Number(origen.peso_kg) : null,
-            descripcion: origen.descripcion ?? null,
+            atributo_nombre: null,
+            atributo_valor: null,
+            peso_kg: null,
+            descripcion: null,
           })
         }
       }
@@ -337,6 +337,10 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   }
 
   async function onSubmit(data: ArticuloFormData) {
+    if (nombreOrigenDuplicado && data.nombre.trim().toLowerCase() === nombreOrigenDuplicado.trim().toLowerCase()) {
+      alert('Este artículo se duplicó desde "' + nombreOrigenDuplicado + '". Cambiá el nombre antes de guardar (por ejemplo, el sabor) para no crear un duplicado exacto.')
+      return
+    }
     setLoading(true)
     const supabase = createClient()
     try {
@@ -419,7 +423,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
           </h1>
           {nombreOrigenDuplicado && (
             <p className="text-xs text-[#00a19a] mt-1">
-              Duplicando desde: <span className="font-medium">{nombreOrigenDuplicado}</span> — completá el nombre y los códigos
+              Duplicando desde: <span className="font-medium">{nombreOrigenDuplicado}</span> — cambiá el nombre (ej. el sabor) y completá los códigos
             </p>
           )}
         </div>
