@@ -253,6 +253,21 @@ export default function ComprasEditarPage() {
   const subtotalArticulos = items.reduce((s, i) => s + i.subtotal, 0)
   const totalGeneral = subtotalArticulos + fleteMonto
 
+  // Los dos avisos de diferencia contra el comprobante (rojo bloqueante y
+  // amarillo de redondeo) se calculan una sola vez, al tocar Guardar/
+  // Confirmar — si después el usuario corrige un artículo, cambia una
+  // cantidad, agrega/elimina un ítem, o edita el monto del comprobante o el
+  // flete, el aviso viejo queda desactualizado y hay que sacarlo de encima.
+  // Vuelve a aparecer recién si, al reintentar guardar, la diferencia sigue
+  // existiendo de verdad.
+  useEffect(() => {
+    if (diferenciaPendiente) setDiferenciaPendiente(null)
+    if (notif?.tipo === 'error' && notif.msg.includes('difiere del monto del comprobante')) {
+      setNotif(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, montoComprobante, fleteMonto])
+
   const UMBRAL_BLOQUEO = 500 // diferencia >= $500 -> bloquea, probablemente falta un artículo
 
   function calcularDiferenciaComprobante(): number | null {
