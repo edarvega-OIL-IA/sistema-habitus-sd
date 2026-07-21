@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Save, X } from 'lucide-react'
 
 const articuloSchema = z.object({
@@ -40,6 +40,10 @@ interface ArticuloFormProps {
 
 export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // Solo tiene sentido en el alta (no editando uno existente): ?duplicar=<id>
+  const duplicarDeId = !articuloId ? searchParams.get('duplicar') : null
+  const [nombreOrigenDuplicado, setNombreOrigenDuplicado] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [solapaActiva, setSolapaActiva] = useState(0)
   const [rolUsuario, setRolUsuario] = useState<number | null>(null)
@@ -179,7 +183,38 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
           })
           setPrecioLocalOriginal(articulo.precio_local ? Number(articulo.precio_local) : null)
         }
-      }
+      } else if (duplicarDeId) {
+        // Alta nueva a partir de un artículo existente: copia todo excepto
+        // nombre, código interno y código de barras (deben ser únicos).
+        const { data: origen, error } = await supabase
+          .from('articulos').select('*').eq('id', duplicarDeId).single()
+        if (error) throw error
+        if (origen) {
+          setNombreOrigenDuplicado(origen.nombre)
+          reset({
+            nombre: '',
+            nombre_base: origen.nombre_base ?? null,
+            rubro_id: origen.rubro_id ? Number(origen.rubro_id) : 0,
+            marca_id: origen.marca_id ? Number(origen.marca_id) : 0,
+            codigo_interno: null,
+            codigo_barra: null,
+            sku: null,
+            unidad_medida_id: origen.unidad_medida_id ? Number(origen.unidad_medida_id) : null,
+            costo_sin_iva: origen.costo_sin_iva ? Number(origen.costo_sin_iva) : null,
+            tasa_iva_id: origen.tasa_iva_id ? Number(origen.tasa_iva_id) : null,
+            precio_local: origen.precio_local ? Number(origen.precio_local) : null,
+            precio_web: origen.precio_web ? Number(origen.precio_web) : null,
+            precio_mayorista: origen.precio_mayorista ? Number(origen.precio_mayorista) : null,
+            precio_oferta_web: origen.precio_oferta_web ? Number(origen.precio_oferta_web) : null,
+            disponible_local: origen.disponible_local ?? true,
+            disponible_web: origen.disponible_web ?? false,
+            visible_en_tienda: origen.visible_en_tienda ?? false,
+            atributo_nombre: origen.atributo_nombre ?? null,
+            atributo_valor: origen.atributo_valor ?? null,
+            peso_kg: origen.peso_kg ? Number(origen.peso_kg) : null,
+            descripcion: origen.descripcion ?? null,
+          })
+        }
     } catch (error) {}
   }
 
@@ -373,9 +408,16 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   return (
     <form onSubmit={handleSubmit(onSubmit)} onKeyDown={handleFormKeyDown} className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-[#3c3c3b]">
-          {articuloId ? 'Editar artículo' : 'Nuevo artículo'}
-        </h1>
+        <div>
+          <h1 className="text-xl font-semibold text-[#3c3c3b]">
+            {articuloId ? 'Editar artículo' : 'Nuevo artículo'}
+          </h1>
+          {nombreOrigenDuplicado && (
+            <p className="text-xs text-[#00a19a] mt-1">
+              Duplicando desde: <span className="font-medium">{nombreOrigenDuplicado}</span> — completá el nombre y los códigos
+            </p>
+          )}
+        </div>
         <div className="flex gap-2">
           <button type="button" onClick={() => router.push('/articulos')}
             className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { Search, Edit } from 'lucide-react'
+import { Search, Edit, Copy } from 'lucide-react'
 
 interface Articulo {
   id: number
@@ -310,11 +310,18 @@ export default function ArticulosPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <Link href={`/articulos/${a.id}`}
-                          className="inline-flex items-center justify-center w-8 h-8 rounded hover:bg-[#00a19a] hover:text-white text-gray-600 transition-colors"
-                          title="Editar artículo">
-                          <Edit className="w-4 h-4" />
-                        </Link>
+                        <div className="flex items-center justify-center gap-1">
+                          <Link href={`/articulos/${a.id}`}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded hover:bg-[#00a19a] hover:text-white text-gray-600 transition-colors"
+                            title="Editar artículo">
+                            <Edit className="w-4 h-4" />
+                          </Link>
+                          <Link href={`/articulos/nuevo?duplicar=${a.id}`}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded hover:bg-indigo-600 hover:text-white text-gray-600 transition-colors"
+                            title="Duplicar artículo">
+                            <Copy className="w-4 h-4" />
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   )
