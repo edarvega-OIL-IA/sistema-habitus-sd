@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { Save, X } from 'lucide-react'
 
 const articuloSchema = z.object({
@@ -40,9 +40,6 @@ interface ArticuloFormProps {
 
 export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   const router = useRouter()
-  const searchParams = useSearchParams()
-  // Solo tiene sentido en el alta (no editando uno existente): ?duplicar=<id>
-  const duplicarDeId = !articuloId ? searchParams.get('duplicar') : null
   const [nombreOrigenDuplicado, setNombreOrigenDuplicado] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [solapaActiva, setSolapaActiva] = useState(0)
@@ -115,6 +112,13 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
 
   async function cargarDatosIniciales() {
     const supabase = createClient()
+    // Solo tiene sentido en el alta (no editando uno existente): ?duplicar=<id>
+    // Se lee acá directo (no con useSearchParams) para no forzar un Suspense
+    // boundary en la página que usa este formulario, y para evitar que quede
+    // desactualizado por la carrera entre efectos que corren en el montaje.
+    const duplicarDeId = !articuloId && typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('duplicar')
+      : null
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
