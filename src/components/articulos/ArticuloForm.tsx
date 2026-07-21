@@ -215,6 +215,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
             descripcion: origen.descripcion ?? null,
           })
         }
+      }
     } catch (error) {}
   }
 
