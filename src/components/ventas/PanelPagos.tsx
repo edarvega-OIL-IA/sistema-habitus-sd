@@ -325,10 +325,15 @@ export default function PanelPagos({
         {pagos.map((pago, i) => (
           <div
             key={i}
-            className={`bg-white border rounded-lg p-2 mb-2 ${editandoIndex === i ? 'border-[#00a19a] ring-1 ring-[#00a19a]' : 'border-gray-200'}`}
+            className={`border rounded-lg p-3 mb-2 ${
+              editandoIndex === i
+                ? 'bg-white border-[#00a19a] ring-1 ring-[#00a19a]'
+                : 'bg-[#f0faf9] border-[#00a19a]/30'
+            }`}
           >
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-[#3c3c3b] flex items-center gap-1.5">
+                <span className="text-[#00a19a]">✓</span>
                 {pago.nombre_medio}
                 {pago.nombre_emisor && <span className="text-gray-400"> · {pago.nombre_emisor}</span>}
               </span>
@@ -347,7 +352,10 @@ export default function PanelPagos({
         ))}
 
         {/* Agregar / editar pago */}
-        <div className={`bg-white border rounded-lg p-3 mt-2 ${editandoIndex !== null ? 'border-[#00a19a]' : 'border-gray-200'}`}>
+        {pagos.length > 0 && editandoIndex === null && (
+          <div className="text-xs text-gray-400 font-medium mt-4 mb-1.5 tracking-wide">AGREGAR OTRO PAGO</div>
+        )}
+        <div className={`bg-gray-100 border rounded-lg p-3 ${pagos.length > 0 ? 'mt-1' : 'mt-2'} ${editandoIndex !== null ? 'border-[#00a19a] bg-white ring-1 ring-[#00a19a]' : 'border-gray-200'}`}>
           {editandoIndex !== null && (
             <div className="text-xs text-[#00a19a] font-medium mb-2">Editando pago #{editandoIndex + 1}</div>
           )}
