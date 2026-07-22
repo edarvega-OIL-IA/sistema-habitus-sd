@@ -394,7 +394,9 @@ export default function ComprasEditarPage() {
         .single()
       const eraConfirmada = ordenActual?.estado_orden_compra_id === 2
 
-      // Si era confirmada y se está re-editando: revertir stock ANTES de reaplicar
+      // Si era confirmada y se está re-editando: revertir stock ANTES de reaplicar,
+      // vía un movimiento de stock real (no un UPDATE directo) para que quede
+      // trazable en el historial y el trigger fn_aplicar_item_stock haga la cuenta.
       // (el movimiento de mercadería/flete YA NO se anula acá — eso lo maneja sincronizarMovimiento)
       if (eraConfirmada) {
         const { data: itemsAnteriores } = await supabase
@@ -402,15 +404,30 @@ export default function ComprasEditarPage() {
           .select('articulo_id, cantidad_recibida')
           .eq('orden_compra_id', ordenId)
 
-        for (const it of itemsAnteriores || []) {
-          const { data: stockEx } = await supabase
-            .from('articulo_stock').select('id, stock_actual')
-            .eq('articulo_id', it.articulo_id).eq('sucursal_id', sucursalId).maybeSingle()
-          if (stockEx) {
-            await supabase.from('articulo_stock')
-              .update({ stock_actual: Math.max(0, stockEx.stock_actual - it.cantidad_recibida) })
-              .eq('id', stockEx.id)
-          }
+        const itemsAReverti = (itemsAnteriores || []).filter(
+          (it: any) => it.articulo_id !== null && it.cantidad_recibida > 0
+        )
+
+        if (itemsAReverti.length > 0) {
+          const { data: movReversion, error: errMovReversion } = await supabase
+            .from('movimientos_stock')
+            .insert({
+              sucursal_id: sucursalId, tipo_movimiento_stock_id: 2, subtipo_movimiento_stock_id: null,
+              origen_tipo: 'compra', origen_id: ordenId,
+              observaciones: `Reversión por edición de Orden #${ordenId} ya confirmada`,
+              fecha_utc: fechaOrden, creado_en: new Date().toISOString(),
+            })
+            .select('id').single()
+          if (errMovReversion) throw new Error('Error al revertir stock: ' + errMovReversion.message)
+
+          const { error: errItemsReversion } = await supabase.from('movimiento_stock_items').insert(
+            itemsAReverti.map((it: any) => ({
+              movimiento_stock_id: movReversion.id,
+              articulo_id: it.articulo_id,
+              cantidad: it.cantidad_recibida,
+            }))
+          )
+          if (errItemsReversion) throw new Error('Error al revertir stock: ' + errItemsReversion.message)
         }
       }
 
@@ -544,20 +561,53 @@ export default function ComprasEditarPage() {
 
       // Stock + costo + histórico — SOLO si la orden queda Confirmada
       if (confirmar) {
-        for (const it of itemsConFlete) {
-          const { data: stockEx } = await supabase
-            .from('articulo_stock').select('id, stock_actual')
-            .eq('articulo_id', it.articulo_id).eq('sucursal_id', sucursalId).maybeSingle()
-          if (stockEx) {
-            await supabase.from('articulo_stock')
-              .update({ stock_actual: stockEx.stock_actual + it.cant_recibida }).eq('id', stockEx.id)
-          } else {
-            await supabase.from('articulo_stock').insert({
-              articulo_id: it.articulo_id, sucursal_id: sucursalId,
-              stock_actual: it.cant_recibida, stock_min: 0, stock_max: null,
-            })
+        // Stock: un solo movimiento de Ingreso con origen en esta orden, para
+        // que quede trazable en el historial y el trigger fn_aplicar_item_stock
+        // haga la suma (antes se pisaba articulo_stock con un UPDATE directo,
+        // sin dejar ningún rastro — bug encontrado el 22/07).
+        const itemsConStock = itemsConFlete.filter(it => it.articulo_id !== null && it.cant_recibida > 0)
+
+        if (itemsConStock.length > 0) {
+          // El trigger solo hace UPDATE (no INSERT) sobre articulo_stock, así
+          // que un artículo comprado por primera vez necesita la fila creada
+          // de antemano con stock_actual=0 para que el trigger tenga qué sumar.
+          const { data: stockExistente } = await supabase
+            .from('articulo_stock').select('articulo_id')
+            .eq('sucursal_id', sucursalId)
+            .in('articulo_id', itemsConStock.map(it => it.articulo_id))
+          const idsConFila = new Set((stockExistente || []).map((s: any) => s.articulo_id))
+          const faltantes = itemsConStock.filter(it => !idsConFila.has(it.articulo_id))
+          if (faltantes.length > 0) {
+            await supabase.from('articulo_stock').insert(
+              faltantes.map(it => ({
+                articulo_id: it.articulo_id, sucursal_id: sucursalId,
+                stock_actual: 0, stock_min: 0, stock_max: null,
+              }))
+            )
           }
 
+          const { data: movIngreso, error: errMovIngreso } = await supabase
+            .from('movimientos_stock')
+            .insert({
+              sucursal_id: sucursalId, tipo_movimiento_stock_id: 1, subtipo_movimiento_stock_id: null,
+              origen_tipo: 'compra', origen_id: ordenId,
+              observaciones: `Compra Orden #${ordenId}`,
+              fecha_utc: fechaOrden, creado_en: new Date().toISOString(),
+            })
+            .select('id').single()
+          if (errMovIngreso) throw new Error('Error al aplicar stock: ' + errMovIngreso.message)
+
+          const { error: errItemsIngreso } = await supabase.from('movimiento_stock_items').insert(
+            itemsConStock.map(it => ({
+              movimiento_stock_id: movIngreso.id,
+              articulo_id: it.articulo_id,
+              cantidad: it.cant_recibida,
+            }))
+          )
+          if (errItemsIngreso) throw new Error('Error al aplicar stock: ' + errItemsIngreso.message)
+        }
+
+        for (const it of itemsConFlete) {
           const costoSinIva = it.costo_final_unitario
           const artPrevio = articulos.find(a => a.id === it.articulo_id)
 
