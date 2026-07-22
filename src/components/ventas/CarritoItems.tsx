@@ -59,6 +59,7 @@ export default function CarritoItems({ items, onActualizar, onEliminar }: Carrit
             <tr>
               <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">Producto</th>
               <th className="text-center px-3 py-2 text-xs text-gray-500 font-medium">Cant.</th>
+              <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Precio Unit.</th>
               <th className="text-right px-3 py-2 text-xs text-gray-500 font-medium">Subtotal</th>
               <th className="w-8"></th>
             </tr>
@@ -72,15 +73,15 @@ export default function CarritoItems({ items, onActualizar, onEliminar }: Carrit
               >
                 <td className="px-3 py-2">
                   <div className="font-medium text-[#3c3c3b] text-sm leading-tight">{item.nombre}</div>
-                  <div className="text-xs text-gray-500">
-                    ${item.precio_unitario.toLocaleString('es-AR')} c/u
-                    {item.descuento_pct > 0 && (
-                      <span className="ml-2 text-orange-500">−{item.descuento_pct}%</span>
-                    )}
-                  </div>
+                  {item.descuento_pct > 0 && (
+                    <div className="text-xs text-orange-500">−{item.descuento_pct}%</div>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-center font-semibold text-[#3c3c3b]">
                   {item.cantidad}
+                </td>
+                <td className="px-3 py-2 text-right text-gray-500">
+                  ${item.precio_unitario.toLocaleString('es-AR')}
                 </td>
                 <td className="px-3 py-2 text-right font-semibold text-[#3c3c3b]">
                   ${subtotalItem(item).toLocaleString('es-AR', { minimumFractionDigits: 0 })}
