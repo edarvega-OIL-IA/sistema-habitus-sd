@@ -584,29 +584,29 @@ export default function DashboardPage() {
             timeZone: 'America/Argentina/Buenos_Aires'
           })}
         </h2>
-        <div className="grid grid-cols-3 gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+          <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 min-w-0">
             <div className="flex items-center gap-2 mb-3">
               <Clock className="w-4 h-4 text-gray-400" />
               <p className="text-xs text-gray-500 font-medium">Turno Mañana</p>
             </div>
-            <p className="text-2xl font-bold text-[#3c3c3b]">{fmt(ventasManana.total)}</p>
+            <p className="text-base sm:text-xl md:text-2xl font-bold text-[#3c3c3b] truncate">{fmt(ventasManana.total)}</p>
             <p className="text-xs text-gray-400 mt-1">{ventasManana.cantidad} {ventasManana.cantidad === 1 ? 'venta' : 'ventas'}</p>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 min-w-0">
             <div className="flex items-center gap-2 mb-3">
               <Clock className="w-4 h-4 text-gray-400" />
               <p className="text-xs text-gray-500 font-medium">Turno Tarde</p>
             </div>
-            <p className="text-2xl font-bold text-[#3c3c3b]">{fmt(ventasTarde.total)}</p>
+            <p className="text-base sm:text-xl md:text-2xl font-bold text-[#3c3c3b] truncate">{fmt(ventasTarde.total)}</p>
             <p className="text-xs text-gray-400 mt-1">{ventasTarde.cantidad} {ventasTarde.cantidad === 1 ? 'venta' : 'ventas'}</p>
           </div>
-          <div className="bg-[#3c3c3b] rounded-lg p-4">
+          <div className="bg-[#3c3c3b] rounded-lg p-3 sm:p-4 min-w-0">
             <div className="flex items-center gap-2 mb-3">
               <ShoppingCart className="w-4 h-4 text-white/70" />
               <p className="text-xs text-white/70 font-medium">Total del día</p>
             </div>
-            <p className="text-2xl font-bold text-white">{fmt(ventasDia.total)}</p>
+            <p className="text-base sm:text-xl md:text-2xl font-bold text-white truncate">{fmt(ventasDia.total)}</p>
             <p className="text-xs text-white/50 mt-1">{ventasDia.cantidad} {ventasDia.cantidad === 1 ? 'venta' : 'ventas'}</p>
           </div>
         </div>
@@ -620,15 +620,15 @@ export default function DashboardPage() {
             timeZone: 'America/Argentina/Buenos_Aires'
           }).replace(/^\w/, c => c.toUpperCase())}
         </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="bg-white rounded-lg border border-gray-200 p-4 min-w-0">
             <div className="flex items-center gap-2 mb-3">
               <ShoppingCart className="w-4 h-4 text-gray-400" />
               <p className="text-xs text-gray-500 font-medium">Ventas del mes</p>
             </div>
-            <p className="text-xl font-bold text-[#3c3c3b]">{fmt(resumenMes.ventas)}</p>
+            <p className="text-lg sm:text-xl font-bold text-[#3c3c3b] truncate">{fmt(resumenMes.ventas)}</p>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white rounded-lg border border-gray-200 p-4 min-w-0">
             <p className="text-xs text-gray-500 font-medium mb-2">Por turno</p>
             {totalTurnoMes === 0 ? (
               <p className="text-xs text-gray-400 mt-4">Sin ventas este mes.</p>
@@ -640,39 +640,39 @@ export default function DashboardPage() {
                 >
                   <div className="w-6 h-6 bg-white rounded-full m-3" />
                 </div>
-                <div className="space-y-1 text-xs">
+                <div className="space-y-1 text-xs min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#00a19a]" />
-                    <span className="text-gray-600">M: {fmt(ventasPorTurnoMes.manana)}</span>
+                    <span className="w-2 h-2 rounded-full bg-[#00a19a] shrink-0" />
+                    <span className="text-gray-600 truncate">M: {fmt(ventasPorTurnoMes.manana)}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#0f6b66]" />
-                    <span className="text-gray-600">T: {fmt(ventasPorTurnoMes.tarde)}</span>
+                    <span className="w-2 h-2 rounded-full bg-[#0f6b66] shrink-0" />
+                    <span className="text-gray-600 truncate">T: {fmt(ventasPorTurnoMes.tarde)}</span>
                   </div>
                 </div>
               </div>
             )}
           </div>
-          <div className="bg-green-50 rounded-lg border border-green-200 p-4">
+          <div className="bg-green-50 rounded-lg border border-green-200 p-4 min-w-0">
             <div className="flex items-center gap-2 mb-3">
               <TrendingUp className="w-4 h-4 text-green-500" />
               <p className="text-xs text-green-600 font-medium">Ingresos</p>
             </div>
-            <p className="text-xl font-bold text-green-700">{fmt(resumenMes.ingresos)}</p>
+            <p className="text-lg sm:text-xl font-bold text-green-700 truncate">{fmt(resumenMes.ingresos)}</p>
           </div>
-          <div className="bg-red-50 rounded-lg border border-red-200 p-4">
+          <div className="bg-red-50 rounded-lg border border-red-200 p-4 min-w-0">
             <div className="flex items-center gap-2 mb-3">
               <TrendingDown className="w-4 h-4 text-red-500" />
               <p className="text-xs text-red-600 font-medium">Egresos</p>
             </div>
-            <p className="text-xl font-bold text-red-700">{fmt(resumenMes.egresos)}</p>
+            <p className="text-lg sm:text-xl font-bold text-red-700 truncate">{fmt(resumenMes.egresos)}</p>
           </div>
-          <div className={`rounded-lg border p-4 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
+          <div className={`rounded-lg border p-4 min-w-0 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
             <div className="flex items-center gap-2 mb-3">
               <TrendingUp className={`w-4 h-4 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-500' : 'text-orange-500'}`} />
               <p className={`text-xs font-medium ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>Diferencia</p>
             </div>
-            <p className={`text-xl font-bold ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
+            <p className={`text-lg sm:text-xl font-bold truncate ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
               {(resumenMes.ingresos - resumenMes.egresos) >= 0 ? '+' : ''}{fmt(resumenMes.ingresos - resumenMes.egresos)}
             </p>
           </div>
