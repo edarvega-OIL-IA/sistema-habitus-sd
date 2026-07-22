@@ -244,7 +244,7 @@ export default function PanelPagos({
   const btnDis = btnBase + " bg-white border border-gray-300 text-gray-300 opacity-50 cursor-not-allowed"
 
   return (
-    <div className="w-96 flex flex-col bg-gray-50 border-l border-gray-200">
+    <div className="w-[440px] flex flex-col bg-gray-50 border-l border-gray-200">
 
       {/* Resumen */}
       <div className="p-4 border-b border-gray-200 bg-white space-y-1">
@@ -289,18 +289,23 @@ export default function PanelPagos({
           </div>
           {pagos.length > 0 && (
             vuelto > 0 ? (
-              <div className="flex justify-between items-baseline">
-                <span className="text-sm text-green-600">Vuelto</span>
-                <span className="text-base font-semibold text-green-600">
+              <div className="flex justify-between items-baseline pt-1">
+                <span className="text-sm font-medium text-green-600">Vuelto</span>
+                <span className="text-2xl font-bold text-green-600">
                   ${vuelto.toLocaleString('es-AR', { minimumFractionDigits: 0 })}
                 </span>
               </div>
-            ) : (
-              <div className="flex justify-between items-baseline">
-                <span className="text-sm text-gray-500">Pendiente</span>
-                <span className={`text-base font-semibold ${pendiente <= 0 ? 'text-[#00a19a]' : 'text-red-500'}`}>
+            ) : pendiente > 1 ? (
+              <div className="flex justify-between items-baseline pt-1">
+                <span className="text-sm font-medium text-red-600">Restan pagar</span>
+                <span className="text-2xl font-bold text-red-600">
                   ${pendiente.toLocaleString('es-AR', { minimumFractionDigits: 0 })}
                 </span>
+              </div>
+            ) : (
+              <div className="flex justify-between items-baseline pt-1">
+                <span className="text-sm text-gray-500">Pendiente</span>
+                <span className="text-base font-semibold text-[#00a19a]">$0</span>
               </div>
             )
           )}
