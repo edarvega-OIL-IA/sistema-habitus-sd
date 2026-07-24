@@ -51,6 +51,12 @@ export default function ComprasNuevaPage() {
   const [fechaOrden, setFechaOrden] = useState(
     new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
   )
+  // Fecha en que la mercadería llega realmente al local — separada de
+  // "fechaOrden" (pedido/pago), para poder medir el tiempo real entre pedir
+  // y recibir. Solo se usa para el movimiento de stock, no para el financiero.
+  const [fechaRecepcion, setFechaRecepcion] = useState(
+    new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+  )
   const [nroPedidoExterno, setNroPedidoExterno] = useState('')
   const [medioPagoId, setMedioPagoId] = useState<number>(1)
   const [fleteMonto, setFleteMonto] = useState<number>(0)
@@ -260,6 +266,7 @@ export default function ComprasNuevaPage() {
         .insert({
           proveedor_id: proveedorId,
           fecha_orden: fechaOrden,
+          fecha_recepcion: confirmar ? (fechaRecepcion || fechaOrden) : (fechaRecepcion || null),
           tipo_orden_compra_id: tieneComprobante ? 2 : 1,
           estado_orden_compra_id: confirmar ? 2 : 1,
           tiene_comprobante: tieneComprobante,
@@ -366,20 +373,52 @@ export default function ComprasNuevaPage() {
 
       // Stock + costo + histórico — SOLO si la orden se crea directamente Confirmada
       if (confirmar) {
-        for (const it of itemsConFlete) {
-          const { data: stockEx } = await supabase
-            .from('articulo_stock').select('id, stock_actual')
-            .eq('articulo_id', it.articulo_id).eq('sucursal_id', sucursalId).maybeSingle()
-          if (stockEx) {
-            await supabase.from('articulo_stock')
-              .update({ stock_actual: stockEx.stock_actual + it.cant_recibida }).eq('id', stockEx.id)
-          } else {
-            await supabase.from('articulo_stock').insert({
-              articulo_id: it.articulo_id, sucursal_id: sucursalId,
-              stock_actual: it.cant_recibida, stock_min: 0, stock_max: null,
-            })
+        // Stock: un solo movimiento de Ingreso con origen en esta orden, para
+        // que quede trazable en el historial y el trigger fn_aplicar_item_stock
+        // haga la suma (antes se pisaba articulo_stock con un UPDATE directo,
+        // sin dejar ningún rastro — mismo bug encontrado y corregido el
+        // 22/07 en compras/[id]/page.tsx, replicado acá).
+        const fechaRecepcionFinal = fechaRecepcion || fechaOrden
+        const itemsConStock = itemsConFlete.filter(it => it.articulo_id !== null && it.cant_recibida > 0)
+
+        if (itemsConStock.length > 0) {
+          const { data: stockExistente } = await supabase
+            .from('articulo_stock').select('articulo_id')
+            .eq('sucursal_id', sucursalId)
+            .in('articulo_id', itemsConStock.map(it => it.articulo_id))
+          const idsConFila = new Set((stockExistente || []).map((s: any) => s.articulo_id))
+          const faltantes = itemsConStock.filter(it => !idsConFila.has(it.articulo_id))
+          if (faltantes.length > 0) {
+            await supabase.from('articulo_stock').insert(
+              faltantes.map(it => ({
+                articulo_id: it.articulo_id, sucursal_id: sucursalId,
+                stock_actual: 0, stock_min: 0, stock_max: null,
+              }))
+            )
           }
 
+          const { data: movIngreso, error: errMovIngreso } = await supabase
+            .from('movimientos_stock')
+            .insert({
+              sucursal_id: sucursalId, tipo_movimiento_stock_id: 1, subtipo_movimiento_stock_id: null,
+              origen_tipo: 'orden_compra', origen_id: ordenId,
+              observaciones: `Compra Orden #${ordenId}`,
+              fecha_utc: fechaRecepcionFinal, creado_en: new Date().toISOString(),
+            })
+            .select('id').single()
+          if (errMovIngreso) throw new Error('Error al aplicar stock: ' + errMovIngreso.message)
+
+          const { error: errItemsIngreso } = await supabase.from('movimiento_stock_items').insert(
+            itemsConStock.map(it => ({
+              movimiento_stock_id: movIngreso.id,
+              articulo_id: it.articulo_id,
+              cantidad: it.cant_recibida,
+            }))
+          )
+          if (errItemsIngreso) throw new Error('Error al aplicar stock: ' + errItemsIngreso.message)
+        }
+
+        for (const it of itemsConFlete) {
           const costoSinIva = it.costo_final_unitario
           const artPrevio = articulos.find(a => a.id === it.articulo_id)
 
@@ -557,6 +596,13 @@ export default function ComprasNuevaPage() {
               Fecha (pedido / pago mercadería) <span className="text-red-500">*</span>
             </label>
             <input type="date" value={fechaOrden} onChange={e => setFechaOrden(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Fecha de recepción real
+            </label>
+            <input type="date" value={fechaRecepcion} onChange={e => setFechaRecepcion(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
           </div>
           <div>

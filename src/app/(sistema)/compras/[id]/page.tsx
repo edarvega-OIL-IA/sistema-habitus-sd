@@ -55,6 +55,10 @@ export default function ComprasEditarPage() {
   const [fechaFactura, setFechaFactura] = useState('')
   const [proveedorId, setProveedorId] = useState<number | ''>('')
   const [fechaOrden, setFechaOrden] = useState('')
+  // Fecha en que la mercadería llega realmente al local — separada de
+  // "fechaOrden" (pedido/pago), para medir el tiempo real entre pedir y
+  // recibir. Solo se usa para el movimiento de stock, no para el financiero.
+  const [fechaRecepcion, setFechaRecepcion] = useState('')
   const [nroPedidoExterno, setNroPedidoExterno] = useState('')
   const [medioPagoId, setMedioPagoId] = useState<number>(1)
   const [fleteMonto, setFleteMonto] = useState<number>(0)
@@ -118,7 +122,7 @@ export default function ComprasEditarPage() {
         `).eq('activo', true).order('nombre'),
         supabase.from('tasas_iva').select('id, porcentaje'),
         supabase.from('ordenes_compra').select(`
-          id, proveedor_id, fecha_orden, estado_orden_compra_id, tipo_orden_compra_id,
+          id, proveedor_id, fecha_orden, fecha_recepcion, estado_orden_compra_id, tipo_orden_compra_id,
           tiene_comprobante, numero_factura_proveedor, numero_remito_proveedor, fecha_factura,
           numero_pedido_externo, medio_pago_id, flete_monto, flete_fecha, flete_medio_pago_id, flete_transportista_id,
           monto_comprobante, observaciones,
@@ -146,6 +150,7 @@ export default function ComprasEditarPage() {
       setEstadoOrdenId(o.estado_orden_compra_id)
       setProveedorId(o.proveedor_id)
       setFechaOrden(o.fecha_orden)
+      setFechaRecepcion(o.fecha_recepcion || '')
       setTieneComprobante(o.tiene_comprobante)
       setNroFactura(o.numero_factura_proveedor || '')
       setNroRemito(o.numero_remito_proveedor || '')
@@ -189,7 +194,7 @@ export default function ComprasEditarPage() {
       })
       setItems(itemsCargados)
       setSnapshotOriginal(construirFirma({
-        proveedorId: o.proveedor_id, fechaOrden: o.fecha_orden, tieneComprobante: o.tiene_comprobante,
+        proveedorId: o.proveedor_id, fechaOrden: o.fecha_orden, fechaRecepcion: o.fecha_recepcion || '', tieneComprobante: o.tiene_comprobante,
         nroFactura: o.numero_factura_proveedor || '', nroRemito: o.numero_remito_proveedor || '',
         fechaFactura: o.fecha_factura || '', nroPedidoExterno: o.numero_pedido_externo || '',
         medioPagoId: o.medio_pago_id || 1, fleteMonto: o.flete_monto || 0, fleteFecha: o.flete_fecha || '',
@@ -208,14 +213,14 @@ export default function ComprasEditarPage() {
   // saber si el usuario cambió algo real desde que se cargó/confirmó la
   // orden (ver snapshotOriginal más arriba).
   function construirFirma(vals: {
-    proveedorId: number | ''; fechaOrden: string; tieneComprobante: boolean;
+    proveedorId: number | ''; fechaOrden: string; fechaRecepcion: string; tieneComprobante: boolean;
     nroFactura: string; nroRemito: string; fechaFactura: string; nroPedidoExterno: string;
     medioPagoId: number; fleteMonto: number; fleteFecha: string; fleteMedioPagoId: number;
     fleteTransportistaId: number | ''; montoComprobante: number; observaciones: string;
     items: ItemOrden[];
   }) {
     return JSON.stringify({
-      proveedorId: vals.proveedorId, fechaOrden: vals.fechaOrden, tieneComprobante: vals.tieneComprobante,
+      proveedorId: vals.proveedorId, fechaOrden: vals.fechaOrden, fechaRecepcion: vals.fechaRecepcion, tieneComprobante: vals.tieneComprobante,
       nroFactura: vals.nroFactura, nroRemito: vals.nroRemito, fechaFactura: vals.fechaFactura,
       nroPedidoExterno: vals.nroPedidoExterno, medioPagoId: vals.medioPagoId,
       fleteMonto: vals.fleteMonto, fleteFecha: vals.fleteFecha, fleteMedioPagoId: vals.fleteMedioPagoId,
@@ -443,6 +448,10 @@ export default function ComprasEditarPage() {
         .single()
       const eraConfirmada = ordenActual?.estado_orden_compra_id === 2
 
+      // Fecha real de recepción para los movimientos de STOCK (no confundir
+      // con fechaOrden, que es la de pedido/pago y se usa para el financiero)
+      const fechaRecepcionFinal = fechaRecepcion || fechaOrden
+
       // Si era confirmada y se está re-editando: revertir stock ANTES de reaplicar,
       // vía un movimiento de stock real (no un UPDATE directo) para que quede
       // trazable en el historial y el trigger fn_aplicar_item_stock haga la cuenta.
@@ -464,7 +473,7 @@ export default function ComprasEditarPage() {
               sucursal_id: sucursalId, tipo_movimiento_stock_id: 2, subtipo_movimiento_stock_id: null,
               origen_tipo: 'orden_compra', origen_id: ordenId,
               observaciones: `Reversión por edición de Orden #${ordenId} ya confirmada`,
-              fecha_utc: fechaOrden, creado_en: new Date().toISOString(),
+              fecha_utc: fechaRecepcionFinal, creado_en: new Date().toISOString(),
             })
             .select('id').single()
           if (errMovReversion) throw new Error('Error al revertir stock: ' + errMovReversion.message)
@@ -498,6 +507,7 @@ export default function ComprasEditarPage() {
       const { error: ordenUpdateError } = await supabase.from('ordenes_compra').update({
         proveedor_id: proveedorId,
         fecha_orden: fechaOrden,
+        fecha_recepcion: confirmar ? (fechaRecepcion || fechaOrden) : (fechaRecepcion || null),
         tipo_orden_compra_id: tieneComprobante ? 2 : 1,
         estado_orden_compra_id: confirmar ? 2 : 1,
         tiene_comprobante: tieneComprobante,
@@ -641,7 +651,7 @@ export default function ComprasEditarPage() {
               sucursal_id: sucursalId, tipo_movimiento_stock_id: 1, subtipo_movimiento_stock_id: null,
               origen_tipo: 'orden_compra', origen_id: ordenId,
               observaciones: `Compra Orden #${ordenId}`,
-              fecha_utc: fechaOrden, creado_en: new Date().toISOString(),
+              fecha_utc: fechaRecepcionFinal, creado_en: new Date().toISOString(),
             })
             .select('id').single()
           if (errMovIngreso) throw new Error('Error al aplicar stock: ' + errMovIngreso.message)
@@ -743,7 +753,7 @@ export default function ComprasEditarPage() {
   // cargó/confirmó la orden — si no hay diferencias reales, "Confirmar
   // orden" se deshabilita para no reprocesar stock/costo sin necesidad.
   const hayCambios = snapshotOriginal === null || snapshotOriginal !== construirFirma({
-    proveedorId, fechaOrden, tieneComprobante, nroFactura, nroRemito, fechaFactura, nroPedidoExterno,
+    proveedorId, fechaOrden, fechaRecepcion, tieneComprobante, nroFactura, nroRemito, fechaFactura, nroPedidoExterno,
     medioPagoId, fleteMonto, fleteFecha, fleteMedioPagoId, fleteTransportistaId, montoComprobante, observaciones,
     items,
   })
@@ -897,6 +907,14 @@ export default function ComprasEditarPage() {
               Fecha (pedido / pago mercadería) <span className="text-red-500">*</span>
             </label>
             <input type="date" value={fechaOrden} onChange={e => setFechaOrden(e.target.value)}
+              disabled={esAnulada}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Fecha de recepción real
+            </label>
+            <input type="date" value={fechaRecepcion} onChange={e => setFechaRecepcion(e.target.value)}
               disabled={esAnulada}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
           </div>
