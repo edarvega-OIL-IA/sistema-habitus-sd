@@ -72,6 +72,11 @@ export default function ComprasEditarPage() {
   // editables (nunca debe aparecer como fila en la tabla de productos).
   const [ajusteExistente, setAjusteExistente] = useState<{ subtotal: number } | null>(null)
 
+  // Foto del estado tal cual quedó guardado la orden, para saber si el
+  // usuario cambió algo real desde entonces (usado para deshabilitar
+  // "Confirmar orden" en una orden ya confirmada sin cambios pendientes).
+  const [snapshotOriginal, setSnapshotOriginal] = useState<string | null>(null)
+
   // Texto crudo en edición para inputs de monto (evita que se pierda el
   // separador decimal mientras se tipea)
   const [montoComprobanteTexto, setMontoComprobanteTexto] = useState<string | null>(null)
@@ -183,11 +188,46 @@ export default function ComprasEditarPage() {
         }
       })
       setItems(itemsCargados)
+      setSnapshotOriginal(construirFirma({
+        proveedorId: o.proveedor_id, fechaOrden: o.fecha_orden, tieneComprobante: o.tiene_comprobante,
+        nroFactura: o.numero_factura_proveedor || '', nroRemito: o.numero_remito_proveedor || '',
+        fechaFactura: o.fecha_factura || '', nroPedidoExterno: o.numero_pedido_externo || '',
+        medioPagoId: o.medio_pago_id || 1, fleteMonto: o.flete_monto || 0, fleteFecha: o.flete_fecha || '',
+        fleteMedioPagoId: o.flete_medio_pago_id || 1, fleteTransportistaId: o.flete_transportista_id || '',
+        montoComprobante: o.monto_comprobante || 0, observaciones: o.observaciones || '',
+        items: itemsCargados,
+      }))
     } catch (e: any) {
       setNotif({ tipo: 'error', msg: e.message })
     } finally {
       setLoadingInicial(false)
     }
+  }
+
+  // Arma una "firma" comparable del estado del formulario — se usa para
+  // saber si el usuario cambió algo real desde que se cargó/confirmó la
+  // orden (ver snapshotOriginal más arriba).
+  function construirFirma(vals: {
+    proveedorId: number | ''; fechaOrden: string; tieneComprobante: boolean;
+    nroFactura: string; nroRemito: string; fechaFactura: string; nroPedidoExterno: string;
+    medioPagoId: number; fleteMonto: number; fleteFecha: string; fleteMedioPagoId: number;
+    fleteTransportistaId: number | ''; montoComprobante: number; observaciones: string;
+    items: ItemOrden[];
+  }) {
+    return JSON.stringify({
+      proveedorId: vals.proveedorId, fechaOrden: vals.fechaOrden, tieneComprobante: vals.tieneComprobante,
+      nroFactura: vals.nroFactura, nroRemito: vals.nroRemito, fechaFactura: vals.fechaFactura,
+      nroPedidoExterno: vals.nroPedidoExterno, medioPagoId: vals.medioPagoId,
+      fleteMonto: vals.fleteMonto, fleteFecha: vals.fleteFecha, fleteMedioPagoId: vals.fleteMedioPagoId,
+      fleteTransportistaId: vals.fleteTransportistaId, montoComprobante: vals.montoComprobante,
+      observaciones: vals.observaciones,
+      items: [...vals.items]
+        .sort((a, b) => (a.articulo_id ?? 0) - (b.articulo_id ?? 0))
+        .map(it => ({
+          articulo_id: it.articulo_id, cant_facturada: it.cant_facturada, cant_recibida: it.cant_recibida,
+          precio_unitario: it.precio_unitario, descuento_pct: it.descuento_pct,
+        })),
+    })
   }
 
   function getDivisorIva(tasaIvaId: number | null): number {
@@ -690,6 +730,16 @@ export default function ComprasEditarPage() {
   const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const esAnulada = estadoOrdenId === 3
 
+  // Compara el estado actual del formulario contra la foto de cuando se
+  // cargó/confirmó la orden — si no hay diferencias reales, "Confirmar
+  // orden" se deshabilita para no reprocesar stock/costo sin necesidad.
+  const hayCambios = snapshotOriginal === null || snapshotOriginal !== construirFirma({
+    proveedorId, fechaOrden, tieneComprobante, nroFactura, nroRemito, fechaFactura, nroPedidoExterno,
+    medioPagoId, fleteMonto, fleteFecha, fleteMedioPagoId, fleteTransportistaId, montoComprobante, observaciones,
+    items,
+  })
+  const confirmarDeshabilitado = loading || (estadoOrdenId === 2 && !hayCambios)
+
   if (loadingInicial) return <p className="text-sm text-gray-500 p-8">Cargando orden...</p>
 
   return (
@@ -712,10 +762,11 @@ export default function ComprasEditarPage() {
               className="px-4 py-2 border border-[#00a19a] text-[#00a19a] rounded text-sm hover:bg-[#00a19a] hover:text-white flex items-center gap-2 disabled:opacity-50">
               <Save className="w-4 h-4" /> Guardar borrador
             </button>
-            <button type="button" onClick={() => guardar(true)} disabled={loading}
-              className="px-4 py-2 bg-[#00a19a] text-white rounded text-sm hover:bg-[#008f89] flex items-center gap-2 disabled:opacity-50">
+            <button type="button" onClick={() => guardar(true)} disabled={confirmarDeshabilitado}
+              title={estadoOrdenId === 2 && !hayCambios ? 'Esta orden ya está confirmada y no tiene cambios pendientes' : undefined}
+              className="px-4 py-2 bg-[#00a19a] text-white rounded text-sm hover:bg-[#008f89] flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
               <FileCheck className="w-4 h-4" />
-              {loading ? 'Procesando...' : 'Confirmar orden'}
+              {loading ? 'Procesando...' : confirmarDeshabilitado ? 'Confirmada' : 'Confirmar orden'}
             </button>
           </div>
         )}
