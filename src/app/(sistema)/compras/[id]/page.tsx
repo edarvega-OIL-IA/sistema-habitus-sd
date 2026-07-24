@@ -400,6 +400,15 @@ export default function ComprasEditarPage() {
   }
 
   async function guardar(confirmar: boolean, montoAjustado?: number) {
+    // Traba defensiva: una orden Confirmada nunca vuelve a Borrador (eso
+    // revertiría todo el stock aplicado). El botón que permitía esto ya no
+    // existe en la UI; esto es solo por si algo llegara a llamar acá con
+    // confirmar=false sobre una orden ya confirmada.
+    if (!confirmar && estadoOrdenId === 2) {
+      mostrarError('Una orden confirmada no puede volver a Borrador. Para corregirla, editá y usá "Confirmar orden".')
+      return
+    }
+
     const err = validar()
     if (err) { mostrarError(err); return }
 
@@ -758,10 +767,12 @@ export default function ComprasEditarPage() {
               className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
               <X className="w-4 h-4" /> Cancelar
             </button>
-            <button type="button" onClick={() => guardar(false)} disabled={loading}
-              className="px-4 py-2 border border-[#00a19a] text-[#00a19a] rounded text-sm hover:bg-[#00a19a] hover:text-white flex items-center gap-2 disabled:opacity-50">
-              <Save className="w-4 h-4" /> Guardar borrador
-            </button>
+            {estadoOrdenId !== 2 && (
+              <button type="button" onClick={() => guardar(false)} disabled={loading}
+                className="px-4 py-2 border border-[#00a19a] text-[#00a19a] rounded text-sm hover:bg-[#00a19a] hover:text-white flex items-center gap-2 disabled:opacity-50">
+                <Save className="w-4 h-4" /> Guardar borrador
+              </button>
+            )}
             <button type="button" onClick={() => guardar(true)} disabled={confirmarDeshabilitado}
               title={estadoOrdenId === 2 && !hayCambios ? 'Esta orden ya está confirmada y no tiene cambios pendientes' : undefined}
               className="px-4 py-2 bg-[#00a19a] text-white rounded text-sm hover:bg-[#008f89] flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
