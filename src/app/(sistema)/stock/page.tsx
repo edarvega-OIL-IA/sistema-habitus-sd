@@ -170,7 +170,7 @@ export default function StockPage() {
                       </td>
                       <td className="px-4 py-3 text-center text-gray-500">
                         {m.subtipo_movimiento_stock?.nombre
-                          ?? (m.origen_tipo ? m.origen_tipo.charAt(0).toUpperCase() + m.origen_tipo.slice(1) : '—')}
+                          ?? (m.origen_tipo === 'orden_compra' ? 'Compra' : m.origen_tipo ? m.origen_tipo.charAt(0).toUpperCase() + m.origen_tipo.slice(1) : '—')}
                       </td>
                       <td className="px-4 py-3 text-[#3c3c3b]">
                         <button onClick={() => items.length > 1 && toggleExpandir(m.id)}

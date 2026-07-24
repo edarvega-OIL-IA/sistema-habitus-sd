@@ -121,6 +121,7 @@ export default function HistorialArticulosPage() {
 
   function motivoDe(m: MovimientoHeader) {
     if (m.subtipo_movimiento_stock_id) return subtipoPorId.get(m.subtipo_movimiento_stock_id) ?? '—'
+    if (m.origen_tipo === 'orden_compra') return 'Compra'
     if (m.origen_tipo) return m.origen_tipo.charAt(0).toUpperCase() + m.origen_tipo.slice(1)
     return '—'
   }

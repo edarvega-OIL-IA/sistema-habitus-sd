@@ -413,7 +413,7 @@ export default function ComprasEditarPage() {
             .from('movimientos_stock')
             .insert({
               sucursal_id: sucursalId, tipo_movimiento_stock_id: 2, subtipo_movimiento_stock_id: null,
-              origen_tipo: 'compra', origen_id: ordenId,
+              origen_tipo: 'orden_compra', origen_id: ordenId,
               observaciones: `Reversión por edición de Orden #${ordenId} ya confirmada`,
               fecha_utc: fechaOrden, creado_en: new Date().toISOString(),
             })
@@ -590,7 +590,7 @@ export default function ComprasEditarPage() {
             .from('movimientos_stock')
             .insert({
               sucursal_id: sucursalId, tipo_movimiento_stock_id: 1, subtipo_movimiento_stock_id: null,
-              origen_tipo: 'compra', origen_id: ordenId,
+              origen_tipo: 'orden_compra', origen_id: ordenId,
               observaciones: `Compra Orden #${ordenId}`,
               fecha_utc: fechaOrden, creado_en: new Date().toISOString(),
             })
