@@ -441,6 +441,17 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
 
   const inputClass = "w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
 
+  // Al elegir un Sabor, sugiere ese mismo texto en "Nombre comercial del
+  // sabor" — la persona lo puede ajustar después si el nombre real de
+  // fábrica es distinto (ej. "Vanilla Punch" en vez de "Vainilla").
+  const registroSabor = register('sabor_id', { valueAsNumber: true })
+  function handleSaborChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    registroSabor.onChange(e)
+    const nuevoId = e.target.value === '' ? null : Number(e.target.value)
+    const sabor = sabores.find((s: any) => s.id === nuevoId)
+    if (sabor) setValue('atributo_valor', sabor.nombre)
+  }
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} onKeyDown={handleFormKeyDown} className="space-y-6">
       <div className="flex items-center justify-between">
@@ -501,7 +512,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Sabor</label>
-              <select {...register('sabor_id', { valueAsNumber: true })} className={inputClass}>
+              <select {...registroSabor} onChange={handleSaborChange} className={inputClass}>
                 <option value="">Sin sabor / no aplica</option>
                 {sabores.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
               </select>
@@ -510,7 +521,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nombre comercial del sabor</label>
               <input {...register('atributo_valor')} type="text" placeholder="ej: Vanilla Punch" className={inputClass} />
-              <p className="text-xs text-gray-500 mt-1">Como lo llama el fabricante — se muestra en el Nombre.</p>
+              <p className="text-xs text-gray-500 mt-1">Se sugiere solo al elegir un Sabor — después lo podés ajustar (ej. el nombre real de fábrica).</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Rubro <span className="text-red-500">*</span></label>
