@@ -26,6 +26,7 @@ const articuloSchema = z.object({
   disponible_local: z.boolean(),
   disponible_web: z.boolean(),
   visible_en_tienda: z.boolean(),
+  sabor_id: z.number().nullable().optional(),
   atributo_nombre: z.string().nullable().optional(),
   atributo_valor: z.string().nullable().optional(),
   peso_kg: z.number().min(0).nullable().optional(),
@@ -46,6 +47,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   const [rolUsuario, setRolUsuario] = useState<number | null>(null)
   const [rubros, setRubros] = useState<any[]>([])
   const [marcas, setMarcas] = useState<any[]>([])
+  const [sabores, setSabores] = useState<any[]>([])
   const [unidadesMedida, setUnidadesMedida] = useState<any[]>([])
   const [tasasIva, setTasasIva] = useState<any[]>([])
   const [utilidad, setUtilidad] = useState<string>('')
@@ -77,8 +79,25 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   const precioLocal = watch('precio_local')
   const precioWeb = watch('precio_web')
   const tasaIvaId = watch('tasa_iva_id')
+  const nombreBaseValue = watch('nombre_base')
+  const atributoValorValue = watch('atributo_valor')
+  const marcaIdValue = watch('marca_id')
+
+  // El Nombre se arma solo (Nombre base + Nombre comercial del sabor + Marca)
+  // apenas hay Nombre base cargado. Si no hay Nombre base (catálogo viejo,
+  // todavía sin este sistema), el campo Nombre sigue siendo texto libre.
+  const nombreEsAutomatico = !!(nombreBaseValue && nombreBaseValue.trim() !== '')
 
   useEffect(() => { cargarDatosIniciales() }, [])
+
+  useEffect(() => {
+    if (!nombreEsAutomatico) return
+    const marca = marcas.find((m: any) => m.id === marcaIdValue)
+    const partes = [nombreBaseValue!.trim()]
+    if (atributoValorValue && atributoValorValue.trim() !== '') partes.push(atributoValorValue.trim())
+    if (marca) partes.push(marca.nombre)
+    setValue('nombre', partes.join(' - '))
+  }, [nombreBaseValue, atributoValorValue, marcaIdValue, marcas, nombreEsAutomatico])
 
   useEffect(() => {
     if (costoSinIva && precioLocal && costoSinIva > 0) {
@@ -128,17 +147,19 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
         if (usuarioData) setRolUsuario(usuarioData.rol_id)
       }
 
-      const [rubrosRes, marcasRes, unidadesRes, ivasRes] = await Promise.all([
+      const [rubrosRes, marcasRes, unidadesRes, ivasRes, saboresRes] = await Promise.all([
         supabase.from('rubros').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('marcas').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('unidades_medida').select('id, nombre, abreviatura').order('nombre'),
         supabase.from('tasas_iva').select('id, nombre, porcentaje').eq('activo', true).order('porcentaje'),
+        supabase.from('sabores').select('id, nombre').eq('activo', true).order('nombre'),
       ])
 
       setRubros(rubrosRes.data || [])
       setMarcas(marcasRes.data || [])
       setUnidadesMedida(unidadesRes.data || [])
       setTasasIva(ivasRes.data || [])
+      setSabores(saboresRes.data || [])
 
       if (ivasRes.data) {
         const tasa21 = ivasRes.data.find((t: any) => t.porcentaje === 21)
@@ -180,6 +201,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
             disponible_local: articulo.disponible_local ?? true,
             disponible_web: articulo.disponible_web ?? false,
             visible_en_tienda: articulo.visible_en_tienda ?? false,
+            sabor_id: articulo.sabor_id ? Number(articulo.sabor_id) : null,
             atributo_nombre: articulo.atributo_nombre ?? null,
             atributo_valor: articulo.atributo_valor ?? null,
             peso_kg: articulo.peso_kg ? Number(articulo.peso_kg) : null,
@@ -213,6 +235,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
             disponible_local: origen.disponible_local ?? true,
             disponible_web: origen.disponible_web ?? false,
             visible_en_tienda: origen.visible_en_tienda ?? false,
+            sabor_id: null,
             atributo_nombre: null,
             atributo_valor: null,
             peso_kg: null,
@@ -354,6 +377,10 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
         precio_mayorista: data.precio_mayorista || null,
         precio_oferta_web: data.precio_oferta_web || null,
         costo_sin_iva: data.costo_sin_iva ?? 0,
+        // El "Atributo nombre" ya no se tipea a mano: si hay Sabor elegido,
+        // siempre es 'Sabor'. Sin sabor, se respeta lo que ya tuviera el
+        // registro (por si algún día se usa para otro tipo de atributo).
+        atributo_nombre: data.sabor_id ? 'Sabor' : (data.atributo_nombre ?? null),
       }
       if (articuloId) {
         const { error } = await supabase.from('articulos').update(payload).eq('id', articuloId)
@@ -459,8 +486,31 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Nombre <span className="text-red-500">*</span></label>
-              <input {...register('nombre')} type="text" className={inputClass} />
+              <input {...register('nombre')} type="text" readOnly={nombreEsAutomatico}
+                className={inputClass + (nombreEsAutomatico ? ' bg-gray-100 cursor-not-allowed' : '')} />
               {errors.nombre && <p className="text-red-500 text-xs mt-1">{errors.nombre.message}</p>}
+              {nombreEsAutomatico && (
+                <p className="text-xs text-gray-500 mt-1">Se arma solo con Nombre base + Sabor + Marca. Para cambiarlo, editá esos campos.</p>
+              )}
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre base</label>
+              <input {...register('nombre_base')} type="text"
+                placeholder="Nombre genérico (ej: Whey Protein True Made - 2 lb)" className={inputClass} />
+              <p className="text-xs text-gray-500 mt-1">Si se completa, el Nombre de arriba se arma solo y se mantiene sincronizado al cambiar el sabor o la marca.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sabor</label>
+              <select {...register('sabor_id', { valueAsNumber: true })} className={inputClass}>
+                <option value="">Sin sabor / no aplica</option>
+                {sabores.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">Sabor estándar — se usa para agrupar en la glosa de precios.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre comercial del sabor</label>
+              <input {...register('atributo_valor')} type="text" placeholder="ej: Vanilla Punch" className={inputClass} />
+              <p className="text-xs text-gray-500 mt-1">Como lo llama el fabricante — se muestra en el Nombre.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Rubro <span className="text-red-500">*</span></label>
@@ -626,19 +676,6 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
         {/* SOLAPA 4: Web y extras */}
         {solapaActiva === 4 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre base</label>
-              <input {...register('nombre_base')} type="text"
-                placeholder="Nombre genérico (ej: Creatina Monohidrato)" className={inputClass} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Atributo nombre</label>
-              <input {...register('atributo_nombre')} type="text" placeholder="ej: Sabor" className={inputClass} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Atributo valor</label>
-              <input {...register('atributo_valor')} type="text" placeholder="ej: Frutilla" className={inputClass} />
-            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Peso (kg)</label>
               <input {...register('peso_kg', { setValueAs: v => parsearMonto(String(v)) })}
