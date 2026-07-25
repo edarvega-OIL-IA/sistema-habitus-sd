@@ -223,7 +223,7 @@ export default function ArticulosPage() {
           const saboresTexto = g.sabores.length > 0
             ? ' - ' + [...g.sabores].sort((x, y) => x.localeCompare(y, 'es')).join(', ')
             : ''
-          return { texto: `- *${g.marca}* - ${g.base}${saboresTexto} ${fmtPrecioGlosa(precioMin)}`, precio: precioMin }
+          return { texto: `- *${g.marca}* - ${g.base}${saboresTexto} *${fmtPrecioGlosa(precioMin)}*`, precio: precioMin }
         })
         .sort((x, y) => x.precio - y.precio)
         .map(l => l.texto)
