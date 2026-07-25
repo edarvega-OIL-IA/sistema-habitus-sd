@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 22/07/2026 — Sesión larga con foco en: mejoras de mobile/responsive (sidebar colapsable, breakpoints del Dashboard), pantalla nueva "Historial de Artículos" (cuenta corriente de stock por artículo con detección de descuadres), reorganización del menú en grupo "Artículos", backfill de saldo inicial de stock (130 artículos) con 3 subtipos nuevos, corrección de un descuadre real de stock (artículo 1177), feature "Duplicar artículo", historial de cajas en la pantalla Caja, corrección de 4 cierres con diferencia falsa, resolución manual de una factura rechazada por ARCA (venta #1398), y varias mejoras de UX en Ventas (columna precio unitario, panel de pagos rediseñado).
-**Estado general:** 🟢 Sistema en producción real, fiscalizando de verdad. Se encontró y corrigió un caso real de rechazo de fiscalización automática (sin reintento ni registro de motivo — queda como pendiente crítico agregar diagnóstico). Datos de stock reconciliados con un backfill de saldo inicial + corrección puntual de un descuadre.
-**Próxima acción concreta:** Agregar columna de diagnóstico (`mensaje_error` o similar) en `comprobantes` para no volver a quedar a ciegas ante un rechazo de ARCA — hoy no queda registrado en ningún lado y hubo que reconstruir la factura a mano. Evaluar mecanismo de reintento de fiscalización. Revisar si quedan más ventas en `estado_venta_id=1` sin comprobante real (más allá de las que aparecieron en pantalla). Seguir con los filtros pendientes del Historial de cajas.
+**Última actualización:** 25/07/2026 — Jornada larga dedicada al sistema de Sabores estándar para armar la glosa de precios (WhatsApp/IG): tabla `sabores` (26 cargados) + columna `articulos.sabor_id` + trigger que arma el `nombre` solo; tabla `componentes`/`articulo_componentes` (filtro "¿tenés algo con cafeína?"); 5 rubros migrados con `nombre_base`/sabor (Proteínas 74, Creatinas 32, Barras de proteína 43, Geles 59, Bebidas Isotónicas 19); fusión de rubro Geles Cafeina→Geles; baja completa de la marca GU Energy salvo 1 artículo; rediseño de la solapa Identificación en `ArticuloForm.tsx` (Sabor + Nombre autogenerado); fix del gap de "Duplicar artículo" (ahora copia Nombre base y exige Sabor distinto); y feature nueva: botón **"Generar glosa"** en Administrar Artículos que arma el texto de WhatsApp/Instagram agrupado por sabor, listo para copiar.
+**Estado general:** 🟢 En producción. El motor de agrupación por sabor quedó construido y probado de punta a punta (base de datos + formulario + glosa), con 5 de los ~20 rubros del catálogo ya migrados.
+**Próxima acción concreta:** Seguir migrando rubros al sistema de sabores — candidatos siguientes por volumen: Salud y bienestar (35), Shakers (30), Pre-entrenamiento (26), Colágenos (25). Resolver el duplicado viejo "Bcaa 2000 - 120 Cápsulas" (arrastrado desde antes de esta sesión, sin decidir todavía). Retomar el diseño de "Medida"/"Cantidad" para filtros web (Gr/Kg/Lb/Cápsulas), discutido pero sin ejecutar. Actualizar `MAPA-ARCHIVOS.md` y `CLAUDE_CODE_PROMPT.md` con todo lo de esta sesión (ver sección 22).
 
 ---
 
@@ -13,8 +13,8 @@ Punto de entrada para retomar el proyecto en cualquier sesión nueva. Se actuali
 Documentos relacionados:
 - `HABITUS_SD_ANALISIS_SESION01.md` — análisis funcional completo (41 secciones)
 - `HABITUS_UI_REGLAS.md` — reglas de UI confirmadas
-- `CLAUDE_CODE_PROMPT.md` — contexto para Claude Code (campos BD verificados, rutas, reglas) — **tiene correcciones pendientes de aplicar, ver sección 21**
-- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto — **desactualizado, faltan los archivos nuevos de la sesión 22/07 (ver sección 21)**
+- `CLAUDE_CODE_PROMPT.md` — contexto para Claude Code (campos BD verificados, rutas, reglas) — **tiene correcciones pendientes de aplicar, ver secciones 21 y 22**
+- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto — **desactualizado, faltan los archivos de las sesiones 22/07 y 25/07 (ver secciones 21 y 22)**
 - `supabase/01_referencia.sql` ✅ al `supabase/08_cierre_turno.sql` ✅ — todos ejecutados
 - `supabase/agregar_origen_subtipo.sql` — ejecutado en producción, PENDIENTE en sandbox
 - `supabase/limpieza_arranque.sql` — ejecutado en producción (01/07)
@@ -46,7 +46,7 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 
 ## 4. Módulos confirmados (orden de prioridad)
 
-1. Artículos / Inventario ✅ — ahora agrupado en el menú con 4 submenús (ver sección 21)
+1. Artículos / Inventario ✅ — agrupado en el menú con 4 submenús (22/07); **sistema de Sabores estándar + glosa de precios para WhatsApp/IG (25/07, ver sección 22)**, con 5 de ~20 rubros migrados
 2. Órdenes de Compra ✅
 3. Movimientos de Stock ✅ — ahora permite ver también venta/compra para trazabilidad
 4. Ventas (carrito, modo POS, multi-pago) ✅ — panel de pagos mejorado (22/07)
@@ -97,6 +97,11 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 - [ ] Autocompletar número de operación de pagos con posnet (Mercado Pago) — esperando que Ariel genere el Access Token de producción.
 - [ ] Corregir `CLAUDE_CODE_PROMPT.md` — varios datos quedaron desactualizados esta sesión (ver sección 21, detalle de correcciones).
 - [ ] Actualizar `MAPA-ARCHIVOS.md` con los archivos nuevos/modificados de la sesión 22/07 (ver sección 21).
+- [ ] **Migrar el resto de los rubros al sistema de Sabores** (`nombre_base` + `sabor_id`) para que la glosa los agrupe — Salud y bienestar (35), Shakers (30), Pre-entrenamiento (26), Colágenos (25), Aminoácidos (21), Óxido Nítrico (13), Quemadores (12), Foods (12), Ganadores de peso (11), Proteínas Vegetales (10), Multivitamínicos (9), Glutamina (8), Energía (7), Pro Hormonal (7), Sales (5). Ver sección 22 para el mecanismo (Excel + `UPDATE` en lote).
+- [ ] **Duplicado real sin resolver:** "Bcaa 2000 - 120 Cápsulas" (2 ids activos) — detectado hace varias sesiones, sigue sin decidirse cuál de los dos desactivar.
+- [ ] Tabla `tipos_medida` (Gr/Kg/Lb/Cápsulas...) + columnas `medida_tipo_id`/`cantidad_medida` en `articulos`, para filtros de la vitrina web — diseño conversado con Ariel (ver sección 22), sin SQL ejecutado todavía.
+- [ ] Sumar más `componentes` cuando se migren Pre-entrenamiento/Óxido Nítrico (Taurina, Arginina, Citrulina, Beta-Alanina) y Colágenos (Resveratrol) — hoy la tabla `componentes` solo tiene Cafeína.
+- [ ] Actualizar `MAPA-ARCHIVOS.md` y `CLAUDE_CODE_PROMPT.md` con lo de la sesión 25/07 (tabla `sabores`, `componentes`, `articulo_componentes`, columna `articulos.sabor_id`, trigger `fn_generar_nombre_articulo`, cambios en `ArticuloForm.tsx` y `articulos/page.tsx`).
 
 ---
 
@@ -253,3 +258,148 @@ Se encontraron varios datos desactualizados o directamente incorrectos durante e
 5. Corregir `CLAUDE_CODE_PROMPT.md` con las correcciones listadas arriba.
 6. Actualizar `MAPA-ARCHIVOS.md` con los archivos nuevos/modificados.
 7. Seguir con los pendientes ya anotados de sesiones previas (Mercado Pago, permisos de Agustín, NC, sandbox — ver sección 6).
+
+---
+
+## 22. Sesión 25/07/2026 — Sistema de Sabores estándar, migración de 5 rubros, y glosa de precios
+
+### Bloque 1 — Arquitectura del sistema de Sabores (diseño de sesión previa, ejecutado hoy)
+
+Objetivo de fondo: armar una glosa de precios agrupada por producto (no por SKU) para copiar/pegar en WhatsApp/Instagram, sin tocar cómo se guarda el stock (cada sabor sigue siendo un artículo independiente en el POS, con su propio código de barras).
+
+Decisiones de diseño ya cerradas antes de esta sesión, ejecutadas hoy:
+- El **contenido** (gr/kg/lb, cápsulas) sigue siendo texto libre dentro de `nombre_base` — no es un atributo aparte, porque nunca varía dentro de un mismo grupo de sabores.
+- El **sabor** se separa en dos campos: **Sabor estándar** (nuevo, lista controlada, para agrupar) y **Nombre comercial del sabor** (ya existía como `atributo_valor`, texto libre, para mostrar el nombre real del fabricante).
+
+```sql
+CREATE TABLE sabores (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  nombre TEXT NOT NULL UNIQUE,
+  activo BOOLEAN NOT NULL DEFAULT true,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE articulos ADD COLUMN sabor_id BIGINT REFERENCES sabores(id);
+```
+
+**Sabores cargados a lo largo de la sesión (26 en total):** Chocolate, Vainilla, Frutilla, Banana, Frutos Rojos, Dulce De Leche, Cookies, Neutro (set inicial) + Café, Coco, Limón, Maracuyá, Menta, Pistacho, Almendras, Avellana, Manzana, Caramelo, Cereza, Multifrutas, Naranja, Ananá, Uva, Citrus, Mango, Arándano, Pomelo (agregados sobre la marcha a medida que aparecían en cada rubro).
+
+**Bug propio encontrado y corregido:** la tabla `sabores` se creó sin RLS habilitado y sin `GRANT SELECT` para `authenticated` — mismo patrón de siempre al crear una tabla nueva (visto ya con `movimientos_stock` en sesiones previas). El `SELECT` desde el SQL Editor funcionaba igual porque corre con otro rol, por eso no se notó hasta que el combo "Sabor" del formulario apareció vacío. Corregido:
+```sql
+ALTER TABLE sabores ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "select_all" ON sabores FOR SELECT TO authenticated USING (true);
+GRANT SELECT ON sabores TO authenticated;
+```
+
+**Trigger que arma el `nombre` solo**, para no depender de que alguien lo tipee a mano ni de que quede desactualizado si cambia el sabor:
+```sql
+CREATE OR REPLACE FUNCTION fn_generar_nombre_articulo()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_marca TEXT;
+BEGIN
+  SELECT nombre INTO v_marca FROM marcas WHERE id = NEW.marca_id;
+  NEW.nombre := NEW.nombre_base
+    || CASE WHEN NEW.atributo_valor IS NOT NULL AND NEW.atributo_valor <> ''
+            THEN ' - ' || NEW.atributo_valor ELSE '' END
+    || CASE WHEN v_marca IS NOT NULL THEN ' - ' || v_marca ELSE '' END;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_generar_nombre_articulo
+BEFORE INSERT OR UPDATE OF nombre_base, atributo_valor, marca_id ON articulos
+FOR EACH ROW
+WHEN (NEW.nombre_base IS NOT NULL)
+EXECUTE FUNCTION fn_generar_nombre_articulo();
+```
+El `WHEN (NEW.nombre_base IS NOT NULL)` es clave: no toca los artículos que todavía no tienen `nombre_base` cargado (la mayoría del catálogo, fuera de los rubros migrados).
+
+**Verificado antes de usar `sabor_id` en cualquier `UPDATE`:** `articulos` no tiene ningún `UNIQUE` sobre `nombre` a nivel base de datos (ni constraint ni índice) — la validación de "nombre repetido" vive únicamente en el código de `ArticuloForm.tsx`, específico del flujo de Duplicar (ver Bloque 4).
+
+### Bloque 2 — Migración de rubros (mecanismo: Excel + `UPDATE` en lote por `id`)
+
+Mecanismo repetido para cada rubro: `SELECT` con `id, nombre, marca, nombre_base, atributo_valor AS nombre_comercial_sabor, '' AS sabor_estandar` → Ariel completa a mano en Excel → revisión (duplicados de nombre final, sabores nuevos, filas con `nombre_comercial_sabor` vacío, errores de tipeo) → `UPDATE ... FROM (VALUES ...) JOIN sabores` por lote, separado por rubro para poder ubicar fácil si algo falla.
+
+**Proteínas (74 artículos)** — primer rubro piloto:
+- 9 filas quedaron con `nombre_comercial_sabor` vacío (4 de Neix Reloaded + 5 sueltas) — inferidas con confianza a partir del `nombre` original de cada una (el sufijo después del sabor coincidía exacto con el patrón del resto).
+- Sabor nuevo detectado: Café (de "Golden Coffee", Neix Reloaded).
+- `atributo_nombre` (el campo "Sabor" que acompaña a `atributo_valor`) se completó después con `UPDATE ... WHERE sabor_id IS NOT NULL AND atributo_nombre IS NULL` → `'Sabor'`, al notar que había quedado vacío en el primer lote.
+- 2 nombres duplicados preexistentes detectados ("Energy Gel - Lemon Sublime", "Bcaa 2000 - 120 Cápsulas") — **no** son de Proteínas, son arrastre de la carga inicial del catálogo (antes de que existiera la validación de duplicados en el alta). El primero se resolvió solo al dar de baja GU Energy (Bloque 3); el segundo sigue pendiente (ver sección 6).
+
+**Creatinas (32 artículos)** — la primera exportación de Ariel trajo solo 15 de 32 filas (recorte del editor de SQL de Supabase, no un problema de datos); se completó con una segunda tanda de 17. Sabores nuevos: Naranja, Multifrutas (confirmado como sabor distinto de Frutos Rojos), Ananá, Uva. Convención "DP"/"Dp" en el nombre original → se unificó a "Doypack" completo en `nombre_base`, a pedido de Ariel, para que quede uniforme con el resto.
+
+**Barras de proteína (43 de 53 activos — las 10 restantes ya se habían hecho antes, ver más abajo)**:
+- Detectado con fotos reales del local: una misma marca puede tener **más de una línea de producto** (ej. Gentech "Low Carb Protein Bar" vs "Ironbar Energy Protein"; Pônt "SmartBased Protein Bar" vs "SmartBased Energy Bar" — nombres y composición nutricional distintos, no son sabores del mismo producto). Regla general adoptada: `nombre_base` = nombre real de la línea tal como está impreso en la caja, nunca un genérico por marca.
+- Bug propio: 4 filas de Laddubar quedaron con el sabor y la marca ya incluidos dentro de `nombre_base` (se habría duplicado con el trigger) — corregido a `nombre_base = "Protein Bar"` compartido.
+- Sabores nuevos: Maracuyá, Menta, Pistacho, Almendras, Avellana, Manzana, Caramelo, Cereza.
+- Caso Pont id 950 ("Energy Vegana"): el nombre comercial no es un sabor sino una característica del producto (línea apta vegana, con varios ingredientes mezclados) — se dejó `sabor_id = NULL` a propósito en vez de forzar un sabor incierto.
+
+**Resolución del tema "unidad vs. caja" (10 artículos ENA, ids 903-912):** mismo producto vendido suelto en el local y por caja de 16 para la (futura) web. Resuelto sin tocar el modelo de stock (Ariel confirmó que jamás carga stock por caja, siempre por unidad suelta, incluso cuando compra cajas cerradas) — cada presentación es un `nombre_base` distinto (`"Protein Bar"` vs `"Protein Bar - Caja 16 Unidades"`), con `disponible_local`/`disponible_web` cruzados entre ambas. Mismo patrón después aplicado a Fit Bar Crunch (caja 10u), Ironbar (caja 20u) y Whey Protein Bar Mervick (caja 12u).
+
+**Geles (71 artículos, quedaron 59 activos migrados)**:
+- Se fusionaron los rubros "Geles" y "Geles Cafeina" en uno solo (**"Geles"**) — la diferencia de cafeína pasó a modelarse con una tabla de componentes en vez de un rubro aparte (ver Bloque 3), porque un rubro es una categoría, no un atributo.
+- Bugs propios encontrados y corregidos en el Excel: fila de Iron Gel (Gentech) con el sabor de la fila de arriba copiado por error (Frutos Rojos → debía ser Lima Limón/Limón); 6 pares de artículos de GU Energy que hubieran quedado con nombre idéntico tras la migración (resuelto de raíz dando de baja toda la marca, ver Bloque 3).
+- Sabores nuevos: Citrus, Mango, Arándano.
+
+**Bebidas Isotónicas (31 artículos, quedaron 19 activos)**:
+- Bug propio: dos filas (Hydromax Doypack 600g Manzana/Naranja) con el sabor cruzado entre sí — corregido.
+- Confirmado por Ariel: peso real "660 gr" (no un typo, el nombre viejo decía "600 Gr" pero el producto nuevo pesa distinto).
+- 12 de las 31 filas venían marcadas por Ariel como discontinuadas ("Ya no viene más este formato" / "No creo que lo vuelva a comprar") — desactivadas (`activo=false`, nunca `DELETE`) junto con la migración.
+- Sabor nuevo: Pomelo.
+
+### Bloque 3 — Componentes (filtro "¿tenés algo con X?") + baja de GU Energy
+
+A raíz de la duda de cómo diferenciar Geles con/sin cafeína, surgió una mejora más general: poder responder "¿tenés algo con Resveratrol / Vitamina D / Arginina?" sin necesitar una columna por cada posible ingrediente. Se armó como tabla de lista controlada + tabla puente (mismo patrón que `sabores`), con las 4 políticas RLS + GRANT desde el arranque (a diferencia de `sabores`, para no repetir el mismo bug):
+
+```sql
+CREATE TABLE componentes (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  nombre TEXT NOT NULL UNIQUE,
+  activo BOOLEAN NOT NULL DEFAULT true,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE articulo_componentes (
+  articulo_id BIGINT NOT NULL REFERENCES articulos(id),
+  componente_id BIGINT NOT NULL REFERENCES componentes(id),
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (articulo_id, componente_id)
+);
+```
+Hoy solo tiene cargado **Cafeína** (los 41 artículos que venían del viejo rubro "Geles Cafeina"). Ariel confirmó casos reales para cuando se trabaje Colágenos: tiene un Resveratrol solo y varios Colágenos que también lo llevan. Guarda "tiene/no tiene", no dosis — si en algún momento hace falta dosis, se agrega una columna a la tabla puente sin romper nada.
+
+**Baja completa de la marca GU Energy:** Ariel no la vende hace 2 años salvo un único artículo que sigue teniendo físicamente (id **1302**, "Hydration Drink - Orange"). Se desactivó toda la marca salvo ese id, con un solo `UPDATE` por `marca_id` (no por lista de ids a mano, para no dejar ninguna suelta en un rubro no revisado — apareció una en Bebidas Isotónicas y tres en Sales que no estaban en el radar):
+```sql
+UPDATE articulos SET activo = false
+WHERE marca_id = (SELECT id FROM marcas WHERE nombre = 'GU Energy') AND id <> 1302;
+```
+
+### Bloque 4 — `ArticuloForm.tsx`: Sabor en Identificación, Nombre automático, fix de Duplicar
+
+- **Nombre** pasa a ser de **solo lectura** cuando el artículo tiene `nombre_base` cargado — se arma solo (mismo cálculo que el trigger) y se ve en vivo al cambiar Nombre base, Sabor o Marca, sin cambiar de pestaña. Si no hay `nombre_base` (catálogo todavía sin migrar), sigue editable a mano como siempre.
+- **Nombre base**, **Sabor** (select nuevo, conectado a `sabores`) y **Nombre comercial del sabor** (el viejo "Atributo valor", renombrado) se movieron de la solapa "Web y extras" a **Identificación**, a pedido de Ariel, para verlos todos juntos con Marca mientras arma el nombre.
+- **Atributo nombre** (el campo libre que decía "Sabor" a mano) se sacó del formulario — ahora se fija solo en `'Sabor'` al guardar, si hay `sabor_id` elegido.
+- **Elegir un Sabor autocompleta "Nombre comercial del sabor"** con ese mismo texto (encadenando Sabor → Nombre comercial → Nombre) — editable después a mano si el nombre real de fábrica difiere (ej. "Vanilla Punch" en vez de "Vainilla").
+- **Fix de un gap real:** "Duplicar artículo" no copiaba `nombre_base` (a propósito, para forzar a cambiar algo) — pero eso significaba que cada alta por duplicado nacía sin agrupar en la glosa hasta completar los datos a mano. Ahora: **sí copia `nombre_base`**, deja `Sabor` vacío, y **bloquea el guardado** si no se elige un Sabor o si se elige el mismo que tenía el artículo origen (para productos sin sistema de sabor todavía, se mantiene la validación vieja por nombre completo).
+
+### Bloque 5 — Feature nueva: Glosa de precios (`articulos/page.tsx`)
+
+Botón **"Generar glosa"** junto a "+ Nuevo artículo" en Administrar Artículos — habilitado solo si hay al menos un filtro real aplicado (Rubro, Marca o Búsqueda; Disponibilidad/Stock no cuentan porque no eligen productos, solo su estado), para no poder generarla sobre el catálogo completo por accidente.
+
+Al generar: toma lo que ya está filtrado en pantalla + 2 reglas fijas de negocio que no dependen de los filtros — **solo artículos con stock real** y **nunca las presentaciones "Caja X Unidades"** (`disponible_local=true` siempre). Agrupa por Nombre base + Marca, junta los sabores en stock ordenados alfabéticamente, y si hay diferencia de precio entre sabores del mismo grupo muestra el menor. Formato calcado del que Ariel ya usaba a mano por WhatsApp, con marca y precio en negrita:
+```
+*Proteinas*
+- *Body Advance* - Whey Protein + Creatina + Glutamina - 1 kg - Chocolate, Frutos Rojos *$ 39.000*
+```
+Los artículos de rubros todavía sin migrar aparecen igual (como línea suelta con su nombre completo, sin agrupar) — el listado no se rompe, simplemente no agrupa hasta que se le haga el mismo trabajo que a los 5 rubros de hoy. Probado en vivo por Ariel contra un mensaje real ya enviado por WhatsApp (Proteínas y Creatinas) — formato aprobado.
+
+### Archivos modificados en esta sesión (para actualizar `MAPA-ARCHIVOS.md`)
+- `src/components/articulos/ArticuloForm.tsx` — Sabor + Nombre comercial del sabor movidos a Identificación, Nombre de solo lectura autogenerado, autocompletar Nombre comercial al elegir Sabor, fix de Duplicar (copia `nombre_base`, exige Sabor distinto).
+- `src/app/(sistema)/articulos/page.tsx` — botón "Generar glosa" + modal, query ampliada con `nombre_base`, `sabor_id`, `atributo_valor` y join a `sabores`.
+
+### Pendiente para la próxima sesión
+1. Seguir migrando rubros al sistema de Sabores — Salud y bienestar, Shakers, Pre-entrenamiento, Colágenos son los siguientes por volumen.
+2. Resolver el duplicado "Bcaa 2000 - 120 Cápsulas" (2 ids activos).
+3. Diseño de "Medida"/"Cantidad" (Gr/Kg/Lb/Cápsulas + cantidad numérica) para filtros de la vitrina web — conversado, sin tabla `tipos_medida` creada todavía.
+4. Sumar componentes nuevos (Taurina, Arginina, Citrulina, Beta-Alanina, Resveratrol) cuando se migren Pre-entrenamiento/Óxido Nítrico/Colágenos.
+5. Actualizar `MAPA-ARCHIVOS.md` y `CLAUDE_CODE_PROMPT.md` con todo lo de esta sesión (tablas nuevas, columna `sabor_id`, trigger, archivos modificados).
+6. Seguir con los pendientes de sesiones previas sin tocar hoy (diagnóstico de rechazo ARCA, reintento de fiscalización, filtros de Historial de cajas, permisos de Agustín, NC real, sandbox — ver sección 6).
