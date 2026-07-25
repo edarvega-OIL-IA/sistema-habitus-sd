@@ -42,6 +42,8 @@ interface ArticuloFormProps {
 export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   const router = useRouter()
   const [nombreOrigenDuplicado, setNombreOrigenDuplicado] = useState<string | null>(null)
+  const [origenNombreBase, setOrigenNombreBase] = useState<string | null>(null)
+  const [origenSaborId, setOrigenSaborId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [solapaActiva, setSolapaActiva] = useState(0)
   const [rolUsuario, setRolUsuario] = useState<number | null>(null)
@@ -211,15 +213,19 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
         }
       } else if (duplicarDeId) {
         // Alta nueva a partir de un artículo existente: copia todo excepto
-        // nombre, código interno y código de barras (deben ser únicos).
+        // código interno y código de barras (deben ser únicos). Nombre base
+        // SÍ se copia (para que agrupe bien en la glosa); Sabor queda vacío
+        // y es obligatorio elegir uno distinto al del origen antes de guardar.
         const { data: origen, error } = await supabase
           .from('articulos').select('*').eq('id', duplicarDeId).single()
         if (error) throw error
         if (origen) {
           setNombreOrigenDuplicado(origen.nombre)
+          setOrigenNombreBase(origen.nombre_base ?? null)
+          setOrigenSaborId(origen.sabor_id ? Number(origen.sabor_id) : null)
           reset({
             nombre: origen.nombre ?? '',
-            nombre_base: null,
+            nombre_base: origen.nombre_base ?? null,
             rubro_id: origen.rubro_id ? Number(origen.rubro_id) : 0,
             marca_id: origen.marca_id ? Number(origen.marca_id) : 0,
             codigo_interno: null,
@@ -360,9 +366,22 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   }
 
   async function onSubmit(data: ArticuloFormData) {
-    if (nombreOrigenDuplicado && data.nombre.trim().toLowerCase() === nombreOrigenDuplicado.trim().toLowerCase()) {
-      alert('Este artículo se duplicó desde "' + nombreOrigenDuplicado + '". Cambiá el nombre antes de guardar (por ejemplo, el sabor) para no crear un duplicado exacto.')
-      return
+    if (nombreOrigenDuplicado) {
+      if (origenNombreBase) {
+        // Producto con sistema de sabor: hay que elegir un Sabor, y distinto al del origen
+        if (!data.sabor_id) {
+          alert('Este artículo se duplicó desde "' + nombreOrigenDuplicado + '". Elegí un Sabor antes de guardar.')
+          return
+        }
+        if (data.sabor_id === origenSaborId) {
+          alert('Este artículo se duplicó desde "' + nombreOrigenDuplicado + '". Elegí un Sabor distinto para no crear un duplicado exacto.')
+          return
+        }
+      } else if (data.nombre.trim().toLowerCase() === nombreOrigenDuplicado.trim().toLowerCase()) {
+        // Producto todavía sin Nombre base: validación de siempre, por nombre completo
+        alert('Este artículo se duplicó desde "' + nombreOrigenDuplicado + '". Cambiá el nombre antes de guardar (por ejemplo, el sabor) para no crear un duplicado exacto.')
+        return
+      }
     }
     setLoading(true)
     const supabase = createClient()
@@ -461,7 +480,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
           </h1>
           {nombreOrigenDuplicado && (
             <p className="text-xs text-[#00a19a] mt-1">
-              Duplicando desde: <span className="font-medium">{nombreOrigenDuplicado}</span> — cambiá el nombre (ej. el sabor) y completá los códigos
+              Duplicando desde: <span className="font-medium">{nombreOrigenDuplicado}</span> — {origenNombreBase ? 'elegí un Sabor distinto' : 'cambiá el nombre (ej. el sabor)'} y completá los códigos
             </p>
           )}
         </div>
