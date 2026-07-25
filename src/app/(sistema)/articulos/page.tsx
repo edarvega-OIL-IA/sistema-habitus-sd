@@ -8,6 +8,9 @@ import { Search, Edit, Copy } from 'lucide-react'
 interface Articulo {
   id: number
   nombre: string
+  nombre_base: string | null
+  sabor_id: number | null
+  atributo_valor: string | null
   codigo_interno: string | null
   codigo_barra: string | null
   precio_local: number | null
@@ -16,6 +19,7 @@ interface Articulo {
   activo: boolean
   rubros: { nombre: string } | null
   marcas: { nombre: string } | null
+  sabores: { nombre: string } | null
   rubro_id: number | null
   marca_id: number | null
   articulo_stock: { stock_actual: number; stock_min: number; sucursal_id: number }[]
@@ -55,6 +59,11 @@ export default function ArticulosPage() {
   const [disponibilidadFiltro, setDisponibilidadFiltro] = useState<string>('local') // local | web | todos
   const [stockFiltro, setStockFiltro] = useState<string>('todos') // con_stock | sin_stock | todos
 
+  // Glosa de precios (WhatsApp / Instagram)
+  const [mostrarGlosa, setMostrarGlosa] = useState(false)
+  const [textoGlosa, setTextoGlosa] = useState('')
+  const [copiado, setCopiado] = useState(false)
+
   useEffect(() => {
     cargarDatos()
   }, [])
@@ -78,10 +87,12 @@ export default function ArticulosPage() {
         supabase
           .from('articulos')
           .select(`
-            id, nombre, codigo_interno, codigo_barra, precio_local,
+            id, nombre, nombre_base, sabor_id, atributo_valor,
+            codigo_interno, codigo_barra, precio_local,
             disponible_local, disponible_web, activo, rubro_id, marca_id,
             rubros!inner ( nombre ),
-            marcas!inner ( nombre )
+            marcas!inner ( nombre ),
+            sabores ( nombre )
           `)
           .eq('activo', true)
           .order('nombre'),
@@ -158,6 +169,82 @@ export default function ArticulosPage() {
 
   const fmtPrecio = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+  // Formato sin decimales para la glosa (ej: "$ 39.000"), como se escribe a mano por WhatsApp
+  const fmtPrecioGlosa = (n: number) => '$ ' + Math.round(n).toLocaleString('es-AR')
+
+  // El botón de glosa exige al menos un filtro que realmente acote QUÉ
+  // artículos entran (Rubro, Marca o Búsqueda) — Disponibilidad/Stock no
+  // cuentan para esto porque no eligen productos, solo su estado.
+  const hayFiltroActivo = busqueda.trim() !== '' || rubroFiltro !== 'todos' || marcaFiltro !== 'todos'
+
+  function stockDe(a: Articulo): number {
+    return a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_actual ?? 0
+  }
+
+  // Arma el texto de la glosa a partir de lo que ya está filtrado en pantalla,
+  // más 2 reglas fijas del negocio (no negociables por los filtros de arriba):
+  // solo con stock real, y nunca las presentaciones "Caja X Unidades" (esas
+  // son disponible_web, no disponible_local).
+  function generarGlosa() {
+    const base = articulosFiltrados.filter(a => a.disponible_local && stockDe(a) > 0)
+
+    const porRubro = new Map<string, Articulo[]>()
+    for (const a of base) {
+      const rubroNombre = (a.rubros as any)?.nombre || 'Sin rubro'
+      if (!porRubro.has(rubroNombre)) porRubro.set(rubroNombre, [])
+      porRubro.get(rubroNombre)!.push(a)
+    }
+
+    const bloques: string[] = []
+    for (const rubroNombre of Array.from(porRubro.keys()).sort((x, y) => x.localeCompare(y, 'es'))) {
+      const items = porRubro.get(rubroNombre)!
+
+      // Agrupa por Nombre base + Marca. Los artículos que todavía no tienen
+      // Nombre base cargado (rubros sin trabajar todavía) quedan como grupo
+      // propio de un solo artículo, usando su nombre completo tal cual está.
+      const grupos = new Map<string, { marca: string; base: string; sabores: string[]; precios: number[] }>()
+      for (const a of items) {
+        const marcaNombre = (a.marcas as any)?.nombre || ''
+        const baseNombre = a.nombre_base || a.nombre
+        const key = baseNombre + '|' + marcaNombre
+        if (!grupos.has(key)) grupos.set(key, { marca: marcaNombre, base: baseNombre, sabores: [], precios: [] })
+        const g = grupos.get(key)!
+        if (a.precio_local) g.precios.push(a.precio_local)
+        if (a.nombre_base) {
+          const saborLabel = (a.sabores as any)?.nombre || a.atributo_valor
+          if (saborLabel && !g.sabores.includes(saborLabel)) g.sabores.push(saborLabel)
+        }
+      }
+
+      const lineas = Array.from(grupos.values())
+        .filter(g => g.precios.length > 0)
+        .map(g => {
+          const precioMin = Math.min(...g.precios)
+          const saboresTexto = g.sabores.length > 0
+            ? ' - ' + [...g.sabores].sort((x, y) => x.localeCompare(y, 'es')).join(', ')
+            : ''
+          return { texto: `- *${g.marca}* - ${g.base}${saboresTexto} ${fmtPrecioGlosa(precioMin)}`, precio: precioMin }
+        })
+        .sort((x, y) => x.precio - y.precio)
+        .map(l => l.texto)
+
+      if (lineas.length > 0) bloques.push(`*${rubroNombre}*\n` + lineas.join('\n'))
+    }
+
+    setTextoGlosa(bloques.join('\n\n'))
+    setCopiado(false)
+    setMostrarGlosa(true)
+  }
+
+  async function copiarGlosa() {
+    try {
+      await navigator.clipboard.writeText(textoGlosa)
+      setCopiado(true)
+    } catch {
+      alert('No se pudo copiar automáticamente. Seleccioná el texto y copiá manualmente.')
+    }
+  }
+
   if (loading) return <div className="flex items-center justify-center h-64"><p className="text-gray-500 text-sm">Cargando artículos...</p></div>
   if (error) return <p className="text-red-500 text-sm">Error al cargar artículos: {error}</p>
 
@@ -166,6 +253,11 @@ export default function ArticulosPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-semibold text-[#3c3c3b]">Artículos</h1>
         <div className="flex gap-2">
+          <button type="button" onClick={generarGlosa} disabled={!hayFiltroActivo}
+            title={hayFiltroActivo ? 'Genera la glosa con los filtros actuales' : 'Elegí al menos Rubro, Marca o Búsqueda para generar la glosa'}
+            className="border border-[#00a19a] text-[#00a19a] px-4 py-2 rounded text-sm hover:bg-[#00a19a]/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+            Generar glosa
+          </button>
           {rolUsuario === 1 && (
             <Link href="/articulos/precios"
               className="border border-[#00a19a] text-[#00a19a] px-4 py-2 rounded text-sm hover:bg-[#00a19a]/10 transition-colors">
@@ -328,6 +420,37 @@ export default function ArticulosPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Glosa */}
+      {mostrarGlosa && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg border border-gray-200 w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h2 className="text-base font-semibold text-[#3c3c3b]">Glosa de precios</h2>
+              <button type="button" onClick={() => setMostrarGlosa(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="p-4 overflow-y-auto">
+              {textoGlosa ? (
+                <textarea readOnly value={textoGlosa} rows={16}
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+              ) : (
+                <p className="text-sm text-gray-500 text-center py-8">No hay artículos con stock que coincidan con estos filtros.</p>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 p-4 border-t border-gray-200">
+              {copiado && <span className="text-xs text-[#00a19a] mr-auto">Copiado ✓</span>}
+              <button type="button" onClick={() => setMostrarGlosa(false)}
+                className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50">
+                Cerrar
+              </button>
+              <button type="button" onClick={copiarGlosa} disabled={!textoGlosa}
+                className="px-4 py-2 bg-[#00a19a] text-white rounded text-sm hover:bg-[#008f89] disabled:opacity-40">
+                Copiar
+              </button>
+            </div>
           </div>
         </div>
       )}
