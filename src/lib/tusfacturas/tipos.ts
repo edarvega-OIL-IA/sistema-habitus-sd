@@ -1,5 +1,9 @@
 // Ruta destino: C:\Users\Usuario\Documents\sistema-habitus-sd\src\lib\tusfacturas\tipos.ts
 
+// Tabla de referencia oficial TusFacturasAPP (condiciones ante el IVA):
+// CF=Consumidor Final, RI=Responsable Inscripto, M=Monotributo, E=Exento
+export type TusFacturasCondicionIva = 'CF' | 'RI' | 'M' | 'E'
+
 export interface TusFacturasCliente {
   documento_tipo: 'CUIT' | 'DNI' | 'OTRO'
   documento_nro: string
@@ -7,8 +11,8 @@ export interface TusFacturasCliente {
   domicilio: string
   provincia: string
   codigo: string // identificador propio del cliente en nuestro sistema (REQUERIDO por TusFacturasAPP)
-  condicion_iva: 'CF' // Consumidor Final — único caso contemplado por ahora
-  condicion_iva_operacion?: 'CF'
+  condicion_iva: TusFacturasCondicionIva
+  condicion_iva_operacion?: TusFacturasCondicionIva
   condicion_pago: string
   email?: string
   envia_por_mail: 'N'
