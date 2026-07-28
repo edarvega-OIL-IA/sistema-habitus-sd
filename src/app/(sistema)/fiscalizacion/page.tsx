@@ -42,6 +42,7 @@ export default function FiscalizacionPage() {
   const [contadoSeleccionado, setContadoSeleccionado] = useState<Map<number, boolean>>(new Map())
   const [procesando, setProcesando] = useState<number | null>(null)
   const [resultados, setResultados] = useState<Map<number, { ok: boolean; mensaje: string }>>(new Map())
+  const [filtroEstado, setFiltroEstado] = useState<'todos' | 'error' | 'sin_fiscalizar'>('todos')
 
   useEffect(() => { cargarDatos() }, [])
 
@@ -119,6 +120,12 @@ export default function FiscalizacionPage() {
     }
   }
 
+  const ventasFiltradas = ventas.filter(v => {
+    if (filtroEstado === 'error') return v.estado_venta_id === 1
+    if (filtroEstado === 'sin_fiscalizar') return v.estado_venta_id === 2
+    return true
+  })
+
   if (loading) return <div className="p-6 text-sm text-gray-500">Cargando...</div>
 
   if (rolUsuario !== null && rolUsuario !== 1) {
@@ -134,13 +141,34 @@ export default function FiscalizacionPage() {
         </p>
       </div>
 
-      {ventas.length === 0 ? (
+      <div className="flex gap-2 mb-4">
+        {([
+          ['todos', 'Todas', ventas.length],
+          ['error', 'Rechazadas / Error', ventas.filter(v => v.estado_venta_id === 1).length],
+          ['sin_fiscalizar', 'Sin fiscalizar', ventas.filter(v => v.estado_venta_id === 2).length],
+        ] as const).map(([valor, etiqueta, cantidad]) => (
+          <button
+            key={valor}
+            type="button"
+            onClick={() => setFiltroEstado(valor)}
+            className={`px-3 py-1.5 rounded text-sm border transition-colors ${
+              filtroEstado === valor
+                ? 'bg-[#00a19a] text-white border-[#00a19a]'
+                : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            {etiqueta} ({cantidad})
+          </button>
+        ))}
+      </div>
+
+      {ventasFiltradas.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
-          No hay ventas pendientes de fiscalización. 🎉
+          {ventas.length === 0 ? 'No hay ventas pendientes de fiscalización. 🎉' : 'No hay ventas que coincidan con este filtro.'}
         </div>
       ) : (
         <div className="space-y-3">
-          {ventas.map(venta => {
+          {ventasFiltradas.map(venta => {
             const comprobante = comprobantesPorVenta.get(venta.id)
             const esRechazo = venta.estado_venta_id === 1
             const clienteId = clienteDeFila(venta.id, venta.cliente_id)
