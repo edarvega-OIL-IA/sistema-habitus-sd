@@ -300,6 +300,7 @@ export default function ComprasNuevaPage() {
           cantidad_facturada: it.cant_facturada,
           cantidad_recibida: it.cant_recibida,
           precio_unitario_sin_iva: it.precio_unitario / getDivisorIva(it.tasa_iva_id),
+          descuento_pct: it.descuento_pct,
           flete_prorrateado: it.flete_prorrateado,
           costo_final_unitario: it.costo_final_unitario,
           subtotal: it.subtotal,

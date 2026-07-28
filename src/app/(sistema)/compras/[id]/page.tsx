@@ -128,7 +128,7 @@ export default function ComprasEditarPage() {
           monto_comprobante, observaciones,
           orden_compra_items (
             articulo_id, cantidad_facturada, cantidad_recibida,
-            precio_unitario_sin_iva, subtotal, es_ajuste_redondeo,
+            precio_unitario_sin_iva, descuento_pct, subtotal, es_ajuste_redondeo,
             articulos ( nombre, tasa_iva_id, precio_local, precio_web, precio_mayorista, precio_oferta_web )
           )
         `).eq('id', ordenId).single(),
@@ -538,6 +538,7 @@ export default function ComprasEditarPage() {
           cantidad_facturada: it.cant_facturada,
           cantidad_recibida: it.cant_recibida,
           precio_unitario_sin_iva: it.precio_unitario / getDivisorIva(it.tasa_iva_id),
+          descuento_pct: it.descuento_pct,
           flete_prorrateado: it.flete_prorrateado,
           costo_final_unitario: it.costo_final_unitario,
           subtotal: it.subtotal,
