@@ -390,7 +390,8 @@ interface ModalNuevoCargoProps {
 
 function ModalNuevoCargo({ acreedor, conceptos, guardando, onCerrar, onGuardar }: ModalNuevoCargoProps) {
   const [conceptoId, setConceptoId] = useState<number | ''>(() => conceptos.length === 1 ? conceptos[0].id : '')
-  const [monto, setMonto] = useState('')
+  const [monto, setMonto] = useState(0)
+  const [montoTexto, setMontoTexto] = useState<string | null>(null)
   const [periodo, setPeriodo] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).slice(0, 7))
   const [vencimiento, setVencimiento] = useState('')
   const [comprobante, setComprobante] = useState('')
@@ -402,12 +403,18 @@ function ModalNuevoCargo({ acreedor, conceptos, guardando, onCerrar, onGuardar }
     const n = parseFloat(s.replace(/\./g, '').replace(',', '.'))
     return isNaN(n) ? 0 : n
   }
+  function fmtInput(n: number): string {
+    return n ? n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
+  }
+  function handleMontoChange(raw: string) {
+    setMontoTexto(raw)
+    setMonto(parsearMonto(raw))
+  }
 
   function guardar() {
-    const m = parsearMonto(monto)
     if (!conceptoId) { alert('Elegí un concepto'); return }
-    if (m <= 0) { alert('El monto debe ser mayor a 0'); return }
-    onGuardar({ concepto_gasto_id: Number(conceptoId), monto: m, periodo, fecha_vencimiento: vencimiento, numero_comprobante: comprobante, observaciones: obs })
+    if (monto <= 0) { alert('El monto debe ser mayor a 0'); return }
+    onGuardar({ concepto_gasto_id: Number(conceptoId), monto, periodo, fecha_vencimiento: vencimiento, numero_comprobante: comprobante, observaciones: obs })
   }
 
   return (
@@ -426,7 +433,9 @@ function ModalNuevoCargo({ acreedor, conceptos, guardando, onCerrar, onGuardar }
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Monto</label>
-            <input type="text" inputMode="numeric" value={monto} onChange={e => setMonto(e.target.value)} placeholder="0" className={inputClass} />
+            <input type="text" inputMode="decimal" value={montoTexto !== null ? montoTexto : fmtInput(monto)}
+              onFocus={e => e.target.select()} onChange={e => handleMontoChange(e.target.value)} onBlur={() => setMontoTexto(null)}
+              placeholder="0" className={inputClass} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -475,7 +484,8 @@ interface ModalRegistrarPagoProps {
 
 function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, guardando, onCerrar, onGuardar }: ModalRegistrarPagoProps) {
   const [conceptoId, setConceptoId] = useState<number | ''>(() => conceptos.length === 1 ? conceptos[0].id : '')
-  const [monto, setMonto] = useState(saldoPendiente.toLocaleString('es-AR'))
+  const [monto, setMonto] = useState(saldoPendiente)
+  const [montoTexto, setMontoTexto] = useState<string | null>(null)
   const [fecha, setFecha] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }))
   const [medioPagoId, setMedioPagoId] = useState<number | ''>('')
   const [obs, setObs] = useState('')
@@ -486,13 +496,19 @@ function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, g
     const n = parseFloat(s.replace(/\./g, '').replace(',', '.'))
     return isNaN(n) ? 0 : n
   }
+  function fmtInput(n: number): string {
+    return n ? n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
+  }
+  function handleMontoChange(raw: string) {
+    setMontoTexto(raw)
+    setMonto(parsearMonto(raw))
+  }
 
   function guardar() {
-    const m = parsearMonto(monto)
     if (!conceptoId) { alert('Elegí un concepto'); return }
     if (!medioPagoId) { alert('Elegí un medio de pago'); return }
-    if (m <= 0) { alert('El monto debe ser mayor a 0'); return }
-    onGuardar({ concepto_gasto_id: Number(conceptoId), monto: m, fecha_pago: fecha, medio_pago_id: Number(medioPagoId), observaciones: obs })
+    if (monto <= 0) { alert('El monto debe ser mayor a 0'); return }
+    onGuardar({ concepto_gasto_id: Number(conceptoId), monto, fecha_pago: fecha, medio_pago_id: Number(medioPagoId), observaciones: obs })
   }
 
   return (
@@ -512,7 +528,9 @@ function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, g
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Monto a pagar</label>
-            <input type="text" inputMode="numeric" value={monto} onChange={e => setMonto(e.target.value)} className={inputClass} />
+            <input type="text" inputMode="decimal" value={montoTexto !== null ? montoTexto : fmtInput(monto)}
+              onFocus={e => e.target.select()} onChange={e => handleMontoChange(e.target.value)} onBlur={() => setMontoTexto(null)}
+              className={inputClass} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
