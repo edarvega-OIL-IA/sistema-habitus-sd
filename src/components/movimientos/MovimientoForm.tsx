@@ -105,6 +105,11 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
 
   const categoriasFiltradas = categorias.filter(c => c.tipo === tipo || c.tipo === 'Ambos')
 
+  // Caja (Ingreso/Retiro) mueve plata de lugar, no es un gasto con período
+  // ni vencimiento propio — se ocultan esos dos campos para ese caso.
+  const categoriaSeleccionada = categorias.find(c => c.id === categoriaId)
+  const requierePeriodo = categoriaSeleccionada?.nombre !== 'Caja'
+
   function cambiarTipo(nuevoTipo: 'Ingreso' | 'Egreso') {
     setValue('tipo', nuevoTipo)
     setValue('categoria_id', 0)
@@ -382,6 +387,7 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
             {errors.fecha && <p className="text-red-500 text-xs mt-1">{errors.fecha.message}</p>}
           </div>
 
+          {requierePeriodo && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Período <span className="text-red-500">*</span></label>
             <input {...register('periodo')} type="month"
@@ -390,13 +396,16 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
             <p className="text-xs text-gray-500 mt-1">A qué mes corresponde el gasto — se sigue solo de la Fecha, salvo que lo cambies (ej. un impuesto pagado atrasado).</p>
             {errors.periodo && <p className="text-red-500 text-xs mt-1">{errors.periodo.message}</p>}
           </div>
+          )}
 
+          {requierePeriodo && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento</label>
             <input {...register('fecha_vencimiento')} type="date"
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
             <p className="text-xs text-gray-500 mt-1">Opcional — solo para impuestos y cargas sociales con vencimiento formal.</p>
           </div>
+          )}
         </div>
 
         <div>
