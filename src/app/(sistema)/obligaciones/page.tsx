@@ -53,6 +53,7 @@ export default function ObligacionesPage() {
   const [conceptos, setConceptos] = useState<Concepto[]>([])
   const [mediosPago, setMediosPago] = useState<{ id: number; nombre: string }[]>([])
   const [expandido, setExpandido] = useState<Set<number>>(new Set())
+  const [categoriasAbiertas, setCategoriasAbiertas] = useState<Set<string>>(new Set())
   const [modalCargo, setModalCargo] = useState<Acreedor | null>(null)
   const [modalPago, setModalPago] = useState<Acreedor | null>(null)
   const [guardando, setGuardando] = useState(false)
@@ -98,6 +99,14 @@ export default function ObligacionesPage() {
     setExpandido(prev => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleCategoria(cat: string) {
+    setCategoriasAbiertas(prev => {
+      const next = new Set(prev)
+      next.has(cat) ? next.delete(cat) : next.add(cat)
       return next
     })
   }
@@ -161,11 +170,26 @@ export default function ObligacionesPage() {
         ))}
       </div>
 
-      <div className="space-y-6">
-       {grupos.map(grupo => (
-        <div key={grupo.categoria}>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{grupo.categoria}</h2>
-          <div className="space-y-2">
+      <div className="space-y-3">
+       {grupos.map(grupo => {
+        const abiertaCategoria = categoriasAbiertas.has(grupo.categoria)
+        const saldoCategoria = grupo.acreedores.reduce((acc, a) => acc + saldoDe(a.id), 0)
+        return (
+        <div key={grupo.categoria} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <button type="button" onClick={() => toggleCategoria(grupo.categoria)}
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
+            <div className="flex items-center gap-2">
+              {abiertaCategoria ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+              <span className="text-sm font-semibold text-[#3c3c3b] uppercase tracking-wide">{grupo.categoria}</span>
+              <span className="text-xs text-gray-400">({grupo.acreedores.length})</span>
+            </div>
+            <span className={`font-semibold ${saldoCategoria > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+              ${fmtMonto(saldoCategoria)}
+            </span>
+          </button>
+
+          {abiertaCategoria && (
+          <div className="px-4 pb-4 space-y-2 border-t border-gray-100 pt-3">
           {grupo.acreedores.map(acreedor => {
           const items = obligacionesDe(acreedor.id)
           const saldo = saldoDe(acreedor.id)
@@ -239,8 +263,10 @@ export default function ObligacionesPage() {
           )
         })}
           </div>
+          )}
         </div>
-       ))}
+        )
+       })}
       </div>
 
       {modalCargo && (
