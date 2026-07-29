@@ -15,6 +15,8 @@ const movimientoSchema = z.object({
   concepto_id: z.number().min(1, 'El concepto es requerido'),
   medio_pago_id: z.number().optional(),
   fecha: z.string().min(1, 'La fecha es requerida'),
+  periodo: z.string().min(1, 'El período es requerido'), // 'YYYY-MM' — a qué mes corresponde el gasto, independiente de cuándo se pagó
+  fecha_vencimiento: z.string().optional(), // opcional — solo aplica a obligaciones con vencimiento formal (impuestos, cargas sociales)
   observaciones: z.string().optional(),
 })
 
@@ -83,12 +85,23 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
     defaultValues: {
       tipo: 'Egreso',
       fecha: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }),
+      periodo: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).slice(0, 7),
     }
   })
+
+  // Período contable: por default sigue a la Fecha (el caso normal, se paga
+  // dentro del mes que corresponde). Si la persona toca "Período" a mano
+  // (ej. un impuesto que se paga atrasado), deja de seguir a la Fecha.
+  const [periodoTocado, setPeriodoTocado] = useState(false)
 
   const tipo = watch('tipo')
   const categoriaId = watch('categoria_id')
   const monto = watch('monto')
+  const fecha = watch('fecha')
+
+  useEffect(() => {
+    if (!periodoTocado && fecha) setValue('periodo', fecha.slice(0, 7))
+  }, [fecha, periodoTocado])
 
   const categoriasFiltradas = categorias.filter(c => c.tipo === tipo || c.tipo === 'Ambos')
 
@@ -147,7 +160,7 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
     if (esEdicion) {
       const { data: mov, error } = await supabase
         .from('movimientos')
-        .select('tipo, monto, categoria_gasto_id, concepto_gasto_id, medio_pago_id, fecha_utc, observaciones, origen_tipo, cierre_turno_id, anulado')
+        .select('tipo, monto, categoria_gasto_id, concepto_gasto_id, medio_pago_id, fecha_utc, mes_contable, fecha_vencimiento, observaciones, origen_tipo, cierre_turno_id, anulado')
         .eq('id', movimientoId).single()
 
       if (error || !mov) { setAccesoDenegado('Movimiento no encontrado.'); setCargandoInicial(false); return }
@@ -183,6 +196,8 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
         (c: Concepto) => c.categoria_gasto_id === mov.categoria_gasto_id && (c.tipo === mov.tipo || c.tipo === 'Ambos')
       ))
 
+      setPeriodoTocado(true) // el período real ya está guardado — no lo recalculamos a partir de la Fecha
+
       reset({
         tipo: mov.tipo,
         monto: mov.monto,
@@ -190,6 +205,8 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
         concepto_id: mov.concepto_gasto_id,
         medio_pago_id: mov.medio_pago_id ?? undefined,
         fecha: mov.fecha_utc,
+        periodo: mov.mes_contable ? mov.mes_contable.slice(0, 7) : mov.fecha_utc.slice(0, 7),
+        fecha_vencimiento: mov.fecha_vencimiento ?? '',
         observaciones: mov.observaciones ?? '',
       })
     }
@@ -202,8 +219,7 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
     setErrorMsg(null)
     const supabase = createClient()
     try {
-      const [anio, mes] = data.fecha.split('-')
-      const mes_contable = `${anio}-${mes}-01`
+      const mes_contable = `${data.periodo}-01`
 
       if (esEdicion) {
         const { error } = await supabase.from('movimientos').update({
@@ -214,6 +230,7 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
           monto: data.monto,
           medio_pago_id: data.medio_pago_id || null,
           mes_contable,
+          fecha_vencimiento: data.fecha_vencimiento || null,
           observaciones: data.observaciones || null,
         }).eq('id', movimientoId)
         if (error) throw error
@@ -228,6 +245,7 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
           medio_pago_id: data.medio_pago_id || null,
           cuenta_id: null,
           mes_contable,
+          fecha_vencimiento: data.fecha_vencimiento || null,
           observaciones: data.observaciones || null,
           usuario_id: usuarioId,
           entidad_tipo_id: null,
@@ -362,6 +380,22 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
             <input {...register('fecha')} type="date"
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
             {errors.fecha && <p className="text-red-500 text-xs mt-1">{errors.fecha.message}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Período <span className="text-red-500">*</span></label>
+            <input {...register('periodo')} type="month"
+              onChange={e => { setPeriodoTocado(true); setValue('periodo', e.target.value, { shouldValidate: true }) }}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+            <p className="text-xs text-gray-500 mt-1">A qué mes corresponde el gasto — se sigue solo de la Fecha, salvo que lo cambies (ej. un impuesto pagado atrasado).</p>
+            {errors.periodo && <p className="text-red-500 text-xs mt-1">{errors.periodo.message}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento</label>
+            <input {...register('fecha_vencimiento')} type="date"
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+            <p className="text-xs text-gray-500 mt-1">Opcional — solo para impuestos y cargas sociales con vencimiento formal.</p>
           </div>
         </div>
 
