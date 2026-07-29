@@ -58,6 +58,7 @@ export default function ObligacionesPage() {
   const [guardando, setGuardando] = useState(false)
   const [sucursalId, setSucursalId] = useState<number>(1)
   const [usuarioId, setUsuarioId] = useState<string | null>(null)
+  const [filtroCategoria, setFiltroCategoria] = useState<string>('todas')
 
   useEffect(() => { cargarDatos() }, [])
 
@@ -113,6 +114,22 @@ export default function ObligacionesPage() {
 
   const totalPendiente = acreedores.reduce((acc, a) => acc + saldoDe(a.id), 0)
 
+  // Categorías presentes, en el mismo orden en que ya aparecían agrupadas
+  const categorias = Array.from(new Set(acreedores.map(a => a.categoria_nombre)))
+
+  const acreedoresFiltrados = filtroCategoria === 'todas'
+    ? acreedores
+    : acreedores.filter(a => a.categoria_nombre === filtroCategoria)
+
+  // Agrupados por categoría, cada grupo ordenado alfabéticamente por nombre
+  const grupos = categorias
+    .filter(cat => filtroCategoria === 'todas' || cat === filtroCategoria)
+    .map(cat => ({
+      categoria: cat,
+      acreedores: acreedoresFiltrados.filter(a => a.categoria_nombre === cat).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    }))
+    .filter(g => g.acreedores.length > 0)
+
   if (loading) return <div className="p-6 text-sm text-gray-500">Cargando...</div>
 
   return (
@@ -127,8 +144,29 @@ export default function ObligacionesPage() {
         <p className="text-2xl font-bold text-[#3c3c3b]">${fmtMonto(totalPendiente)}</p>
       </div>
 
-      <div className="space-y-2">
-        {acreedores.map(acreedor => {
+      <div className="flex gap-2 mb-4 flex-wrap">
+        <button type="button" onClick={() => setFiltroCategoria('todas')}
+          className={`px-3 py-1.5 rounded text-sm border transition-colors ${
+            filtroCategoria === 'todas' ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+          }`}>
+          Todas
+        </button>
+        {categorias.map(cat => (
+          <button key={cat} type="button" onClick={() => setFiltroCategoria(cat)}
+            className={`px-3 py-1.5 rounded text-sm border transition-colors ${
+              filtroCategoria === cat ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+            }`}>
+            {cat}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-6">
+       {grupos.map(grupo => (
+        <div key={grupo.categoria}>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{grupo.categoria}</h2>
+          <div className="space-y-2">
+          {grupo.acreedores.map(acreedor => {
           const items = obligacionesDe(acreedor.id)
           const saldo = saldoDe(acreedor.id)
           const abierto = expandido.has(acreedor.id)
@@ -200,6 +238,9 @@ export default function ObligacionesPage() {
             </div>
           )
         })}
+          </div>
+        </div>
+       ))}
       </div>
 
       {modalCargo && (
