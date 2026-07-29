@@ -12,6 +12,7 @@ const nav = [
   { label: 'Registro Ventas', href: '/ventas/registro', icon: '🧾' },
   { label: 'Fiscalización', href: '/fiscalizacion', icon: '⚠️' },
   { label: 'Movimientos', href: '/movimientos', icon: '💰' },
+  { label: 'Obligaciones', href: '/obligaciones', icon: '📇' },
   {
     label: 'Artículos',
     icon: '📦',
