@@ -98,6 +98,7 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
   const categoriaId = watch('categoria_id')
   const monto = watch('monto')
   const fecha = watch('fecha')
+  const medioPagoId = watch('medio_pago_id')
 
   useEffect(() => {
     if (!periodoTocado && fecha) setValue('periodo', fecha.slice(0, 7))
@@ -109,6 +110,9 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
   // ni vencimiento propio — se ocultan esos dos campos para ese caso.
   const categoriaSeleccionada = categorias.find(c => c.id === categoriaId)
   const requierePeriodo = categoriaSeleccionada?.nombre !== 'Caja'
+
+  const medioSeleccionadoActual = mediosPago.find(m => m.id === medioPagoId)
+  const efectivoSinCajaAbierta = medioSeleccionadoActual?.nombre === 'Efectivo' && !cierreActivoId
 
   function cambiarTipo(nuevoTipo: 'Ingreso' | 'Egreso') {
     setValue('tipo', nuevoTipo)
@@ -220,6 +224,11 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
   }
 
   async function onSubmit(data: MovimientoFormData) {
+    const medioSeleccionado = mediosPago.find(m => m.id === data.medio_pago_id)
+    if (medioSeleccionado?.nombre === 'Efectivo' && !cierreActivoId) {
+      setErrorMsg('No podés registrar un movimiento en Efectivo sin la caja abierta — ese dinero real nunca se sumaría a ningún cierre de turno. Abrí la caja primero, o elegí otro medio de pago.')
+      return
+    }
     setLoading(true)
     setErrorMsg(null)
     const supabase = createClient()
@@ -378,6 +387,9 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
               <option value="">Sin especificar</option>
               {mediosPago.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
             </select>
+            {efectivoSinCajaAbierta && (
+              <p className="text-red-600 text-xs mt-1">⚠ No hay caja abierta — este movimiento no se va a poder guardar en Efectivo.</p>
+            )}
           </div>
 
           <div>
