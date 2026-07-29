@@ -51,6 +51,7 @@ export default function ObligacionesPage() {
   const [acreedores, setAcreedores] = useState<Acreedor[]>([])
   const [obligaciones, setObligaciones] = useState<Obligacion[]>([])
   const [conceptos, setConceptos] = useState<Concepto[]>([])
+  const [conceptosPorAcreedor, setConceptosPorAcreedor] = useState<Map<number, number[]>>(new Map())
   const [mediosPago, setMediosPago] = useState<{ id: number; nombre: string }[]>([])
   const [expandido, setExpandido] = useState<Set<number>>(new Set())
   const [categoriasAbiertas, setCategoriasAbiertas] = useState<Set<string>>(new Set())
@@ -74,13 +75,14 @@ export default function ObligacionesPage() {
       setSucursalId(usuarioData?.sucursal_id ?? 1)
     }
 
-    const [acreedoresRes, obligacionesRes, conceptosRes, mediosRes] = await Promise.all([
+    const [acreedoresRes, obligacionesRes, conceptosRes, mediosRes, acreedorConceptosRes] = await Promise.all([
       supabase.from('acreedores').select('id, nombre, categoria_gasto_id, categorias_gasto ( nombre )').eq('activo', true).order('nombre'),
       supabase.from('obligaciones')
         .select('id, acreedor_id, concepto_gasto_id, tipo, monto, periodo, fecha_vencimiento, fecha_pago, numero_comprobante, observaciones, creado_en, conceptos_gasto ( nombre )')
         .eq('anulado', false),
       supabase.from('conceptos_gasto').select('id, nombre, categoria_gasto_id, tipo').order('nombre'),
       supabase.from('medios_pago').select('id, nombre').eq('activo', true).order('id'),
+      supabase.from('acreedor_conceptos').select('acreedor_id, concepto_gasto_id'),
     ])
 
     setAcreedores((acreedoresRes.data || []).map((a: any) => ({
@@ -92,6 +94,19 @@ export default function ObligacionesPage() {
     })))
     setConceptos(conceptosRes.data || [])
     setMediosPago(mediosRes.data || [])
+
+    // Mapa acreedor_id -> [concepto_gasto_id] permitidos para ese acreedor
+    // (tabla puente acreedor_conceptos — no todos los conceptos de la
+    // categoría del acreedor aplican, ej. "Servicios" tiene 5 conceptos
+    // pero Aguas Rionegrinas solo usa uno).
+    const mapa = new Map<number, number[]>()
+    for (const ac of acreedorConceptosRes.data || []) {
+      const lista = mapa.get(ac.acreedor_id) || []
+      lista.push(ac.concepto_gasto_id)
+      mapa.set(ac.acreedor_id, lista)
+    }
+    setConceptosPorAcreedor(mapa)
+
     setLoading(false)
   }
 
@@ -272,7 +287,7 @@ export default function ObligacionesPage() {
       {modalCargo && (
         <ModalNuevoCargo
           acreedor={modalCargo}
-          conceptos={conceptos.filter(c => c.categoria_gasto_id === modalCargo.categoria_gasto_id)}
+          conceptos={conceptos.filter(c => (conceptosPorAcreedor.get(modalCargo.id) || []).includes(c.id))}
           guardando={guardando}
           onCerrar={() => setModalCargo(null)}
           onGuardar={async (payload) => {
@@ -303,7 +318,7 @@ export default function ObligacionesPage() {
         <ModalRegistrarPago
           acreedor={modalPago}
           saldoPendiente={saldoDe(modalPago.id)}
-          conceptos={conceptos.filter(c => c.categoria_gasto_id === modalPago.categoria_gasto_id)}
+          conceptos={conceptos.filter(c => (conceptosPorAcreedor.get(modalPago.id) || []).includes(c.id))}
           mediosPago={mediosPago}
           guardando={guardando}
           onCerrar={() => setModalPago(null)}
@@ -374,7 +389,7 @@ interface ModalNuevoCargoProps {
 }
 
 function ModalNuevoCargo({ acreedor, conceptos, guardando, onCerrar, onGuardar }: ModalNuevoCargoProps) {
-  const [conceptoId, setConceptoId] = useState<number | ''>('')
+  const [conceptoId, setConceptoId] = useState<number | ''>(() => conceptos.length === 1 ? conceptos[0].id : '')
   const [monto, setMonto] = useState('')
   const [periodo, setPeriodo] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).slice(0, 7))
   const [vencimiento, setVencimiento] = useState('')
@@ -459,7 +474,7 @@ interface ModalRegistrarPagoProps {
 }
 
 function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, guardando, onCerrar, onGuardar }: ModalRegistrarPagoProps) {
-  const [conceptoId, setConceptoId] = useState<number | ''>('')
+  const [conceptoId, setConceptoId] = useState<number | ''>(() => conceptos.length === 1 ? conceptos[0].id : '')
   const [monto, setMonto] = useState(saldoPendiente.toLocaleString('es-AR'))
   const [fecha, setFecha] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }))
   const [medioPagoId, setMedioPagoId] = useState<number | ''>('')
