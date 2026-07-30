@@ -368,14 +368,20 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   async function onSubmit(data: ArticuloFormData) {
     if (nombreOrigenDuplicado) {
       if (origenNombreBase) {
-        // Producto con sistema de sabor: hay que elegir un Sabor, y distinto al del origen
-        if (!data.sabor_id) {
-          alert('Este artículo se duplicó desde "' + nombreOrigenDuplicado + '". Elegí un Sabor antes de guardar.')
-          return
-        }
-        if (data.sabor_id === origenSaborId) {
-          alert('Este artículo se duplicó desde "' + nombreOrigenDuplicado + '". Elegí un Sabor distinto para no crear un duplicado exacto.')
-          return
+        // ¿Sigue siendo el mismo producto que el origen (no se tocó Nombre
+        // base)? Ahí sí hay riesgo real de duplicado exacto — se exige un
+        // Sabor distinto. Si Nombre base cambió, ya es otro producto (otra
+        // presentación/línea) y el sabor puede repetirse sin problema.
+        const siguemismoProducto = (data.nombre_base ?? '').trim() === origenNombreBase.trim()
+        if (siguemismoProducto) {
+          if (!data.sabor_id) {
+            alert('Este artículo se duplicó desde "' + nombreOrigenDuplicado + '". Elegí un Sabor antes de guardar.')
+            return
+          }
+          if (data.sabor_id === origenSaborId) {
+            alert('Este artículo se duplicó desde "' + nombreOrigenDuplicado + '". Elegí un Sabor distinto para no crear un duplicado exacto (o cambiá el Nombre base si es una presentación distinta).')
+            return
+          }
         }
       } else if (data.nombre.trim().toLowerCase() === nombreOrigenDuplicado.trim().toLowerCase()) {
         // Producto todavía sin Nombre base: validación de siempre, por nombre completo
@@ -480,7 +486,13 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
           </h1>
           {nombreOrigenDuplicado && (
             <p className="text-xs text-[#00a19a] mt-1">
-              Duplicando desde: <span className="font-medium">{nombreOrigenDuplicado}</span> — {origenNombreBase ? 'elegí un Sabor distinto' : 'cambiá el nombre (ej. el sabor)'} y completá los códigos
+              Duplicando desde: <span className="font-medium">{nombreOrigenDuplicado}</span> — {
+                origenNombreBase
+                  ? ((nombreBaseValue ?? '').trim() === origenNombreBase.trim()
+                      ? 'elegí un Sabor distinto (o cambiá el Nombre base si es otra presentación)'
+                      : 'Nombre base ya cambiado, no hace falta un Sabor distinto')
+                  : 'cambiá el nombre (ej. el sabor)'
+              } y completá los códigos
             </p>
           )}
         </div>
