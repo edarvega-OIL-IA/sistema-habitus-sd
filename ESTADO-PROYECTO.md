@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 25/07/2026 — Jornada larga dedicada al sistema de Sabores estándar para armar la glosa de precios (WhatsApp/IG): tabla `sabores` (26 cargados) + columna `articulos.sabor_id` + trigger que arma el `nombre` solo; tabla `componentes`/`articulo_componentes` (filtro "¿tenés algo con cafeína?"); 5 rubros migrados con `nombre_base`/sabor (Proteínas 74, Creatinas 32, Barras de proteína 43, Geles 59, Bebidas Isotónicas 19); fusión de rubro Geles Cafeina→Geles; baja completa de la marca GU Energy salvo 1 artículo; rediseño de la solapa Identificación en `ArticuloForm.tsx` (Sabor + Nombre autogenerado); fix del gap de "Duplicar artículo" (ahora copia Nombre base y exige Sabor distinto); y feature nueva: botón **"Generar glosa"** en Administrar Artículos que arma el texto de WhatsApp/Instagram agrupado por sabor, listo para copiar.
-**Estado general:** 🟢 En producción. El motor de agrupación por sabor quedó construido y probado de punta a punta (base de datos + formulario + glosa), con 5 de los ~20 rubros del catálogo ya migrados.
-**Próxima acción concreta:** Seguir migrando rubros al sistema de sabores — candidatos siguientes por volumen: Salud y bienestar (35), Shakers (30), Pre-entrenamiento (26), Colágenos (25). Resolver el duplicado viejo "Bcaa 2000 - 120 Cápsulas" (arrastrado desde antes de esta sesión, sin decidir todavía). Retomar el diseño de "Medida"/"Cantidad" para filtros web (Gr/Kg/Lb/Cápsulas), discutido pero sin ejecutar. Actualizar `MAPA-ARCHIVOS.md` y `CLAUDE_CODE_PROMPT.md` con todo lo de esta sesión (ver sección 22).
+**Última actualización:** 29/07/2026 — Sesión larga (27 al 29/07) con foco en fiscalización manual y control de deuda: pantalla nueva **Fiscalización** (pipeline de fiscalización unificado entre POS automático y reintento manual, columna `mensaje_error` real, condición de IVA/pago según el cliente real — cliente Municipalidad de Cinco Saltos cargado y facturado); un incidente real de producción (RLS faltante en 3 tablas rompió la fiscalización automática durante unas horas, detectado y resuelto el mismo día); un bug real corregido (`descuento_pct` de Compras nunca se guardaba en la base, solo se veía en pantalla); ampliación de una Orden de Compra ya guardada (Black Suplementos, $447.910,20 → $712.428,06); en Movimientos, separación de "Período" (referencia) de "Fecha" (la que manda en Dashboard/Reportes, corregido tras un error real de contabilización) más "Fecha de vencimiento" y bloqueo de Efectivo sin caja abierta; y una feature nueva grande: **Obligaciones**, cuenta corriente por acreedor (impuestos, sueldos, servicios, profesionales) con cargos y pagos totales/parciales enlazados a Movimientos reales, cargada con 16 acreedores y su historial real.
+**Estado general:** 🟢 En producción. Incidente de fiscalización del 27/07 resuelto en el día, sin pérdida de numeración real ante ARCA. Sistema de Obligaciones construido, probado y con datos reales cargados.
+**Próxima acción concreta:** seguir sumando acreedores a Obligaciones a medida que aparezcan (correr la consulta de "resumen de faltantes" contra Movimientos, ver sección 23). Resolver el pendiente crítico de reintento de fiscalización. Seguir migrando rubros al sistema de Sabores (sigue pendiente de sesiones anteriores).
 
 ---
 
@@ -13,8 +13,8 @@ Punto de entrada para retomar el proyecto en cualquier sesión nueva. Se actuali
 Documentos relacionados:
 - `HABITUS_SD_ANALISIS_SESION01.md` — análisis funcional completo (41 secciones)
 - `HABITUS_UI_REGLAS.md` — reglas de UI confirmadas
-- `CLAUDE_CODE_PROMPT.md` — contexto para Claude Code (campos BD verificados, rutas, reglas) — **tiene correcciones pendientes de aplicar, ver secciones 21 y 22**
-- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto — **desactualizado, faltan los archivos de las sesiones 22/07 y 25/07 (ver secciones 21 y 22)**
+- `CLAUDE_CODE_PROMPT.md` — contexto para Claude Code (campos BD verificados, rutas, reglas) — actualizado con lo de la sesión 23 (ver sección 23)
+- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto — actualizado con lo de la sesión 23 (ver sección 23)
 - `supabase/01_referencia.sql` ✅ al `supabase/08_cierre_turno.sql` ✅ — todos ejecutados
 - `supabase/agregar_origen_subtipo.sql` — ejecutado en producción, PENDIENTE en sandbox
 - `supabase/limpieza_arranque.sql` — ejecutado en producción (01/07)
@@ -56,7 +56,8 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 8. Dashboard ✅ — responsive mobile arreglado (22/07)
 9. Historial de Artículos ✅ — **nuevo (22/07)**, cuenta corriente de stock por artículo
 10. Reportes — pendiente
-11. **Facturación AFIP automática — ✅ EN PRODUCCIÓN REAL (14/07/2026)**, con un caso real de rechazo sin diagnóstico encontrado el 22/07 (ver sección 21)
+11. **Facturación AFIP automática — ✅ EN PRODUCCIÓN REAL (14/07/2026)**, con reintento manual desde la pantalla **Fiscalización** (29/07, ver sección 23) para lo que falla o queda sin fiscalizar
+11.b **Obligaciones — ✅ nuevo (29/07)**, cuenta corriente por acreedor con cargos y pagos, ver sección 23
 12. Vitrina web propia (reemplaza Empretienda) — post-MVP, sin arrancar. Confirmado con Ariel: el dominio habitussd.com puede reapuntarse a nuestro sistema sin perderlo (es de registro independiente), pero recién tiene sentido cuando este módulo exista — hoy nuestro sistema es gestión interna, no tienda pública.
 13. Team Habitus (sponsoreo a deportistas, a costo) — post-MVP
 
@@ -69,7 +70,8 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 - **Sandbox:** habitus-sd-sandbox (AWS sa-east-1, plan Free) — desincronizado, replicar toda la integración TusFacturasAPP cuando haya ventana
 - `.env.local` → producción | `.env.development.local` → sandbox
 - **Deploy:** https://sistema-habitus-sd.vercel.app (GitHub, auto-deploy en push)
-- **Vercel plan Hobby:** los Runtime Logs no retienen lo suficiente hacia atrás para diagnosticar incidentes de más de ~1 hora — confirmado el 22/07 al intentar rastrear un rechazo de fiscalización. No depender de los logs de Vercel para diagnóstico; guardar los datos relevantes en la propia BD.
+- **Vercel plan Hobby:** los Runtime Logs no retienen lo suficiente hacia atrás para diagnosticar incidentes de más de ~1 hora. Ya no es tan crítico como antes: desde el 29/07 el motivo real de un rechazo de ARCA/TusFacturasAPP queda guardado en `comprobantes.mensaje_error`, visible directo en la pantalla Fiscalización — no depende de los logs de Vercel.
+- **Numeración de comprobantes:** si alguna vez se emite una factura real a mano por el portal web de TusFacturasAPP (en vez de por la API), `numeracion_comprobantes.ultimo_numero` no se entera solo — hay que corregirlo a mano (`UPDATE ... SET ultimo_numero = X`) antes de la próxima fiscalización por sistema, o va a pedir un número ya usado. Pasó el 27/07 con el comprobante 0004-00000031 (Municipalidad).
 - **Variables de entorno en Vercel (Production+Preview, todas Sensitive):** `TUSFACTURAS_APIKEY`, `TUSFACTURAS_APITOKEN`, `TUSFACTURAS_USERTOKEN`, `FISCALIZACION_TUSFACTURAS_ACTIVA=true`.
 
 ---
@@ -101,7 +103,13 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 - [ ] **Duplicado real sin resolver:** "Bcaa 2000 - 120 Cápsulas" (2 ids activos) — detectado hace varias sesiones, sigue sin decidirse cuál de los dos desactivar.
 - [ ] Tabla `tipos_medida` (Gr/Kg/Lb/Cápsulas...) + columnas `medida_tipo_id`/`cantidad_medida` en `articulos`, para filtros de la vitrina web — diseño conversado con Ariel (ver sección 22), sin SQL ejecutado todavía.
 - [ ] Sumar más `componentes` cuando se migren Pre-entrenamiento/Óxido Nítrico (Taurina, Arginina, Citrulina, Beta-Alanina) y Colágenos (Resveratrol) — hoy la tabla `componentes` solo tiene Cafeína.
-- [ ] Actualizar `MAPA-ARCHIVOS.md` y `CLAUDE_CODE_PROMPT.md` con lo de la sesión 25/07 (tabla `sabores`, `componentes`, `articulo_componentes`, columna `articulos.sabor_id`, trigger `fn_generar_nombre_articulo`, cambios en `ArticuloForm.tsx` y `articulos/page.tsx`).
+- [ ] Actualizar `MAPA-ARCHIVOS.md` y `CLAUDE_CODE_PROMPT.md` con lo de la sesión 25/07 (tabla `sabores`, `componentes`, `articulo_componentes`, columna `articulos.sabor_id`, trigger `fn_generar_nombre_articulo`, cambios en `ArticuloForm.tsx` y `articulos/page.tsx`). ✅ **hecho el 29/07, sección 23.**
+- [ ] **Evaluar mecanismo de reintento automático de fiscalización** para ventas en `CAE_Rechazado` — hoy el reintento existe pero es manual, desde la pantalla Fiscalización (29/07). Sigue sin haber un reintento automático programado.
+- [ ] **Verificar RLS + GRANT en tablas viejas antes de sumarles un JOIN nuevo** — el 27/07 se rompió la fiscalización automática en producción porque `condiciones_iva`, `localidades` y `tipos_cliente` (tablas preexistentes, nunca antes consultadas desde el pipeline) no tenían `GRANT SELECT` para `authenticated`. Ya corregido, pero como lección: no asumir que una tabla vieja tiene el GRANT completo solo porque ya existía.
+- [ ] Sandbox sigue sin la integración de Fiscalización manual ni las tablas de Obligaciones — replicar cuando haya ventana.
+- [ ] Seguir sumando acreedores a Obligaciones a medida que aparezcan pagos sueltos en Movimientos — correr la consulta de "resumen de faltantes" (sección 23, Bloque 11) cada tanto.
+- [ ] Decidir si Insumos (Artículos de limpieza, Bolsas/Packaging) necesita algún tipo de seguimiento en Obligaciones — por ahora, decidido que no (no tienen un proveedor fijo).
+- [ ] Revisar si conviene sumar `condicion_pago` a más plazos estándar en `mapeo.ts` si aparece un acreedor con cuenta corriente a un plazo no contemplado (hoy: 5, 10, 15, 20, 30, 45, 60, 90 días — cualquier otro cae al código genérico de cuenta corriente `205`).
 
 ---
 
@@ -403,3 +411,147 @@ Los artículos de rubros todavía sin migrar aparecen igual (como línea suelta 
 4. Sumar componentes nuevos (Taurina, Arginina, Citrulina, Beta-Alanina, Resveratrol) cuando se migren Pre-entrenamiento/Óxido Nítrico/Colágenos.
 5. Actualizar `MAPA-ARCHIVOS.md` y `CLAUDE_CODE_PROMPT.md` con todo lo de esta sesión (tablas nuevas, columna `sabor_id`, trigger, archivos modificados).
 6. Seguir con los pendientes de sesiones previas sin tocar hoy (diagnóstico de rechazo ARCA, reintento de fiscalización, filtros de Historial de cajas, permisos de Agustín, NC real, sandbox — ver sección 6).
+
+---
+
+## 23. Sesión 27-29/07/2026 — Fiscalización manual, incidente de producción, y Obligaciones (cuenta corriente de deuda)
+
+### Bloque 1 — Factura real a la Municipalidad de Cinco Saltos (venta #1401)
+
+Venta del 21/07 en Efectivo (nunca fiscaliza por default) que se dejó Guardada; al ir a facturarla el 27/07 se descubrió que ARCA solo permite backdatear comprobantes de **bienes hasta 5 días** — 6 días de diferencia ya estaba fuera de rango, y además ya había comprobantes reales emitidos con fecha posterior en el mismo punto de venta (bloquea por orden cronológico). Se facturó con fecha real del día (27/07) por el portal web de TusFacturasAPP, no por la API.
+
+Se cargó a la Municipalidad como **cliente real** (antes todo pasaba por Consumidor Final id=1) usando el domicilio de una factura vieja de Cover (más confiable que el sello, que decía otra dirección), con cuenta corriente a 15 días (Cover tenía 30, se acordó achicar). `clientes.id=2`.
+
+### Bloque 2 — Pantalla nueva: Fiscalización (reintento manual)
+
+Antes de esto, una venta que fallaba la fiscalización automática quedaba sin ningún lugar en la UI para reintentarla — había que reconstruir todo a mano por SQL (como se hizo con la venta #1398 en sesión anterior). Se armó:
+
+- **`lib/tusfacturas/fiscalizar.ts`** (nuevo): todo el pipeline de fiscalización que antes vivía duplicado en `api/ventas/route.ts`, ahora en un solo lugar. Si ya existe un `comprobante` para la venta (reintento tras rechazo), reutiliza el mismo número ya reservado — nunca pide uno nuevo para la misma venta. Guarda el motivo real de rechazo en `comprobantes.mensaje_error` (columna nueva) tanto si rechaza ARCA como si hay un error de red/sistema.
+- **`api/ventas/route.ts`** se simplificó mucho — ahora solo llama a `fiscalizarVenta()`.
+- **`api/fiscalizacion/route.ts`** (nuevo): endpoint que usa la pantalla manual, protegido por rol Admin.
+- **`/fiscalizacion`** (nuevo, en el menú): lista ventas Guardadas sin fiscalizar o Rechazadas, con selector de Cliente (de la tabla `clientes`) y — solo si el cliente elegido tiene cuenta corriente — selector Contado/Cuenta corriente. Botón Fiscalizar/Reintentar. Filtros **Rechazadas/Error | Sin fiscalizar | Todas** (en ese orden, con Rechazadas/Error como default — es lo que se revisa a diario).
+- **`lib/tusfacturas/mapeo.ts` y `tipos.ts`**: dejaron de asumir Consumidor Final fijo. Resuelven la condición de IVA real del cliente (`CF`/`RI`/`M`/`E`, tabla de referencia oficial TusFacturasAPP) y la condición de pago real (`201`=Contado, o el código según los días de plazo de cta. cte. — `207` para 15 días, `205` genérico si el plazo no es uno de los estándar), con el vencimiento del comprobante calculado según corresponda.
+
+### Bloque 3 — Incidente real de producción: fiscalización automática rota unas horas
+
+El deploy del Bloque 2 rompió la fiscalización automática del POS (ventas #1414 a #1423 quedaron todas "Pend. fiscal") — el nuevo `JOIN` a `condiciones_iva` (necesario para resolver Exento/RI/Monotributo) destapó que esa tabla, junto con `localidades` y `tipos_cliente` (viejas, preexistentes, nunca antes consultadas por el pipeline), **no tenían `GRANT SELECT` para `authenticated`** — mismo patrón de siempre al tocar una tabla por primera vez, pero esta vez en tablas que ya existían de antes, no una tabla recién creada. Diagnosticado confirmando que **no se llegó a crear ninguna fila en `comprobantes`** para esas ventas (o sea, falló antes de intentar contactar a TusFacturasAPP). Corregido con `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` + policy + `GRANT SELECT` en las 3 tablas. Las ventas afectadas se reintentaron desde `/fiscalizacion` sin perder numeración real.
+
+**Lección para futuras sesiones:** verificar RLS + GRANT explícitamente antes de sumar un `JOIN` nuevo a cualquier tabla, incluso si esa tabla es vieja y "ya debería estar bien".
+
+### Bloque 4 — Numeración desincronizada tras emitir a mano
+
+Al emitir la factura de la Municipalidad por el portal web (Bloque 1) en vez de por la API, `numeracion_comprobantes.ultimo_numero` se quedó en 30 mientras que ARCA ya tenía el 31 real usado. Corregido con `UPDATE` puntual a 31 antes de la próxima fiscalización por sistema (que pidió correctamente el 32).
+
+### Bloque 5 — Bug real corregido: `descuento_pct` de Compras nunca se guardaba
+
+Se encontró editando la Orden #10 de Black Suplementos (ver Bloque 6): el `SELECT` que carga una orden y el `INSERT` que la guarda **nunca incluían la columna `descuento_pct`** de `orden_compra_items`, ni en `compras/nueva/page.tsx` ni en `compras/[id]/page.tsx` — el subtotal en pantalla se calculaba bien en el momento, pero el porcentaje en sí nunca llegaba a la base. Afecta a **cualquier orden cargada con descuento desde que existe la pantalla**, no solo a la que lo destapó. Corregido en los dos archivos (columna sumada al `SELECT` y al `INSERT`).
+
+### Bloque 6 — Orden de Compra #10 (Black Suplementos) ampliada después de guardada
+
+Pedido inicial $447.910,20 (Borrador, transferencia real del 27/07), ampliado telefónicamente el mismo día a $712.428,06 con descuento retroactivo del proveedor por superar $700.000 (aplicado de forma no uniforme: algunos ítems bajaron precio unitario, otros ganaron % de bonificación, uno quedó igual). Como la orden ya había generado un movimiento financiero real (`sincronizarMovimiento` colapsa a **una sola fila** por orden+subtipo), se decidió conscientemente la **Opción A**: dejar que el movimiento se actualice al total nuevo con la fecha original (27/07) — no rompe la conciliación de caja (es transferencia, no efectivo) ni el total mensual (mismo mes). La alternativa de partir en dos filas reales (una por transferencia real) se descartó por ser frágil: se habría vuelto a colapsar en la próxima edición de la misma orden.
+
+### Bloque 7 — Movimientos: "Período" vs. "Fecha" — con una corrección importante en el camino
+
+Se agregó un campo **Período** (mes, separado de Fecha) para poder registrar pagos atrasados (típicamente impuestos) sin perder de vista a qué mes correspondían en realidad. **Primer intento incorrecto:** se hizo que `mes_contable` (el campo que alimenta el Dashboard y Reportes) siguiera al Período en vez de a la Fecha — esto es devengado contable, y este sistema viene siendo de **caja real** desde el día uno. Se aplicó sobre 13 movimientos reales de sueldos de junio (pagados en julio), lo que hizo que julio mostrara una diferencia positiva falsa (+$342.039,63 en vez de la negativa real de más de $1,6M). Detectado por Ariel comparando contra el número que ya conocía de memoria. **Corregido:** `mes_contable` vuelve a seguir siempre a la Fecha real de pago; "Período" queda como campo de **referencia informativa únicamente** (útil para saber "este pago es del F.931 de junio" mirando el detalle), sin mover un peso de mes en ningún reporte. Los 13 movimientos se revirtieron a `mes_contable` = julio.
+
+### Bloque 8 — Movimientos: Fecha de vencimiento + ocultar Período/Vencimiento en Caja
+
+Columna nueva `movimientos.fecha_vencimiento` (opcional). Ambos campos (Período y Vencimiento) se ocultan del formulario cuando la Categoría elegida es "Caja" (Ingreso/Retiro) — no son gastos con período propio, son solo mover plata de lugar.
+
+### Bloque 9 — Validación nueva: Efectivo sin caja abierta
+
+Se confirmó que no existía ninguna validación — un movimiento en Efectivo se podía guardar con la caja cerrada, quedando con `cierre_turno_id = null` y **sin sumarse nunca a ninguna conciliación de turno** (plata real que el sistema nunca iba a contar). Se agregó: aviso en vivo apenas se elige Efectivo sin turno abierto, y bloqueo real al intentar guardar. No afecta a ningún otro medio de pago.
+
+### Bloque 10 — Feature nueva grande: Obligaciones (cuenta corriente de deuda por acreedor)
+
+Objetivo: poder agendar lo que hay que pagar (impuestos, sueldos, servicios, profesionales) sin que cuente como gasto real hasta confirmarlo, y ver de un vistazo qué se debe a cada uno — calcado del mecanismo que Ariel ya llevaba a mano en Excel (columnas Fecha / Nº factura / Importe factura / Importe recibo / Saldo).
+
+```sql
+CREATE TABLE acreedores (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  nombre TEXT NOT NULL,
+  categoria_gasto_id BIGINT NOT NULL REFERENCES categorias_gasto(id),
+  activo BOOLEAN NOT NULL DEFAULT true,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE obligaciones (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  acreedor_id BIGINT NOT NULL REFERENCES acreedores(id),
+  categoria_gasto_id BIGINT NOT NULL REFERENCES categorias_gasto(id),
+  concepto_gasto_id BIGINT NOT NULL REFERENCES conceptos_gasto(id),
+  tipo TEXT NOT NULL CHECK (tipo IN ('Cargo','Pago')),
+  monto NUMERIC NOT NULL,
+  periodo DATE,                -- solo Cargo, mes al que corresponde (referencia)
+  fecha_vencimiento DATE,      -- solo Cargo
+  numero_comprobante TEXT,
+  fecha_pago DATE,             -- solo Pago
+  medio_pago_id BIGINT REFERENCES medios_pago(id),
+  movimiento_id BIGINT REFERENCES movimientos(id),  -- se completa recién al pagar
+  observaciones TEXT,
+  usuario_id UUID NOT NULL REFERENCES usuarios(id),
+  anulado BOOLEAN NOT NULL DEFAULT false,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Tabla puente: qué conceptos puede usar cada acreedor (no alcanza con la
+-- categoría — "Servicios" tiene 5 conceptos pero Aguas Rionegrinas solo usa uno)
+CREATE TABLE acreedor_conceptos (
+  acreedor_id BIGINT NOT NULL REFERENCES acreedores(id),
+  concepto_gasto_id BIGINT NOT NULL REFERENCES conceptos_gasto(id),
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (acreedor_id, concepto_gasto_id)
+);
+```
+
+**Saldo de cada acreedor:** suma de Cargos menos suma de Pagos, calculado siempre al vuelo en la pantalla — nunca se guarda, para que no se pueda desalinear.
+
+**Categoría nueva:** `Profesionales` (para el Contador). **Conceptos nuevos:** `Honorarios Contador`, `SAC` (separado de `Sueldo` — en Argentina se paga en junio y diciembre, mismo criterio de "no evidenciar" que con Sueldo: formal + informal van bajo el mismo concepto). Se **unificaron nombres** de 3 conceptos de Servicios para que coincidan con el acreedor real: `Agua`→`Aguas Rionegrinas`, `Gas Camuzzi`→`Camuzzi Gas`, `Luz EDERSA`→`Edersa`.
+
+**Pantalla `/obligaciones`:** categorías como tarjetas colapsables — cerradas por default; tocar una categoría puntual la auto-abre; tocar "Todas" fuerza a cerrar todas de nuevo (decidido explícitamente por Ariel tras probarlo). Filtro por categoría. Cada acreedor expandible con su detalle Cargo/Pago/Saldo corrido. Botones **"+ Nuevo cargo"** (registra deuda, no toca `movimientos`) y **"+ Registrar pago"** (total o parcial — genera el Egreso real en `movimientos` y lo enlaza vía `movimiento_id`). Los inputs de Monto tenían el bug de no formatear miles/decimales (corregido, mismo patrón `parsearMonto`/buffer de texto que el resto del sistema).
+
+**16 acreedores cargados**, con vínculos reales en `acreedor_conceptos`:
+- **Empleados:** Agustín Chandía (Sueldo, SAC), Fabiana (Limpieza)
+- **Impuestos:** AFIP (F931, AFIP Monotributo), FAECYS, INACAP, OSECAC, Sindicato
+- **Profesionales:** Juan Fernando Arévalo (Contador)
+- **Servicios:** Aguas Rionegrinas, Camuzzi Gas, Edersa, Claro
+- **Local Comercial:** Alquiler
+- **Marketing:** Canva
+- **Página Web:** Empretienda
+- **Sistema:** TusFacturasAPP
+
+**Historial real migrado** (no inventado): sueldos de junio de Agustín (4 cargos: Sueldo con recibo/Adicional, SAC Recibo/Adicional, $1.688.211 total) y Fabiana (1 cargo Limpieza, $260.000, con "16 horas" en observaciones), con sus 13 pagos parciales reales **enlazados a los `movimiento_id` que ya existían** en la base (nunca se insertó un movimiento nuevo) — verificado con `SELECT` antes de armar cada `INSERT`, nunca a ids supuestos. Mismo mecanismo aplicado después a Claro, Canva, Empretienda y TusFacturasAPP (1 cargo + 1 pago cada uno, enlazados a sus movimientos reales de julio).
+
+### Bloque 11 — Consulta reusable: "qué se pagó y no está en Obligaciones"
+
+```sql
+SELECT cat.nombre AS categoria, c.nombre AS concepto,
+       COUNT(*) AS cantidad_movimientos, SUM(m.monto) AS total
+FROM movimientos m
+JOIN categorias_gasto cat ON cat.id = m.categoria_gasto_id
+JOIN conceptos_gasto c ON c.id = m.concepto_gasto_id
+WHERE m.tipo = 'Egreso'
+  AND m.anulado = false
+  AND cat.nombre NOT IN ('Compras Mercadería', 'Caja')  -- eso vive en Compras / es solo mover plata de lugar
+  AND NOT EXISTS (SELECT 1 FROM obligaciones o WHERE o.movimiento_id = m.id)
+GROUP BY cat.nombre, c.nombre
+ORDER BY cat.nombre, c.nombre;
+```
+Decidido explícitamente: **Insumos** (Artículos de limpieza, Bolsas/Packaging) se queda afuera de Obligaciones a propósito — no tienen un proveedor fijo al que "deberle" algo.
+
+### Archivos nuevos o modificados en esta sesión (para `MAPA-ARCHIVOS.md`)
+- `src/app/(sistema)/fiscalizacion/page.tsx` — **nuevo**
+- `src/app/api/fiscalizacion/route.ts` — **nuevo**
+- `src/lib/tusfacturas/fiscalizar.ts` — **nuevo**
+- `src/app/(sistema)/obligaciones/page.tsx` — **nuevo**
+- `src/app/api/ventas/route.ts` — simplificado, usa `fiscalizarVenta()`
+- `src/lib/tusfacturas/mapeo.ts`, `tipos.ts` — condición de IVA/pago reales, ya no asumen Consumidor Final
+- `src/app/(sistema)/compras/nueva/page.tsx`, `compras/[id]/page.tsx` — fix `descuento_pct`
+- `src/components/movimientos/MovimientoForm.tsx` — campos Período/Fecha de vencimiento, ocultos en Caja, bloqueo de Efectivo sin turno abierto
+- `src/components/layout/Sidebar.tsx` — se sumaron "Fiscalización" y "Obligaciones" al menú
+
+### Pendiente para la próxima sesión
+1. Seguir sumando acreedores a Obligaciones a medida que aparezcan (consulta del Bloque 11).
+2. Evaluar reintento **automático** de fiscalización (hoy el reintento es manual, desde `/fiscalizacion`).
+3. Replicar en sandbox la fiscalización manual + tablas de Obligaciones.
+4. Seguir con los pendientes de sesiones previas (permisos de Agustín, NC real, migración de rubros de Sabores, tabla `tipos_medida` — ver sección 6).

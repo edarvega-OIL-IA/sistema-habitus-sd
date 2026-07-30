@@ -32,11 +32,17 @@ src/app/(sistema)/
   ventas/registro/page.tsx
   articulos/page.tsx
   articulos/nuevo/page.tsx
+  articulos/[id]/page.tsx
+  articulos/precios/page.tsx
+  articulos/historial/page.tsx
   compras/page.tsx
   compras/nueva/page.tsx
   compras/[id]/page.tsx
   movimientos/page.tsx
   movimientos/nuevo/page.tsx
+  movimientos/[id]/page.tsx
+  obligaciones/page.tsx (nuevo 29/07 — cuenta corriente por acreedor)
+  fiscalizacion/page.tsx (nuevo 27/07 — reintento manual de fiscalización, rol Admin)
   stock/page.tsx
   stock/nuevo/page.tsx
   stock/[id]/page.tsx
@@ -44,10 +50,14 @@ src/app/(sistema)/
   reportes/page.tsx
   configuracion/page.tsx
 
+src/app/api/ventas/route.ts (simplificado 27/07 — usa lib/tusfacturas/fiscalizar.ts)
+src/app/api/fiscalizacion/route.ts (nuevo 27/07)
+src/lib/tusfacturas/fiscalizar.ts (nuevo 27/07 — pipeline compartido POS automático + reintento manual)
+src/lib/tusfacturas/mapeo.ts / tipos.ts / emitir.ts
 src/components/ventas/PanelPagos.tsx
 src/components/articulos/ArticuloForm.tsx
+src/components/movimientos/MovimientoForm.tsx
 src/components/stock/MovimientoStockForm.tsx
-src/app/api/ventas/route.ts
 src/lib/supabase/client.ts / server.ts
 src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 
@@ -68,15 +78,19 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - Fechas DATE: mostrar con .substring(0,10).split('-').reverse().join('/'), NUNCA new Date()
 - Horas (TIMESTAMPTZ): new Date(s).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })
 
-## FUENTE DE VERDAD DE BD — producción al 30/06/2026 (sesión 15)
+## FUENTE DE VERDAD DE BD — verificado hasta el 29/07/2026 (sesión 23)
 **REGLA: Nunca documentar columnas sin verificar con SELECT en producción.**
 
 ### Catálogo
-- articulos: id, nombre, nombre_base, rubro_id(nullable), marca_id(nullable), codigo_interno, codigo_barra, sku, unidad_medida_id, costo_sin_iva, tasa_iva_id, precio_local, precio_web, precio_mayorista, precio_oferta_web, disponible_local, disponible_web, visible_en_tienda, id_producto_web, id_stock_web, atributo_nombre, atributo_valor, peso_kg, descripcion, id_migracion, activo, creado_en, actualizado_en
+- articulos: id, nombre, nombre_base, sabor_id(nullable, FK sabores), rubro_id(nullable), marca_id(nullable), codigo_interno, codigo_barra, sku, unidad_medida_id, costo_sin_iva, tasa_iva_id, precio_local, precio_web, precio_mayorista, precio_oferta_web, disponible_local, disponible_web, visible_en_tienda, id_producto_web, id_stock_web, atributo_nombre, atributo_valor, peso_kg, descripcion, id_migracion, activo, creado_en, actualizado_en
 - rubros: id, nombre, activo, creado_en — ids 1-19, 22, 23
 - marcas: id, nombre, activo, creado_en — ids 1-16, 18, 20-41
 - unidades_medida: id, nombre, abreviatura, creado_en — Unidad=4, Pack=5, Caja=6
 - tasas_iva: id, nombre, porcentaje, activo, creado_en — 21%=4, 10.5%=5, 0%=6
+- sabores (sesión 25/07): id, nombre, activo, creado_en — 26 cargados (Chocolate, Vainilla, Frutilla, Banana, Frutos Rojos, Dulce De Leche, Cookies, Neutro, Café, Coco, Limón, Maracuyá, Menta, Pistacho, Almendras, Avellana, Manzana, Caramelo, Cereza, Multifrutas, Naranja, Ananá, Uva, Citrus, Mango, Arándano, Pomelo)
+- componentes (sesión 25/07): id, nombre, activo, creado_en — hoy solo "Cafeína". Tabla puente `articulo_componentes` (articulo_id, componente_id) para filtro "¿tenés algo con X?" (Resveratrol, Vitamina D, etc. cuando aparezcan)
+- **Trigger `fn_generar_nombre_articulo`** (sesión 25/07): arma `articulos.nombre` solo (`nombre_base + atributo_valor + marca`) en cada INSERT/UPDATE de esos 3 campos, SOLO si `nombre_base IS NOT NULL`. El campo Nombre en `ArticuloForm.tsx` queda de solo lectura cuando hay `nombre_base` cargado.
+- **5 rubros migrados al sistema de sabores** (de ~20 totales): Proteínas (74), Creatinas (32), Barras de proteína (53), Geles (59 activos de 71), Bebidas Isotónicas (19 activos de 31). El resto del catálogo sigue con `nombre_base`/`sabor_id` en NULL — el trigger no los toca.
 
 ### Ventas y pagos
 - ventas: id, numero_venta, cliente_id, sucursal_id, usuario_id, estado_venta_id, descuento_pct, recargo_pct, subtotal, total, observaciones, fecha_utc(DATE), creado_en, cierre_turno_id, mes_contable
@@ -85,14 +99,33 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - medios_pago: id, nombre, fiscaliza_por_defecto, activo, creado_en — Efectivo=1, Débito=2, Crédito=3, Transferencia=4, QR Mercado Pago=5
 - emisores_pago: id, nombre, fiscaliza, activo, creado_en — Mercado Pago=7
 - estados_venta: id, nombre — 1=Fiscal, 2=Guardado, 3=Anulada, 4=Fiscalizada, 5=Fiscalizado externamente (agregado 08/07/2026 — ventas facturadas por fuera del sistema propio, ej. Cover durante el período paralelo; nombres corregidos contra SELECT real en producción, NO coincidían con lo documentado antes)
+- clientes: id, nombre(texto único, NO nombre/apellido separados), tipo_cliente_id(FK tipos_cliente: 1=Consumidor Final, 2=Cuenta Corriente), cuit, dni, condicion_iva_id(FK condiciones_iva: 1=RI, 2=Monotributista, 3=Exento, 4=Consumidor Final, 5=No Responsable), domicilio, localidad_id(FK localidades), telefono, email, tiene_cuenta_corriente(bool), plazo_dias_cta_cte, descuento_default_pct, notas, activo, creado_en — id=1 Consumidor Final (default), id=2 Municipalidad de Cinco Saltos (cargada 27/07, cta cte 15 días)
+- **IMPORTANTE (incidente 27/07):** `condiciones_iva`, `localidades` y `tipos_cliente` son tablas viejas — verificar SIEMPRE que tengan RLS+GRANT antes de sumarles un JOIN nuevo, no asumir que por ser preexistentes ya están bien configuradas (rompieron la fiscalización automática en producción por faltarles el GRANT).
+- comprobantes: id, venta_id, tipo_comprobante_id, punto_venta_id, numero, comprobante_asociado_id, estado_fiscal_id, factura_cae, factura_cae_vencimiento, fecha_emision_utc, fiscalizacion_intentos, mensaje_error(TEXT, agregado 29/07 — motivo real de rechazo de ARCA/TusFacturasAPP, antes se perdía), creado_en, total, impreso_enviado
+- estados_fiscales: 1=Pendiente, 2=Enviado, 3=CAE_Recibido, 4=CAE_Rechazado, 5=Reintentando, 6=Anulado
+- numeracion_comprobantes: id, punto_venta_id, tipo_comprobante_id, ultimo_numero — **si se emite una factura a mano por el portal web de TusFacturasAPP (no por la API), este contador NO se entera solo; hay que corregirlo a mano antes de la próxima fiscalización por sistema**, o va a pedir un número ya usado ante ARCA.
 
 ### Movimientos financieros
 - categorias_gasto: id, nombre, tipo(Ingreso/Egreso/Ambos/Sistema), creado_en — NO tiene activo
 - conceptos_gasto: id, categoria_gasto_id, nombre, tipo, creado_en
-- movimientos: id, sucursal_id, cuenta_id(nullable), categoria_gasto_id, concepto_gasto_id, tipo, monto, fecha_utc(DATE), mes_contable(DATE), entidad_tipo_id, entidad_id, origen_tipo, origen_id, origen_subtipo(TEXT, sesión 15 — 'mercaderia'|'flete'), estado_cobro_id, medio_pago_id, turno_id, usuario_id, observaciones, anulado, creado_en
+- movimientos: id, sucursal_id, cuenta_id(nullable), categoria_gasto_id, concepto_gasto_id, tipo, monto, fecha_utc(DATE), mes_contable(DATE), fecha_vencimiento(DATE, nullable, agregado 29/07 — solo referencia, ver regla abajo), entidad_tipo_id, entidad_id, origen_tipo, origen_id, origen_subtipo(TEXT, sesión 15 — 'mercaderia'|'flete'), estado_cobro_id(sin usar — verificado 30/07, siempre NULL, no confundir con el modelo de `obligaciones`), medio_pago_id, turno_id, usuario_id, observaciones, anulado, creado_en
 - Compras: categoria_gasto_id=1, concepto_gasto_id=33 | Flete: concepto_gasto_id=44
-- Caja ingreso: categoria_gasto_id=13, concepto_gasto_id=43 | Caja retiro: concepto_gasto_id=41
+- Caja ingreso: categoria_gasto_id=13, concepto_gasto_id=43 | Caja retiro: categoria_gasto_id=13, concepto_gasto_id=41
 - **Distinguir movimientos del mismo origen (ej. mercadería vs flete de una orden) usar SIEMPRE `origen_subtipo`, nunca texto libre en `observaciones`.**
+- **`mes_contable` SIEMPRE sigue al mes de `fecha_utc` (caja real) — NUNCA al "Período" que carga el formulario.** El campo "Período" (`MovimientoForm.tsx`) es solo una etiqueta de referencia para saber a qué mes corresponde un pago atrasado (ej. impuesto de junio pagado en julio) — no mueve un peso de mes en Dashboard/Reportes. Error real cometido y corregido el 29/07: se había hecho que `mes_contable` siguiera al Período, descuadrando julio en +$1,9M.
+- Categoría "Caja" (Ingreso/Retiro) oculta los campos Período y Fecha de vencimiento en el formulario — no son gastos con período propio.
+- **Validación (29/07):** un movimiento en Efectivo se bloquea si no hay `cierres_turno` con `estado_cierre_turno_id=1` (turno abierto) — si no, ese efectivo real nunca se sumaría a ninguna conciliación de caja.
+
+### Obligaciones (cuenta corriente por acreedor — sesión 29/07)
+- acreedores: id, nombre, categoria_gasto_id(FK categorias_gasto — agrupa visualmente, no filtra conceptos), activo, creado_en
+- acreedor_conceptos: acreedor_id, concepto_gasto_id (PK compuesta) — tabla puente; QUÉ conceptos puede usar cada acreedor. NO alcanza con filtrar por categoría del acreedor (ej. "Servicios" tiene 5 conceptos pero un acreedor puntual solo usa 1) — SIEMPRE unir por esta tabla, nunca por categoria_gasto_id directo.
+- obligaciones: id, acreedor_id, categoria_gasto_id, concepto_gasto_id, tipo('Cargo'|'Pago'), monto, periodo(DATE, solo Cargo, referencia), fecha_vencimiento(solo Cargo), numero_comprobante, fecha_pago(solo Pago), medio_pago_id(solo Pago), movimiento_id(FK movimientos, solo Pago — se completa recién al pagar), observaciones, usuario_id, anulado, creado_en
+- **Saldo de un acreedor = SUM(Cargo) - SUM(Pago), calculado siempre al vuelo — nunca se guarda ni cachea.**
+- Un "Pago" en Obligaciones SIEMPRE debe generar (o enlazar a) una fila real en `movimientos` — nunca insertar un Pago sin `movimiento_id`.
+- 16 acreedores cargados: Agustín Chandía, Fabiana, AFIP, FAECYS, INACAP, OSECAC, Sindicato, Juan Fernando Arévalo (Contador), Aguas Rionegrinas, Camuzzi Gas, Edersa, Alquiler, Claro, Canva, Empretienda, TusFacturasAPP.
+- Categoría nueva: `Profesionales`. Conceptos nuevos: `Honorarios Contador`, `SAC` (separado de `Sueldo`, se paga en junio/diciembre).
+- 3 conceptos renombrados para coincidir con el nombre del acreedor real: `Agua`→`Aguas Rionegrinas`, `Gas Camuzzi`→`Camuzzi Gas`, `Luz EDERSA`→`Edersa`.
+- Insumos (Artículos de limpieza, Bolsas/Packaging) decidido explícitamente que NO entran en Obligaciones — no tienen proveedor fijo.
 
 ### Stock
 - articulo_stock: id, articulo_id, sucursal_id, stock_actual, stock_min, stock_max, actualizado_en
@@ -104,8 +137,9 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 ### Compras
 - proveedores: id, nombre_comercial(NO nombre), cuit, razon_social, domicilio, cbu_alias, telefono, email, notas, activo, creado_en
 - ordenes_compra: id, numero_orden, proveedor_id, sucursal_id, deposito_id, usuario_id, tipo_orden_compra_id, estado_orden_compra_id, tiene_comprobante, numero_factura_proveedor, numero_remito_proveedor, numero_pedido_externo, fecha_factura, fecha_remito, fecha_orden, descuento_pct, medio_pago_id, flete_monto, flete_fecha, flete_medio_pago_id, flete_transportista_id, monto_comprobante, subtotal, total, observaciones, creado_en
-- orden_compra_items: id, orden_compra_id, articulo_id(nullable — sesión 15), cantidad_facturada, cantidad_recibida, precio_unitario_sin_iva, flete_prorrateado, costo_final_unitario, subtotal, es_ajuste_redondeo(BOOLEAN, sesión 15), creado_en
+- orden_compra_items: id, orden_compra_id, articulo_id(nullable — sesión 15), cantidad_facturada, cantidad_recibida, precio_unitario_sin_iva, descuento_pct(NUMERIC NOT NULL DEFAULT 0 — **bug real corregido 28/07**: la columna existía pero nunca se leía en el SELECT ni se escribía en el INSERT de `compras/nueva/page.tsx` y `compras/[id]/page.tsx`; afectó a toda orden cargada con descuento desde que existe la pantalla), flete_prorrateado, costo_final_unitario, subtotal, es_ajuste_redondeo(BOOLEAN, sesión 15), creado_en
 - **Lógica de movimientos (sesión 15):** el movimiento de mercadería y de flete se generan al GUARDAR la orden (Borrador o Confirmada), no solo al Confirmar — disparado por monto>0 en cada campo. Se distinguen por `movimientos.origen_subtipo` ('mercaderia'|'flete'), NUNCA por texto en observaciones. Stock/costo/historico_precios solo se tocan al Confirmar.
+- **`sincronizarMovimiento()` mantiene UNA SOLA fila por orden+subtipo** — si se edita una orden que ya generó su movimiento (ej. el pedido creció de precio después de guardado), la función actualiza esa misma fila al monto nuevo con la fecha original de la orden, NO crea una segunda fila. Si en la vida real hubo dos pagos reales en fechas distintas para la misma orden, esto es una simplificación consciente (no rompe conciliación de caja si es transferencia, ni el total mensual si cae en el mismo mes) — partir en dos filas reales es frágil porque la próxima edición de la misma orden las volvería a colapsar en una.
 - **Validación de comprobante (sesión 15):** campo `monto_comprobante` en la orden; diferencia ≥$500 bloquea guardado; diferencia <$500 ofrece ajuste automático que inserta un ítem `es_ajuste_redondeo=true` en `orden_compra_items` (nunca ajustar el precio unitario de un artículo real para forzar el cierre).
 
 ### Usuarios
@@ -162,6 +196,10 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - NO distinguir movimientos de un mismo origen por texto en observaciones — usar columna `origen_subtipo`
 - NO ajustar precios unitarios de artículos reales para forzar que un total cierre — usar un ítem de ajuste separado (`es_ajuste_redondeo`)
 - NO asumir que una tabla nueva tiene las 4 políticas RLS solo porque tiene SELECT — verificar INSERT/UPDATE/DELETE explícitamente
+- NO asumir que una tabla VIEJA/preexistente tiene RLS+GRANT completos solo por ya estar en producción — verificar antes de sumarle un JOIN nuevo (rompió producción el 27/07 con `condiciones_iva`/`localidades`/`tipos_cliente`)
+- NO hacer que `mes_contable` de `movimientos` siga a un campo distinto de `fecha_utc` — siempre es caja real, "Período" es solo referencia
+- NO insertar un "Pago" en `obligaciones` sin un `movimiento_id` real enlazado — siempre generar (o enlazar a) una fila real de `movimientos`
+- NO filtrar los conceptos disponibles de un acreedor por su `categoria_gasto_id` — usar siempre la tabla puente `acreedor_conceptos`
 
 ## Errores críticos aprendidos
 1. Joins anidados bloqueados por RLS — siempre query separada + merge por Map
@@ -181,3 +219,7 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 15. Nunca ajustar el precio unitario de un artículo real para forzar que un total cierre exacto contra un comprobante — el ajuste de redondeo debe ser un ítem separado y visible, no una alteración silenciosa del precio real del producto
 16. Movimientos financieros generados por una Orden de Compra deben dispararse por `monto > 0` en el guardado (Borrador o Confirmada), no solo al Confirmar — de lo contrario la caja real queda desalineada del sistema durante todo el tiempo que la orden permanece sin confirmar
 17. Una secuencia de Postgres puede desincronizarse del `MAX(id)` real de una tabla si en algún momento se insertó una fila con `id` puesto a mano — el síntoma es `duplicate key value violates unique constraint` al hacer un INSERT normal. Fix: `SELECT setval(pg_get_serial_sequence('tabla','id'), (SELECT MAX(id) FROM tabla));` antes de reintentar el INSERT
+18. `numeracion_comprobantes.ultimo_numero` no se entera solo si se emite una factura real a mano por el portal web de TusFacturasAPP en vez de por la API — corregir con `UPDATE` puntual antes de la próxima fiscalización por sistema, o pide un número ya usado ante ARCA
+19. Tablas viejas/preexistentes pueden no tener RLS+GRANT completos aunque ya estén en producción hace tiempo — el 27/07 un `JOIN` nuevo a `condiciones_iva`/`localidades`/`tipos_cliente` rompió la fiscalización automática porque nadie las había consultado desde el pipeline antes; verificar SIEMPRE, no solo en tablas recién creadas
+20. Confundir "Período" (etiqueta de referencia) con "mes_contable" (lo que alimenta Dashboard/Reportes) descuadra los totales mensuales de forma silenciosa — `mes_contable` debe seguir SIEMPRE a `fecha_utc` (caja real), nunca a un campo editable aparte
+21. Al mandar el mismo archivo de descarga varias veces en una sesión larga con el mismo nombre, el navegador puede guardar copias numeradas o el usuario puede mover una versión vieja sin darse cuenta — si `git status`/`git commit` dice "nothing to commit" después de un `Move-Item` que se esperaba con cambios, verificar el contenido real del archivo local (`Select-String -Pattern "algo_distintivo_del_cambio"`) antes de asumir que el deploy está mal
