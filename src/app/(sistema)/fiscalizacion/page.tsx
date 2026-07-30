@@ -42,7 +42,7 @@ export default function FiscalizacionPage() {
   const [contadoSeleccionado, setContadoSeleccionado] = useState<Map<number, boolean>>(new Map())
   const [procesando, setProcesando] = useState<number | null>(null)
   const [resultados, setResultados] = useState<Map<number, { ok: boolean; mensaje: string }>>(new Map())
-  const [filtroEstado, setFiltroEstado] = useState<'todos' | 'error' | 'sin_fiscalizar'>('todos')
+  const [filtroEstado, setFiltroEstado] = useState<'todos' | 'error' | 'sin_fiscalizar'>('error')
 
   useEffect(() => { cargarDatos() }, [])
 
@@ -143,9 +143,9 @@ export default function FiscalizacionPage() {
 
       <div className="flex gap-2 mb-4">
         {([
-          ['todos', 'Todas', ventas.length],
           ['error', 'Rechazadas / Error', ventas.filter(v => v.estado_venta_id === 1).length],
           ['sin_fiscalizar', 'Sin fiscalizar', ventas.filter(v => v.estado_venta_id === 2).length],
+          ['todos', 'Todas', ventas.length],
         ] as const).map(([valor, etiqueta, cantidad]) => (
           <button
             key={valor}
