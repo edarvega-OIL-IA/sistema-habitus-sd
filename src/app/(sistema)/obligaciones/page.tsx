@@ -176,7 +176,7 @@ export default function ObligacionesPage() {
           Todas
         </button>
         {categorias.map(cat => (
-          <button key={cat} type="button" onClick={() => setFiltroCategoria(cat)}
+          <button key={cat} type="button" onClick={() => { setFiltroCategoria(cat); setCategoriasAbiertas(prev => new Set(prev).add(cat)) }}
             className={`px-3 py-1.5 rounded text-sm border transition-colors ${
               filtroCategoria === cat ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
             }`}>
