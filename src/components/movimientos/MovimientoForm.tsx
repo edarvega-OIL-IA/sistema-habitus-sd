@@ -233,7 +233,12 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
     setErrorMsg(null)
     const supabase = createClient()
     try {
-      const mes_contable = `${data.periodo}-01`
+      // mes_contable SIEMPRE sigue a la Fecha real de pago (este sistema es
+      // de caja real desde el día uno, no de devengado contable) — "Período"
+      // es solo referencia informativa, nunca mueve un peso de mes en el
+      // Dashboard/Reportes, aunque diga algo distinto (ej. un impuesto de
+      // junio pagado en julio: el egreso real sigue contando en julio).
+      const mes_contable = `${data.fecha.slice(0, 7)}-01`
 
       if (esEdicion) {
         const { error } = await supabase.from('movimientos').update({
@@ -405,7 +410,7 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
             <input {...register('periodo')} type="month"
               onChange={e => { setPeriodoTocado(true); setValue('periodo', e.target.value, { shouldValidate: true }) }}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
-            <p className="text-xs text-gray-500 mt-1">A qué mes corresponde el gasto — se sigue solo de la Fecha, salvo que lo cambies (ej. un impuesto pagado atrasado).</p>
+            <p className="text-xs text-gray-500 mt-1">Solo referencia (ej. "este pago es del impuesto de junio") — no cambia el mes en Dashboard/Reportes, eso siempre sigue a la Fecha real de pago.</p>
             {errors.periodo && <p className="text-red-500 text-xs mt-1">{errors.periodo.message}</p>}
           </div>
           )}
