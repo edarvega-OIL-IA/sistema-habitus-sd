@@ -165,8 +165,8 @@ export default function ReportesPage() {
   }, [datos, anioSeleccionado])
 
   const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
-  const fmtEtiqueta = (n: number | string | undefined) => Math.round(Number(n ?? 0)).toLocaleString('es-AR')
-  const fmtEje = (n: number | string | undefined) => {
+  const fmtEtiqueta = (n: any) => Math.round(Number(n ?? 0)).toLocaleString('es-AR')
+  const fmtEje = (n: any) => {
     const num = Number(n ?? 0)
     const abs = Math.abs(num)
     if (abs >= 1_000_000) return (num / 1_000_000).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + 'M'
@@ -227,7 +227,7 @@ export default function ReportesPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={0} angle={-35} textAnchor="end" height={60} />
                 <YAxis tickFormatter={fmtEje} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(value: number | string | undefined) => fmt(Number(value ?? 0))} />
+                <Tooltip formatter={(value: any) => fmt(Number(value ?? 0))} />
                 <Legend />
                 <Bar dataKey="ventas" name="Ventas" fill="#00a19a" radius={[4, 4, 0, 0]}>
                   <LabelList dataKey="ventas" position="top" formatter={fmtEtiqueta} style={{ fontSize: 10, fill: '#3c3c3b' }} />
@@ -255,7 +255,7 @@ export default function ReportesPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={0} angle={-35} textAnchor="end" height={60} />
                 <YAxis tickFormatter={fmtEje} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(value: number | string | undefined) => fmt(Number(value ?? 0))} />
+                <Tooltip formatter={(value: any) => fmt(Number(value ?? 0))} />
                 <Legend />
                 <Bar dataKey="utilidadBruta" name="Utilidad Bruta" fill="#00a19a" radius={[4, 4, 0, 0]}>
                   <LabelList dataKey="utilidadBruta" position="top" formatter={fmtEtiqueta} style={{ fontSize: 10, fill: '#3c3c3b' }} />
