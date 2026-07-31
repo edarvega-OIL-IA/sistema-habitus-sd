@@ -522,9 +522,8 @@ export default function DashboardPage() {
     },
   ]
 
-  // ── Gráfico de torta (donut CSS, sin librerías) ───────────────────────
-  const totalTurnoMes = ventasPorTurnoMes.manana + ventasPorTurnoMes.tarde
-  const pctManana = totalTurnoMes > 0 ? (ventasPorTurnoMes.manana / totalTurnoMes) * 100 : 0
+  // (el donut de "Por turno" se sacó — ahora Ventas del día muestra el acumulado
+  // mensual de cada turno directamente en su propia tarjeta)
 
   return (
     <div className="space-y-6">
@@ -590,6 +589,10 @@ export default function DashboardPage() {
             </div>
             <p className="text-sm sm:text-xl md:text-2xl font-bold text-[#3c3c3b] leading-tight break-words">{fmt(ventasManana.total)}</p>
             <p className="text-xs text-gray-400 mt-1">{ventasManana.cantidad} {ventasManana.cantidad === 1 ? 'venta' : 'ventas'}</p>
+            <div className="mt-2 pt-2 border-t border-gray-100">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wide">Acumulado mensual</p>
+              <p className="text-xs sm:text-sm font-semibold text-gray-600 break-words">{fmt(ventasPorTurnoMes.manana)}</p>
+            </div>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 min-w-0">
             <div className="flex items-center gap-2 mb-3">
@@ -598,6 +601,10 @@ export default function DashboardPage() {
             </div>
             <p className="text-sm sm:text-xl md:text-2xl font-bold text-[#3c3c3b] leading-tight break-words">{fmt(ventasTarde.total)}</p>
             <p className="text-xs text-gray-400 mt-1">{ventasTarde.cantidad} {ventasTarde.cantidad === 1 ? 'venta' : 'ventas'}</p>
+            <div className="mt-2 pt-2 border-t border-gray-100">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wide">Acumulado mensual</p>
+              <p className="text-xs sm:text-sm font-semibold text-gray-600 break-words">{fmt(ventasPorTurnoMes.tarde)}</p>
+            </div>
           </div>
           <div className="bg-[#3c3c3b] rounded-lg p-3 sm:p-4 min-w-0">
             <div className="flex items-center gap-2 mb-3">
@@ -606,6 +613,10 @@ export default function DashboardPage() {
             </div>
             <p className="text-sm sm:text-xl md:text-2xl font-bold text-white leading-tight break-words">{fmt(ventasDia.total)}</p>
             <p className="text-xs text-white/50 mt-1">{ventasDia.cantidad} {ventasDia.cantidad === 1 ? 'venta' : 'ventas'}</p>
+            <div className="mt-2 pt-2 border-t border-white/10">
+              <p className="text-[10px] text-white/40 uppercase tracking-wide">Acumulado mensual</p>
+              <p className="text-xs sm:text-sm font-semibold text-white/80 break-words">{fmt(resumenMes.ventas)}</p>
+            </div>
           </div>
         </div>
       </div>
@@ -629,45 +640,20 @@ export default function DashboardPage() {
           <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4 min-w-0">
             <div className="flex items-center gap-2 mb-3">
               <Percent className="w-4 h-4 text-[#00a19a]" />
-              <p className="text-xs text-[#00a19a] font-medium">Utilidad</p>
+              <p className="text-xs text-[#00a19a] font-medium">Utilidad Bruta</p>
             </div>
-            <div>
-              <p className="text-[10px] text-[#00a19a]/70 font-medium uppercase tracking-wide">Bruta</p>
-              <p className="text-sm sm:text-lg font-bold text-[#00786f] leading-tight break-words">{fmt(resumenMes.ventas - resumenMes.costoMercaderia)}</p>
-              <p className="text-[10px] text-[#00a19a]/70">{fmtPct(resumenMes.margenPct)} de margen</p>
-            </div>
-            <div className="mt-2 pt-2 border-t border-[#00a19a]/20">
-              <p className="text-[10px] text-[#00a19a]/70 font-medium uppercase tracking-wide">Neta</p>
-              <p className="text-sm sm:text-lg font-bold text-[#00786f] leading-tight break-words">
-                {fmt(resumenMes.ventas - resumenMes.costoMercaderia - resumenMes.costosFijos)}
-              </p>
-              <p className="text-[10px] text-[#00a19a]/70">tras gastos fijos ({fmt(resumenMes.costosFijos)})</p>
-            </div>
+            <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">{fmt(resumenMes.ventas - resumenMes.costoMercaderia)}</p>
+            <p className="text-xs text-[#00a19a]/80 mt-1">{fmtPct(resumenMes.margenPct)} de margen</p>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4 min-w-0">
-            <p className="text-xs text-gray-500 font-medium mb-2">Por turno</p>
-            {totalTurnoMes === 0 ? (
-              <p className="text-xs text-gray-400 mt-4">Sin ventas este mes.</p>
-            ) : (
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-12 h-12 rounded-full shrink-0"
-                  style={{ background: `conic-gradient(#00a19a 0% ${pctManana}%, #0f6b66 ${pctManana}% 100%)` }}
-                >
-                  <div className="w-6 h-6 bg-white rounded-full m-3" />
-                </div>
-                <div className="space-y-1 text-xs min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#00a19a] shrink-0" />
-                    <span className="text-gray-600 truncate">M: {fmt(ventasPorTurnoMes.manana)}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#0f6b66] shrink-0" />
-                    <span className="text-gray-600 truncate">T: {fmt(ventasPorTurnoMes.tarde)}</span>
-                  </div>
-                </div>
-              </div>
-            )}
+          <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4 min-w-0">
+            <div className="flex items-center gap-2 mb-3">
+              <Percent className="w-4 h-4 text-[#00a19a]" />
+              <p className="text-xs text-[#00a19a] font-medium">Utilidad Neta</p>
+            </div>
+            <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">
+              {fmt(resumenMes.ventas - resumenMes.costoMercaderia - resumenMes.costosFijos)}
+            </p>
+            <p className="text-xs text-[#00a19a]/80 mt-1">tras gastos fijos ({fmt(resumenMes.costosFijos)})</p>
           </div>
           <div className="bg-green-50 rounded-lg border border-green-200 p-4 min-w-0">
             <div className="flex items-center gap-2 mb-3">
