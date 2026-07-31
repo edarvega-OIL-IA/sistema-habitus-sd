@@ -16,6 +16,7 @@ interface ResumenMes {
   egresos: number
   costoMercaderia: number
   margenPct: number
+  costosFijos: number
 }
 
 interface ArticuloStockMinimo {
@@ -68,7 +69,7 @@ export default function DashboardPage() {
   const [ventasManana, setVentasManana] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasTarde, setVentasTarde] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasDia, setVentasDia] = useState<VentasTurno>({ total: 0, cantidad: 0 })
-  const [resumenMes, setResumenMes] = useState<ResumenMes>({ ventas: 0, ingresos: 0, egresos: 0, costoMercaderia: 0, margenPct: 0 })
+  const [resumenMes, setResumenMes] = useState<ResumenMes>({ ventas: 0, ingresos: 0, egresos: 0, costoMercaderia: 0, margenPct: 0, costosFijos: 0 })
   const [stockMinimo, setStockMinimo] = useState<ArticuloStockMinimo[]>([])
   const [puntoEquilibrio, setPuntoEquilibrio] = useState<PuntoEquilibrio>({
     objetivoEsteMes: 0, ventasEsteMes: 0, diferenciaEsteMes: 0,
@@ -251,7 +252,10 @@ export default function DashboardPage() {
   }
 
   async function cargarResumenMes() {
-    const { totalVentas, costoMercaderia } = await calcularVentasYCosto(mesDesde, hoy)
+    const [{ totalVentas, costoMercaderia }, costosFijos] = await Promise.all([
+      calcularVentasYCosto(mesDesde, hoy),
+      calcularCostosFijos(mesDesde), // real de lo que va del mes en curso (parcial, no estimado)
+    ])
 
     const { data: movData, error: movError } = await supabase
       .from('movimientos')
@@ -266,7 +270,7 @@ export default function DashboardPage() {
     const egresos = (movData || []).filter(m => m.tipo === 'Egreso').reduce((s, m) => s + m.monto, 0)
     const margenPct = totalVentas > 0 ? (totalVentas - costoMercaderia) / totalVentas : 0
 
-    setResumenMes({ ventas: totalVentas, ingresos, egresos, costoMercaderia, margenPct })
+    setResumenMes({ ventas: totalVentas, ingresos, egresos, costoMercaderia, margenPct, costosFijos })
   }
 
   // Costos Fijos de un mes = egresos EXCEPTO Compras Mercadería (categoria_gasto_id=1,
@@ -627,8 +631,18 @@ export default function DashboardPage() {
               <Percent className="w-4 h-4 text-[#00a19a]" />
               <p className="text-xs text-[#00a19a] font-medium">Utilidad</p>
             </div>
-            <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">{fmt(resumenMes.ventas - resumenMes.costoMercaderia)}</p>
-            <p className="text-xs text-[#00a19a]/80 mt-1">{fmtPct(resumenMes.margenPct)} de margen</p>
+            <div>
+              <p className="text-[10px] text-[#00a19a]/70 font-medium uppercase tracking-wide">Bruta</p>
+              <p className="text-sm sm:text-lg font-bold text-[#00786f] leading-tight break-words">{fmt(resumenMes.ventas - resumenMes.costoMercaderia)}</p>
+              <p className="text-[10px] text-[#00a19a]/70">{fmtPct(resumenMes.margenPct)} de margen</p>
+            </div>
+            <div className="mt-2 pt-2 border-t border-[#00a19a]/20">
+              <p className="text-[10px] text-[#00a19a]/70 font-medium uppercase tracking-wide">Neta</p>
+              <p className="text-sm sm:text-lg font-bold text-[#00786f] leading-tight break-words">
+                {fmt(resumenMes.ventas - resumenMes.costoMercaderia - resumenMes.costosFijos)}
+              </p>
+              <p className="text-[10px] text-[#00a19a]/70">tras gastos fijos ({fmt(resumenMes.costosFijos)})</p>
+            </div>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4 min-w-0">
             <p className="text-xs text-gray-500 font-medium mb-2">Por turno</p>
