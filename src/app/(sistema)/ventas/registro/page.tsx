@@ -250,7 +250,10 @@ export default function RegistroVentasPage() {
                 <button onClick={retroceder} className="w-7 h-7 flex items-center justify-center rounded-l border border-r-0 border-gray-300 hover:bg-gray-100 text-gray-600 text-sm">‹</button>
               )}
               <button
-                onClick={() => setModoPeriodo(m)}
+                onClick={() => {
+                  setModoPeriodo(m)
+                  if (m === 'mes' || m === 'anio') setTurnoFiltro('todos')
+                }}
                 className={`px-3 py-1.5 text-sm font-medium border transition-colors ${
                   modoPeriodo === m ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
                 } ${m !== 'libre' && modoPeriodo === m ? '' : 'rounded'}`}
