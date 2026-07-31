@@ -234,23 +234,17 @@ export default function DashboardPage() {
     const totalVentas = (ventasRes || []).reduce((s, v) => s + v.total, 0)
     const ventaIds = (ventasRes || []).map(v => v.id)
 
+    // Costo real grabado en el momento exacto de cada venta (venta_items.costo_unitario,
+    // desde 30/07) — ya no se recalcula con el costo ACTUAL del artículo, que podía
+    // cambiar por compras posteriores y distorsionar el margen de ventas pasadas.
     let costoMercaderia = 0
     if (ventaIds.length > 0) {
       const { data: itemsData } = await supabase
         .from('venta_items')
-        .select('articulo_id, cantidad')
+        .select('cantidad, costo_unitario')
         .in('venta_id', ventaIds)
 
-      if (itemsData && itemsData.length > 0) {
-        const articuloIds = [...new Set(itemsData.map(i => i.articulo_id))]
-        const { data: articulosCosto } = await supabase
-          .from('articulos')
-          .select('id, costo_sin_iva')
-          .in('id', articuloIds)
-
-        const costoMap = new Map((articulosCosto || []).map(a => [a.id, a.costo_sin_iva || 0]))
-        costoMercaderia = itemsData.reduce((s, i) => s + i.cantidad * (costoMap.get(i.articulo_id) || 0), 0)
-      }
+      costoMercaderia = (itemsData || []).reduce((s, i) => s + i.cantidad * (i.costo_unitario || 0), 0)
     }
 
     return { totalVentas, costoMercaderia }
@@ -620,13 +614,21 @@ export default function DashboardPage() {
             timeZone: 'America/Argentina/Buenos_Aires'
           }).replace(/^\w/, c => c.toUpperCase())}
         </h2>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
           <div className="bg-white rounded-lg border border-gray-200 p-4 min-w-0">
             <div className="flex items-center gap-2 mb-3">
               <ShoppingCart className="w-4 h-4 text-gray-400" />
               <p className="text-xs text-gray-500 font-medium">Ventas del mes</p>
             </div>
             <p className="text-base sm:text-xl font-bold text-[#3c3c3b] leading-tight break-words">{fmt(resumenMes.ventas)}</p>
+          </div>
+          <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4 min-w-0">
+            <div className="flex items-center gap-2 mb-3">
+              <Percent className="w-4 h-4 text-[#00a19a]" />
+              <p className="text-xs text-[#00a19a] font-medium">Utilidad</p>
+            </div>
+            <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">{fmt(resumenMes.ventas - resumenMes.costoMercaderia)}</p>
+            <p className="text-xs text-[#00a19a]/80 mt-1">{fmtPct(resumenMes.margenPct)} de margen</p>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4 min-w-0">
             <p className="text-xs text-gray-500 font-medium mb-2">Por turno</p>
