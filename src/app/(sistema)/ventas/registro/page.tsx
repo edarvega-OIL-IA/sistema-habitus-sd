@@ -355,7 +355,7 @@ export default function RegistroVentasPage() {
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-            <span className="text-xs text-gray-500">{ventasFiltradas.length} {ventasFiltradas.length === 1 ? 'venta' : 'ventas'}</span>
+            <span className="text-xs text-gray-500">{ventasFiltradas.filter(v => v.estado_venta_id !== 3).length} {ventasFiltradas.filter(v => v.estado_venta_id !== 3).length === 1 ? 'venta' : 'ventas'}</span>
           </div>
           <div className="divide-y divide-gray-100">
             {ventasFiltradas.map(v => {
