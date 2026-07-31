@@ -260,14 +260,18 @@ export default function ReportesPage() {
                 <Bar dataKey="utilidadBruta" name="Utilidad Bruta" fill="#00a19a" radius={[4, 4, 0, 0]}>
                   <LabelList dataKey="utilidadBruta" position="top" formatter={fmtEtiqueta} style={{ fontSize: 10, fill: '#3c3c3b' }} />
                 </Bar>
+                <Bar dataKey="costosFijos" name="Gastos fijos" fill="#DC2626" radius={[4, 4, 0, 0]}>
+                  <LabelList dataKey="costosFijos" position="top" formatter={fmtEtiqueta} style={{ fontSize: 10, fill: '#3c3c3b' }} />
+                </Bar>
                 <Bar dataKey="utilidadNeta" name="Utilidad Neta" fill="#3c3c3b" radius={[4, 4, 0, 0]}>
                   <LabelList dataKey="utilidadNeta" position="top" formatter={fmtEtiqueta} style={{ fontSize: 10, fill: '#3c3c3b' }} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
             <p className="text-[11px] text-gray-400 mt-2">
-              Bruta = Ventas − Costo de mercadería vendida (costo real grabado en cada venta). Neta = Bruta − Gastos
-              fijos reales del mes.
+              Bruta = Ventas − Costo de mercadería vendida (costo real grabado en cada venta). Gastos fijos = mismos
+              movimientos que usa Punto de equilibrio (excluye Compras Mercadería y Retiro de caja). Neta = Bruta −
+              Gastos fijos.
             </p>
           </div>
         </>
