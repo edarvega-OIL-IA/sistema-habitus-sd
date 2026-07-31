@@ -541,7 +541,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
           <button
             onClick={() => router.push('/ventas/registro?turno=1')}
-            className="text-left bg-white rounded-lg border border-gray-200 p-3 sm:p-4 min-w-0 hover:border-[#00a19a]/40 hover:bg-[#00a19a]/5 transition-colors"
+            className="text-left bg-white rounded-lg border border-gray-200 p-3 sm:p-4 min-w-0 hover:border-[#00a19a]/40 hover:bg-[#00a19a]/5 shadow-[0_1px_2px_rgba(60,60,59,0.05),0_6px_14px_-4px_rgba(60,60,59,0.15)] hover:-translate-y-1 hover:shadow-[0_4px_10px_rgba(60,60,59,0.08),0_18px_30px_-8px_rgba(60,60,59,0.22)] active:translate-y-0 active:shadow-[0_1px_2px_rgba(60,60,59,0.06),0_4px_8px_-2px_rgba(60,60,59,0.15)] transition-all duration-150"
           >
             <div className="flex items-center gap-2 mb-3">
               <Clock className="w-4 h-4 text-gray-400" />
@@ -556,7 +556,7 @@ export default function DashboardPage() {
           </button>
           <button
             onClick={() => router.push('/ventas/registro?turno=2')}
-            className="text-left bg-white rounded-lg border border-gray-200 p-3 sm:p-4 min-w-0 hover:border-[#00a19a]/40 hover:bg-[#00a19a]/5 transition-colors"
+            className="text-left bg-white rounded-lg border border-gray-200 p-3 sm:p-4 min-w-0 hover:border-[#00a19a]/40 hover:bg-[#00a19a]/5 shadow-[0_1px_2px_rgba(60,60,59,0.05),0_6px_14px_-4px_rgba(60,60,59,0.15)] hover:-translate-y-1 hover:shadow-[0_4px_10px_rgba(60,60,59,0.08),0_18px_30px_-8px_rgba(60,60,59,0.22)] active:translate-y-0 active:shadow-[0_1px_2px_rgba(60,60,59,0.06),0_4px_8px_-2px_rgba(60,60,59,0.15)] transition-all duration-150"
           >
             <div className="flex items-center gap-2 mb-3">
               <Clock className="w-4 h-4 text-gray-400" />
@@ -571,7 +571,7 @@ export default function DashboardPage() {
           </button>
           <button
             onClick={() => router.push('/ventas/registro?turno=todos')}
-            className="text-left bg-[#3c3c3b] rounded-lg p-3 sm:p-4 min-w-0 hover:bg-[#3c3c3b]/90 transition-colors"
+            className="text-left bg-[#3c3c3b] rounded-lg p-3 sm:p-4 min-w-0 hover:bg-[#3c3c3b]/90 shadow-[0_1px_2px_rgba(60,60,59,0.05),0_6px_14px_-4px_rgba(60,60,59,0.15)] hover:-translate-y-1 hover:shadow-[0_4px_10px_rgba(60,60,59,0.08),0_18px_30px_-8px_rgba(60,60,59,0.22)] active:translate-y-0 active:shadow-[0_1px_2px_rgba(60,60,59,0.06),0_4px_8px_-2px_rgba(60,60,59,0.15)] transition-all duration-150"
           >
             <div className="flex items-center gap-2 mb-3">
               <ShoppingCart className="w-4 h-4 text-white/70" />
@@ -588,7 +588,7 @@ export default function DashboardPage() {
           {/* Caja — 4ta tarjeta, mismas dos variantes que antes (abierta/cerrada), ahora toda clickeable */}
           <button
             onClick={() => router.push('/cierre-turno')}
-            className={`text-left rounded-lg border p-3 sm:p-4 min-w-0 flex flex-col justify-between transition-colors ${
+            className={`text-left rounded-lg border p-3 sm:p-4 min-w-0 flex flex-col justify-between transition-all duration-150 shadow-[0_1px_2px_rgba(60,60,59,0.05),0_6px_14px_-4px_rgba(60,60,59,0.15)] hover:-translate-y-1 hover:shadow-[0_4px_10px_rgba(60,60,59,0.08),0_18px_30px_-8px_rgba(60,60,59,0.22)] active:translate-y-0 active:shadow-[0_1px_2px_rgba(60,60,59,0.06),0_4px_8px_-2px_rgba(60,60,59,0.15)] ${
               cajaEstado.abierta
                 ? 'bg-[#00a19a]/10 border-[#00a19a]/30 hover:bg-[#00a19a]/20'
                 : 'bg-orange-50 border-orange-200 hover:bg-orange-100'
@@ -635,14 +635,14 @@ export default function DashboardPage() {
           }).replace(/^\w/, c => c.toUpperCase())}
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4 min-w-0">
+          <div className="bg-white rounded-lg border border-gray-200 p-4 min-w-0 shadow-[0_1px_2px_rgba(60,60,59,0.05),0_6px_14px_-4px_rgba(60,60,59,0.15)]">
             <div className="flex items-center gap-2 mb-3">
               <ShoppingCart className="w-4 h-4 text-gray-400" />
               <p className="text-xs text-gray-500 font-medium">Ventas del mes</p>
             </div>
             <p className="text-base sm:text-xl font-bold text-[#3c3c3b] leading-tight break-words">{fmt(resumenMes.ventas)}</p>
           </div>
-          <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4 min-w-0">
+          <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4 min-w-0 shadow-[0_1px_2px_rgba(60,60,59,0.05),0_6px_14px_-4px_rgba(60,60,59,0.15)]">
             <div className="flex items-center gap-2 mb-3">
               <Percent className="w-4 h-4 text-[#00a19a]" />
               <p className="text-xs text-[#00a19a] font-medium">Utilidad Bruta</p>
@@ -650,7 +650,7 @@ export default function DashboardPage() {
             <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">{fmt(resumenMes.ventas - resumenMes.costoMercaderia)}</p>
             <p className="text-xs text-[#00a19a]/80 mt-1">{fmtPct(resumenMes.margenPct)} de margen</p>
           </div>
-          <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4 min-w-0">
+          <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4 min-w-0 shadow-[0_1px_2px_rgba(60,60,59,0.05),0_6px_14px_-4px_rgba(60,60,59,0.15)]">
             <div className="flex items-center gap-2 mb-3">
               <Percent className="w-4 h-4 text-[#00a19a]" />
               <p className="text-xs text-[#00a19a] font-medium">Utilidad Neta</p>
@@ -660,21 +660,21 @@ export default function DashboardPage() {
             </p>
             <p className="text-xs text-[#00a19a]/80 mt-1">tras gastos fijos ({fmt(resumenMes.costosFijos)})</p>
           </div>
-          <div className="bg-green-50 rounded-lg border border-green-200 p-4 min-w-0">
+          <div className="bg-green-50 rounded-lg border border-green-200 p-4 min-w-0 shadow-[0_1px_2px_rgba(60,60,59,0.05),0_6px_14px_-4px_rgba(60,60,59,0.15)]">
             <div className="flex items-center gap-2 mb-3">
               <TrendingUp className="w-4 h-4 text-green-500" />
               <p className="text-xs text-green-600 font-medium">Ingresos</p>
             </div>
             <p className="text-base sm:text-xl font-bold text-green-700 leading-tight break-words">{fmt(resumenMes.ingresos)}</p>
           </div>
-          <div className="bg-red-50 rounded-lg border border-red-200 p-4 min-w-0">
+          <div className="bg-red-50 rounded-lg border border-red-200 p-4 min-w-0 shadow-[0_1px_2px_rgba(60,60,59,0.05),0_6px_14px_-4px_rgba(60,60,59,0.15)]">
             <div className="flex items-center gap-2 mb-3">
               <TrendingDown className="w-4 h-4 text-red-500" />
               <p className="text-xs text-red-600 font-medium">Egresos</p>
             </div>
             <p className="text-base sm:text-xl font-bold text-red-700 leading-tight break-words">{fmt(resumenMes.egresos)}</p>
           </div>
-          <div className={`rounded-lg border p-4 min-w-0 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
+          <div className={`rounded-lg border p-4 min-w-0 shadow-[0_1px_2px_rgba(60,60,59,0.05),0_6px_14px_-4px_rgba(60,60,59,0.15)] ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
             <div className="flex items-center gap-2 mb-3">
               <TrendingUp className={`w-4 h-4 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-500' : 'text-orange-500'}`} />
               <p className={`text-xs font-medium ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>Diferencia</p>
