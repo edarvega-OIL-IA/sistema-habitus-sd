@@ -382,12 +382,18 @@ export default function ComprasNuevaPage() {
         const fechaRecepcionFinal = fechaRecepcion || fechaOrden
         const itemsConStock = itemsConFlete.filter(it => it.articulo_id !== null && it.cant_recibida > 0)
 
+        // Stock ANTES de aplicar esta compra (para el promedio ponderado de
+        // costo, calculado más abajo) — se captura antes de cualquier INSERT
+        // que dispare el trigger fn_aplicar_item_stock y sume la cantidad.
+        const stockAntesMap = new Map<number, number>()
+
         if (itemsConStock.length > 0) {
           const { data: stockExistente } = await supabase
-            .from('articulo_stock').select('articulo_id')
+            .from('articulo_stock').select('articulo_id, stock_actual')
             .eq('sucursal_id', sucursalId)
             .in('articulo_id', itemsConStock.map(it => it.articulo_id))
           const idsConFila = new Set((stockExistente || []).map((s: any) => s.articulo_id))
+          for (const s of stockExistente || []) stockAntesMap.set(s.articulo_id, s.stock_actual)
           const faltantes = itemsConStock.filter(it => !idsConFila.has(it.articulo_id))
           if (faltantes.length > 0) {
             await supabase.from('articulo_stock').insert(
@@ -433,7 +439,17 @@ export default function ComprasNuevaPage() {
 
           // Una orden recién creada y confirmada siempre es la compra más reciente
           // (no puede haber otra orden posterior para el mismo artículo todavía)
-          await supabase.from('articulos').update({ costo_sin_iva: costoSinIva }).eq('id', it.articulo_id)
+          // Promedio ponderado (29/07): pondera contra el stock que ya había
+          // antes de sumar esta orden, en vez de reemplazar directo.
+          const stockAntes = stockAntesMap.get(it.articulo_id) ?? 0
+          const costoAnterior = artPrevio?.costo_sin_iva
+          const cantidadNueva = it.cant_recibida
+          let costoPromedio = costoSinIva
+          if (stockAntes > 0 && costoAnterior != null && (stockAntes + cantidadNueva) > 0) {
+            costoPromedio = (stockAntes * costoAnterior + cantidadNueva * costoSinIva) / (stockAntes + cantidadNueva)
+            costoPromedio = Math.round(costoPromedio * 100) / 100
+          }
+          await supabase.from('articulos').update({ costo_sin_iva: costoPromedio }).eq('id', it.articulo_id)
         }
       }
 

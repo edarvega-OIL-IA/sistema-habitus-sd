@@ -88,6 +88,17 @@ export async function POST(request: NextRequest) {
 
     if (ventaError) throw new Error('Error al crear venta: ' + ventaError.message)
 
+    // Costo real al momento de esta venta (29/07) — se graba fijo en
+    // venta_items.costo_unitario para que el margen de esta venta no
+    // cambie después si el costo del artículo se actualiza con una compra
+    // futura. Query separada (nunca join anidado, regla del proyecto).
+    const articuloIdsVenta = items.map((item: any) => item.articulo_id)
+    const { data: costosData } = await supabase
+      .from('articulos')
+      .select('id, costo_sin_iva')
+      .in('id', articuloIdsVenta)
+    const costosMap = new Map((costosData || []).map((a: any) => [a.id, a.costo_sin_iva]))
+
     const { error: itemsError } = await supabase
       .from('venta_items')
       .insert(items.map((item: any) => ({
@@ -97,6 +108,7 @@ export async function POST(request: NextRequest) {
         precio_unitario: item.precio_unitario,
         descuento_pct: item.descuento_pct || 0,
         subtotal: item.precio_unitario * item.cantidad * (1 - (item.descuento_pct || 0) / 100),
+        costo_unitario: costosMap.get(item.articulo_id) ?? null,
       })))
 
     if (itemsError) throw new Error('Error al guardar items: ' + itemsError.message)

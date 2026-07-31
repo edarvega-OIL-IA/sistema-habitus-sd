@@ -627,15 +627,21 @@ export default function ComprasEditarPage() {
         // sin dejar ningún rastro — bug encontrado el 22/07).
         const itemsConStock = itemsConFlete.filter(it => it.articulo_id !== null && it.cant_recibida > 0)
 
+        // Stock ANTES de aplicar esta compra (para el promedio ponderado de
+        // costo, calculado más abajo) — se captura antes de cualquier INSERT
+        // que dispare el trigger fn_aplicar_item_stock y sume la cantidad.
+        const stockAntesMap = new Map<number, number>()
+
         if (itemsConStock.length > 0) {
           // El trigger solo hace UPDATE (no INSERT) sobre articulo_stock, así
           // que un artículo comprado por primera vez necesita la fila creada
           // de antemano con stock_actual=0 para que el trigger tenga qué sumar.
           const { data: stockExistente } = await supabase
-            .from('articulo_stock').select('articulo_id')
+            .from('articulo_stock').select('articulo_id, stock_actual')
             .eq('sucursal_id', sucursalId)
             .in('articulo_id', itemsConStock.map(it => it.articulo_id))
           const idsConFila = new Set((stockExistente || []).map((s: any) => s.articulo_id))
+          for (const s of stockExistente || []) stockAntesMap.set(s.articulo_id, s.stock_actual)
           const faltantes = itemsConStock.filter(it => !idsConFila.has(it.articulo_id))
           if (faltantes.length > 0) {
             await supabase.from('articulo_stock').insert(
@@ -706,7 +712,19 @@ export default function ComprasEditarPage() {
           const esLaMasReciente = !histMasReciente || histMasReciente.origen_id === ordenId
 
           if (esLaMasReciente) {
-            await supabase.from('articulos').update({ costo_sin_iva: costoSinIva }).eq('id', it.articulo_id)
+            // Promedio ponderado (29/07): en vez de reemplazar el costo por el
+            // de esta compra sola, se pondera contra el stock que ya había
+            // antes de sumar esta orden — así una compra chica no pisa de
+            // golpe el costo de todo el stock viejo que sigue en la góndola.
+            const stockAntes = stockAntesMap.get(it.articulo_id) ?? 0
+            const costoAnterior = artPrevio?.costo_sin_iva
+            const cantidadNueva = it.cant_recibida
+            let costoPromedio = costoSinIva
+            if (stockAntes > 0 && costoAnterior != null && (stockAntes + cantidadNueva) > 0) {
+              costoPromedio = (stockAntes * costoAnterior + cantidadNueva * costoSinIva) / (stockAntes + cantidadNueva)
+              costoPromedio = Math.round(costoPromedio * 100) / 100
+            }
+            await supabase.from('articulos').update({ costo_sin_iva: costoPromedio }).eq('id', it.articulo_id)
           }
         }
       }
