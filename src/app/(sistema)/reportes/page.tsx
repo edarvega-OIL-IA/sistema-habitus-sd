@@ -257,11 +257,22 @@ export default function ReportesPage() {
                 <YAxis tickFormatter={fmtEje} tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(value: any) => fmt(Number(value ?? 0))} />
                 <Legend
-                  payload={[
-                    { value: 'Utilidad Bruta', type: 'square', color: '#00a19a' },
-                    { value: 'Gastos fijos', type: 'square', color: '#DC2626' },
-                    { value: 'Utilidad Neta', type: 'square', color: '#3c3c3b' },
-                  ]}
+                  content={() => (
+                    <div className="flex items-center justify-center gap-4 text-xs text-[#3c3c3b] mt-2">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm inline-block" style={{ background: '#00a19a' }} />
+                        Utilidad Bruta
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm inline-block" style={{ background: '#DC2626' }} />
+                        Gastos fijos
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm inline-block" style={{ background: '#3c3c3b' }} />
+                        Utilidad Neta
+                      </span>
+                    </div>
+                  )}
                 />
                 <Bar dataKey="utilidadBruta" name="Utilidad Bruta" fill="#00a19a" radius={[4, 4, 0, 0]}>
                   <LabelList dataKey="utilidadBruta" position="top" formatter={fmtEtiqueta} style={{ fontSize: 10, fill: '#3c3c3b' }} />
