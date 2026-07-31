@@ -529,50 +529,7 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <h1 className="text-xl font-semibold text-[#3c3c3b]">Dashboard</h1>
 
-      {/* Estado de caja */}
-      {!cajaEstado.abierta && (
-        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-orange-500" />
-            <div>
-              <p className="font-semibold text-orange-800 text-sm">Caja cerrada</p>
-              <p className="text-xs text-orange-600">
-                No se pueden registrar ventas hasta abrir la caja · Efectivo en caja: {fmt(cajaEstado.efectivoEnCaja)}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => router.push('/cierre-turno')}
-            className="bg-orange-500 text-white px-4 py-2 rounded text-sm hover:bg-orange-600 transition-colors"
-          >
-            Abrir caja
-          </button>
-        </div>
-      )}
-
-      {cajaEstado.abierta && (
-        <div className="bg-[#00a19a]/10 border border-[#00a19a]/30 rounded-lg p-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-2.5 h-2.5 rounded-full bg-[#00a19a] animate-pulse" />
-            <div>
-              <p className="font-semibold text-[#3c3c3b] text-sm">
-                Turno {cajaEstado.turno} abierto · {cajaEstado.usuario}
-              </p>
-              <p className="text-xs text-gray-500">
-                Desde las {fmtHora(cajaEstado.desde!)} · Esperado en caja: {fmt(cajaEstado.esperado)}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => router.push('/cierre-turno')}
-            className="border border-[#00a19a] text-[#00a19a] px-4 py-2 rounded text-sm hover:bg-[#00a19a]/10 transition-colors"
-          >
-            Ver caja
-          </button>
-        </div>
-      )}
-
-      {/* Ventas del día */}
+      {/* Ventas del día (incluye Caja como 4ta tarjeta, a la derecha) */}
       <div>
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
           Ventas del día —{' '}
@@ -581,7 +538,7 @@ export default function DashboardPage() {
             timeZone: 'America/Argentina/Buenos_Aires'
           })}
         </h2>
-        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
           <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 min-w-0">
             <div className="flex items-center gap-2 mb-3">
               <Clock className="w-4 h-4 text-gray-400" />
@@ -617,6 +574,50 @@ export default function DashboardPage() {
               <p className="text-[10px] text-white/40 uppercase tracking-wide">Acumulado mensual</p>
               <p className="text-xs sm:text-sm font-semibold text-white/80 break-words">{fmt(resumenMes.ventas)}</p>
             </div>
+          </div>
+
+          {/* Caja — 4ta tarjeta, mismas dos variantes que antes (abierta/cerrada) */}
+          <div className={`rounded-lg border p-3 sm:p-4 min-w-0 flex flex-col justify-between ${
+            cajaEstado.abierta ? 'bg-[#00a19a]/10 border-[#00a19a]/30' : 'bg-orange-50 border-orange-200'
+          }`}>
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                {cajaEstado.abierta ? (
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#00a19a] animate-pulse shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0" />
+                )}
+                <p className={`text-xs font-medium ${cajaEstado.abierta ? 'text-[#3c3c3b]' : 'text-orange-700'}`}>
+                  {cajaEstado.abierta ? `Turno ${cajaEstado.turno}` : 'Caja cerrada'}
+                </p>
+              </div>
+              {cajaEstado.abierta ? (
+                <>
+                  <p className="text-sm sm:text-xl md:text-2xl font-bold text-[#3c3c3b] leading-tight break-words">{cajaEstado.usuario}</p>
+                  <p className="text-xs text-gray-500 mt-1">Desde las {fmtHora(cajaEstado.desde!)}</p>
+                </>
+              ) : (
+                <p className="text-xs text-orange-600 leading-tight">No se pueden registrar ventas hasta abrir la caja</p>
+              )}
+              <div className={`mt-2 pt-2 border-t ${cajaEstado.abierta ? 'border-[#00a19a]/20' : 'border-orange-200'}`}>
+                <p className={`text-[10px] uppercase tracking-wide ${cajaEstado.abierta ? 'text-[#00a19a]/70' : 'text-orange-400'}`}>
+                  {cajaEstado.abierta ? 'Esperado en caja' : 'Efectivo en caja'}
+                </p>
+                <p className={`text-xs sm:text-sm font-semibold break-words ${cajaEstado.abierta ? 'text-[#00786f]' : 'text-orange-700'}`}>
+                  {fmt(cajaEstado.abierta ? cajaEstado.esperado : cajaEstado.efectivoEnCaja)}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => router.push('/cierre-turno')}
+              className={`mt-3 text-xs font-medium rounded px-3 py-1.5 transition-colors self-start ${
+                cajaEstado.abierta
+                  ? 'border border-[#00a19a] text-[#00a19a] hover:bg-[#00a19a]/10'
+                  : 'bg-orange-500 text-white hover:bg-orange-600'
+              }`}
+            >
+              {cajaEstado.abierta ? 'Ver caja' : 'Abrir caja'}
+            </button>
           </div>
         </div>
       </div>
