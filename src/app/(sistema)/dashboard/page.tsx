@@ -539,7 +539,10 @@ export default function DashboardPage() {
           })}
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 min-w-0">
+          <button
+            onClick={() => router.push('/ventas/registro?turno=1')}
+            className="text-left bg-white rounded-lg border border-gray-200 p-3 sm:p-4 min-w-0 hover:border-[#00a19a]/40 hover:bg-[#00a19a]/5 transition-colors"
+          >
             <div className="flex items-center gap-2 mb-3">
               <Clock className="w-4 h-4 text-gray-400" />
               <p className="text-xs text-gray-500 font-medium">Turno Mañana</p>
@@ -550,8 +553,11 @@ export default function DashboardPage() {
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Acumulado mensual</p>
               <p className="text-xs sm:text-sm font-semibold text-gray-600 break-words">{fmt(ventasPorTurnoMes.manana)}</p>
             </div>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 min-w-0">
+          </button>
+          <button
+            onClick={() => router.push('/ventas/registro?turno=2')}
+            className="text-left bg-white rounded-lg border border-gray-200 p-3 sm:p-4 min-w-0 hover:border-[#00a19a]/40 hover:bg-[#00a19a]/5 transition-colors"
+          >
             <div className="flex items-center gap-2 mb-3">
               <Clock className="w-4 h-4 text-gray-400" />
               <p className="text-xs text-gray-500 font-medium">Turno Tarde</p>
@@ -562,8 +568,11 @@ export default function DashboardPage() {
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Acumulado mensual</p>
               <p className="text-xs sm:text-sm font-semibold text-gray-600 break-words">{fmt(ventasPorTurnoMes.tarde)}</p>
             </div>
-          </div>
-          <div className="bg-[#3c3c3b] rounded-lg p-3 sm:p-4 min-w-0">
+          </button>
+          <button
+            onClick={() => router.push('/ventas/registro?turno=todos')}
+            className="text-left bg-[#3c3c3b] rounded-lg p-3 sm:p-4 min-w-0 hover:bg-[#3c3c3b]/90 transition-colors"
+          >
             <div className="flex items-center gap-2 mb-3">
               <ShoppingCart className="w-4 h-4 text-white/70" />
               <p className="text-xs text-white/70 font-medium">Total del día</p>
@@ -574,12 +583,17 @@ export default function DashboardPage() {
               <p className="text-[10px] text-white/40 uppercase tracking-wide">Acumulado mensual</p>
               <p className="text-xs sm:text-sm font-semibold text-white/80 break-words">{fmt(resumenMes.ventas)}</p>
             </div>
-          </div>
+          </button>
 
-          {/* Caja — 4ta tarjeta, mismas dos variantes que antes (abierta/cerrada) */}
-          <div className={`rounded-lg border p-3 sm:p-4 min-w-0 flex flex-col justify-between ${
-            cajaEstado.abierta ? 'bg-[#00a19a]/10 border-[#00a19a]/30' : 'bg-orange-50 border-orange-200'
-          }`}>
+          {/* Caja — 4ta tarjeta, mismas dos variantes que antes (abierta/cerrada), ahora toda clickeable */}
+          <button
+            onClick={() => router.push('/cierre-turno')}
+            className={`text-left rounded-lg border p-3 sm:p-4 min-w-0 flex flex-col justify-between transition-colors ${
+              cajaEstado.abierta
+                ? 'bg-[#00a19a]/10 border-[#00a19a]/30 hover:bg-[#00a19a]/20'
+                : 'bg-orange-50 border-orange-200 hover:bg-orange-100'
+            }`}
+          >
             <div>
               <div className="flex items-center gap-2 mb-3">
                 {cajaEstado.abierta ? (
@@ -608,17 +622,7 @@ export default function DashboardPage() {
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => router.push('/cierre-turno')}
-              className={`mt-3 text-xs font-medium rounded px-3 py-1.5 transition-colors self-start ${
-                cajaEstado.abierta
-                  ? 'border border-[#00a19a] text-[#00a19a] hover:bg-[#00a19a]/10'
-                  : 'bg-orange-500 text-white hover:bg-orange-600'
-              }`}
-            >
-              {cajaEstado.abierta ? 'Ver caja' : 'Abrir caja'}
-            </button>
-          </div>
+          </button>
         </div>
       </div>
 

@@ -42,6 +42,12 @@ export default function RegistroVentasPage() {
   const [cierreActivoId, setCierreActivoId] = useState<number | null>(null)
 
   useEffect(() => {
+    // Filtro de turno prefijado por URL (ej. desde las tarjetas del Dashboard:
+    // /ventas/registro?turno=1). window.location.search en vez de useSearchParams
+    // para no forzar un Suspense boundary (mismo criterio que ArticuloForm.tsx).
+    const params = new URLSearchParams(window.location.search)
+    const turnoParam = params.get('turno')
+
     async function detectarTurno() {
       const supabase = createClient()
       const { data } = await supabase
@@ -52,9 +58,12 @@ export default function RegistroVentasPage() {
         .maybeSingle()
       if (data) {
         setCierreActivoId(data.id)
-        if (data.turno_id) setTurnoFiltro(data.turno_id.toString())
+        // Si vino un turno explícito por URL, no lo pisamos con el turno activo de caja.
+        if (turnoParam === null && data.turno_id) setTurnoFiltro(data.turno_id.toString())
       }
     }
+
+    if (turnoParam !== null) setTurnoFiltro(turnoParam)
     detectarTurno()
     cargarVentas()
   }, [])
