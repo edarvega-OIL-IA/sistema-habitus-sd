@@ -44,7 +44,7 @@ export default function MovimientosPage() {
   const [tipoFiltro, setTipoFiltro] = useState<string>('todos')
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>('todos')
   const [medioPagoFiltro, setMedioPagoFiltro] = useState<string>('todos')
-  const [modoPeriodo, setModoPeriodo] = useState<'dia' | 'mes' | 'anio' | 'libre' | 'todos'>('todos')
+  const [modoPeriodo, setModoPeriodo] = useState<'dia' | 'mes' | 'anio' | 'libre' | 'todos'>('mes')
   const [fechaRef, setFechaRef] = useState<Date>(new Date())
   const [fechaDesde, setFechaDesde] = useState<string>('')
   const [fechaHasta, setFechaHasta] = useState<string>('')
