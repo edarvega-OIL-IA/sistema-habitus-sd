@@ -106,10 +106,13 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
 
   const categoriasFiltradas = categorias.filter(c => c.tipo === tipo || c.tipo === 'Ambos')
 
-  // Caja (Ingreso/Retiro) mueve plata de lugar, no es un gasto con período
-  // ni vencimiento propio — se ocultan esos dos campos para ese caso.
+  // Período y Fecha de vencimiento solo aplican a categorías con obligaciones
+  // fijas/recurrentes con vencimiento formal (impuestos, sueldos y cargas
+  // sociales, servicios y alquiler). El resto de las categorías (Caja,
+  // Local Comercial → Mantenimiento, Insumos, Marketing, etc.) no las necesita.
+  const CATEGORIAS_CON_PERIODO = ['Impuestos', 'Empleados', 'Servicios']
   const categoriaSeleccionada = categorias.find(c => c.id === categoriaId)
-  const requierePeriodo = categoriaSeleccionada?.nombre !== 'Caja'
+  const requierePeriodo = !!categoriaSeleccionada && CATEGORIAS_CON_PERIODO.includes(categoriaSeleccionada.nombre)
 
   const medioSeleccionadoActual = mediosPago.find(m => m.id === medioPagoId)
   const efectivoSinCajaAbierta = medioSeleccionadoActual?.nombre === 'Efectivo' && !cierreActivoId
