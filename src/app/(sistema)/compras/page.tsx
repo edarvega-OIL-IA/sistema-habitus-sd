@@ -54,7 +54,7 @@ export default function ComprasPage() {
   const [confirmandoAnular, setConfirmandoAnular] = useState<number | null>(null)
 
   // Filtros
-  const [estadoFiltro, setEstadoFiltro] = useState('todos')
+  const [estadoFiltro, setEstadoFiltro] = useState('Borrador')
   const [proveedorFiltro, setProveedorFiltro] = useState('todos')
   const [fechaDesde, setFechaDesde] = useState('')
   const [fechaHasta, setFechaHasta] = useState('')
