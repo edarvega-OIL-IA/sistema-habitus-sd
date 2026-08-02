@@ -259,15 +259,19 @@ export default function DashboardPage() {
 
     const { data: movData, error: movError } = await supabase
       .from('movimientos')
-      .select('tipo, monto')
+      .select('tipo, monto, categoria_gasto_id')
       .eq('sucursal_id', 1)
       .eq('anulado', false)
       .gte('mes_contable', mesDesde)
 
     if (movError) throw movError
 
-    const ingresos = (movData || []).filter(m => m.tipo === 'Ingreso').reduce((s, m) => s + m.monto, 0)
-    const egresos = (movData || []).filter(m => m.tipo === 'Egreso').reduce((s, m) => s + m.monto, 0)
+    // Excluir movimientos internos de Caja (Retiro/Ingreso manual, categoría 13) —
+    // no son ingreso ni gasto real del negocio, solo mueven plata de lugar
+    // (misma exclusión que ya tiene la pantalla de Movimientos).
+    const movReales = (movData || []).filter(m => m.categoria_gasto_id !== 13)
+    const ingresos = movReales.filter(m => m.tipo === 'Ingreso').reduce((s, m) => s + m.monto, 0)
+    const egresos = movReales.filter(m => m.tipo === 'Egreso').reduce((s, m) => s + m.monto, 0)
     const margenPct = totalVentas > 0 ? (totalVentas - costoMercaderia) / totalVentas : 0
 
     setResumenMes({ ventas: totalVentas, ingresos, egresos, costoMercaderia, margenPct, costosFijos })
@@ -666,6 +670,7 @@ export default function DashboardPage() {
               <p className="text-xs text-green-600 font-medium">Ingresos</p>
             </div>
             <p className="text-base sm:text-xl font-bold text-green-700 leading-tight break-words">{fmt(resumenMes.ingresos)}</p>
+            <p className="text-xs text-green-600/70 mt-1">sin movimientos de caja</p>
           </div>
           <div className="bg-red-50 rounded-lg border border-red-200 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
             <div className="flex items-center gap-2 mb-3">
@@ -673,6 +678,7 @@ export default function DashboardPage() {
               <p className="text-xs text-red-600 font-medium">Egresos</p>
             </div>
             <p className="text-base sm:text-xl font-bold text-red-700 leading-tight break-words">{fmt(resumenMes.egresos)}</p>
+            <p className="text-xs text-red-600/70 mt-1">sin movimientos de caja</p>
           </div>
           <div className={`rounded-lg border p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)] ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
             <div className="flex items-center gap-2 mb-3">
@@ -682,6 +688,7 @@ export default function DashboardPage() {
             <p className={`text-base sm:text-xl font-bold leading-tight break-words ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
               {(resumenMes.ingresos - resumenMes.egresos) >= 0 ? '+' : ''}{fmt(resumenMes.ingresos - resumenMes.egresos)}
             </p>
+            <p className={`text-xs mt-1 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-600/70' : 'text-orange-600/70'}`}>sin movimientos de caja</p>
           </div>
         </div>
       </div>
