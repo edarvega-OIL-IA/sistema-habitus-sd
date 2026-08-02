@@ -648,7 +648,7 @@ export default function DashboardPage() {
           </div>
           <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
             <div className="flex items-center gap-2 mb-3">
-              <Percent className="w-4 h-4 text-[#00a19a]" />
+              <Wallet className="w-4 h-4 text-[#00a19a]" />
               <p className="text-xs text-[#00a19a] font-medium">Utilidad Bruta</p>
             </div>
             <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">{fmt(resumenMes.ventas - resumenMes.costoMercaderia)}</p>
@@ -656,7 +656,7 @@ export default function DashboardPage() {
           </div>
           <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
             <div className="flex items-center gap-2 mb-3">
-              <Percent className="w-4 h-4 text-[#00a19a]" />
+              <Wallet className="w-4 h-4 text-[#00a19a]" />
               <p className="text-xs text-[#00a19a] font-medium">Utilidad Neta</p>
             </div>
             <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">
