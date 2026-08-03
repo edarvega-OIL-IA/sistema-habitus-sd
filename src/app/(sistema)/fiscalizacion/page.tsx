@@ -16,10 +16,15 @@ interface Venta {
 interface Comprobante {
   venta_id: number
   numero: number
+  punto_venta_id: number
   estado_fiscal_id: number
   mensaje_error: string | null
   fiscalizacion_intentos: number
 }
+
+// Mismo valor que en fiscalizar.ts (verificado en producción, no se repite el
+// código de fiscalizar.ts acá, solo el número de estado para la comparación)
+const ESTADO_FISCAL_CAE_RECIBIDO = 3
 
 interface Cliente {
   id: number
@@ -72,7 +77,7 @@ export default function FiscalizacionPage() {
       const ventaIds = ventasData.map(v => v.id)
       const { data: comprobantesData } = await supabase
         .from('comprobantes')
-        .select('venta_id, numero, estado_fiscal_id, mensaje_error, fiscalizacion_intentos')
+        .select('venta_id, numero, punto_venta_id, estado_fiscal_id, mensaje_error, fiscalizacion_intentos')
         .in('venta_id', ventaIds)
 
       setComprobantesPorVenta(new Map((comprobantesData || []).map(c => [c.venta_id, c])))
@@ -94,6 +99,23 @@ export default function FiscalizacionPage() {
 
   function esContadoDeFila(ventaId: number): boolean {
     return contadoSeleccionado.get(ventaId) ?? true
+  }
+
+  // Si existe otro comprobante con número MENOR (mismo punto de venta) que
+  // todavía no consiguió CAE, ARCA va a rechazar este por orden de numeración
+  // — lo detectamos para avisar antes de que el usuario reintente al pedo.
+  function comprobantePrevioSinConfirmar(comprobante: Comprobante | undefined): { numero: number; numeroVenta: number } | null {
+    if (!comprobante) return null
+    let masChico: Comprobante | null = null
+    for (const c of comprobantesPorVenta.values()) {
+      if (c.punto_venta_id !== comprobante.punto_venta_id) continue
+      if (c.numero >= comprobante.numero) continue
+      if (c.estado_fiscal_id === ESTADO_FISCAL_CAE_RECIBIDO) continue
+      if (!masChico || c.numero < masChico.numero) masChico = c
+    }
+    if (!masChico) return null
+    const ventaAsociada = ventas.find(v => v.id === masChico!.venta_id)
+    return { numero: masChico.numero, numeroVenta: ventaAsociada?.numero_venta ?? masChico.venta_id }
   }
 
   async function fiscalizar(ventaId: number) {
@@ -174,6 +196,7 @@ export default function FiscalizacionPage() {
             const clienteId = clienteDeFila(venta.id, venta.cliente_id)
             const clienteActual = clientes.find(c => c.id === clienteId)
             const resultado = resultados.get(venta.id)
+            const previoSinConfirmar = comprobantePrevioSinConfirmar(comprobante)
 
             return (
               <div key={venta.id} className="bg-white rounded-lg border border-gray-200 p-4">
@@ -194,6 +217,13 @@ export default function FiscalizacionPage() {
                     {comprobante?.mensaje_error && (
                       <p className="text-xs text-red-600 mt-2 max-w-xl">
                         Último intento ({comprobante.fiscalizacion_intentos}): {comprobante.mensaje_error}
+                      </p>
+                    )}
+                    {previoSinConfirmar && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-2 max-w-xl">
+                        ⚠ Hay un comprobante anterior (N° {previoSinConfirmar.numero}, venta #{previoSinConfirmar.numeroVenta})
+                        todavía sin CAE confirmado. ARCA puede volver a rechazar este por orden de numeración —
+                        conviene resolver primero el N° {previoSinConfirmar.numero}.
                       </p>
                     )}
                   </div>
