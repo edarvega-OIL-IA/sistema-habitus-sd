@@ -605,16 +605,20 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {rolUsuario === 1 && (
               <>
-                <div>
+                <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Tasa IVA</label>
-                  <select {...register('tasa_iva_id', { valueAsNumber: true })} className={inputClass}>
+                  <select {...register('tasa_iva_id', { valueAsNumber: true })} className={inputClass + ' md:w-1/2'}>
                     <option value="">Sin IVA</option>
                     {tasasIva.map(t => (
                       <option key={t.id} value={t.id}>{t.nombre} ({t.porcentaje}%)</option>
                     ))}
                   </select>
+                  {!RECUPERA_IVA_COMPRAS && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      No afecta el costo ni la utilidad mientras seas monotributista — queda guardada para cuando corresponda.
+                    </p>
+                  )}
                 </div>
-                <div />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     {RECUPERA_IVA_COMPRAS ? 'Costo sin IVA' : 'Costo'}
@@ -655,7 +659,6 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
                   />
                   <p className="text-xs text-gray-500 mt-1">Modificarlo actualiza el precio local</p>
                 </div>
-                <div />
               </>
             )}
             <div>
