@@ -295,6 +295,9 @@ export default function ComprasPage() {
                     <span className="text-gray-300 w-5">
                       {abierta ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                     </span>
+                    <span className="w-14 text-xs font-mono text-gray-400">
+                      OC #{orden.id}
+                    </span>
                     <span className="w-24 text-xs text-gray-500">
                       {orden.fecha_orden?.split('-').reverse().join('/')}
                     </span>
