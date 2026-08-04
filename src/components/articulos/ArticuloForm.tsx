@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Save, X } from 'lucide-react'
+import { RECUPERA_IVA_COMPRAS } from '@/lib/config'
 
 const articuloSchema = z.object({
   nombre: z.string().min(1, 'El nombre es requerido'),
@@ -61,6 +62,11 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   const [precioLocalTexto, setPrecioLocalTexto] = useState<string | null>(null)
   const [precioWebTexto, setPrecioWebTexto] = useState<string | null>(null)
   const [tasaPct, setTasaPct] = useState<number>(21)
+  // Mientras no se recupere IVA (monotributista, ver src/lib/config.ts), el
+  // costo y el precio cargados YA son el real completo — no hay que sumar ni
+  // restar nada. tasaPct se sigue guardando (por si algún día se recupera
+  // IVA), pero la matemática usa 0 mientras el switch esté en false.
+  const tasaPctEfectiva = RECUPERA_IVA_COMPRAS ? tasaPct : 0
   const [idTasa21, setIdTasa21] = useState<number | null>(null)
   const [idUnidadDefault, setIdUnidadDefault] = useState<number | null>(null)
   // Para saber si precio_local realmente cambió (y así decidir si hay que
@@ -103,7 +109,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
 
   useEffect(() => {
     if (costoSinIva && precioLocal && costoSinIva > 0) {
-      const precioSinIva = precioLocal / (1 + tasaPct / 100)
+      const precioSinIva = precioLocal / (1 + tasaPctEfectiva / 100)
       setUtilidad(((precioSinIva - costoSinIva) / costoSinIva * 100).toFixed(2).replace('.', ','))
     } else {
       setUtilidad('')
@@ -112,11 +118,11 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
 
   useEffect(() => {
     if (costoSinIva && costoSinIva > 0) {
-      setCostoConIva((costoSinIva * (1 + tasaPct / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+      setCostoConIva((costoSinIva * (1 + tasaPctEfectiva / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
     } else {
       setCostoConIva('')
     }
-  }, [costoSinIva, tasaPct])
+  }, [costoSinIva, tasaPctEfectiva])
 
   useEffect(() => {
     if (tasaIvaId && tasasIva.length > 0) {
@@ -307,7 +313,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   function handleCostoConIvaBlur() {
     const val = parsearMonto(costoConIva)
     if (val > 0) {
-      const sinIva = val / (1 + tasaPct / 100)
+      const sinIva = val / (1 + tasaPctEfectiva / 100)
       setValue('costo_sin_iva', parseFloat(sinIva.toFixed(2)))
     }
   }
@@ -320,7 +326,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
     const nuevaUtilidad = parsearMonto(utilidad)
     if (costoSinIva && utilidad.trim() !== '') {
       const precioSinIva = costoSinIva * (1 + nuevaUtilidad / 100)
-      const precioConIva = precioSinIva * (1 + tasaPct / 100)
+      const precioConIva = precioSinIva * (1 + tasaPctEfectiva / 100)
       setValue('precio_local', parseFloat(precioConIva.toFixed(2)))
     }
   }
@@ -610,7 +616,9 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
                 </div>
                 <div />
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Costo sin IVA</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {RECUPERA_IVA_COMPRAS ? 'Costo sin IVA' : 'Costo'}
+                  </label>
                   <input
                     type="text" inputMode="decimal"
                     value={costoSinIvaTexto !== null ? costoSinIvaTexto : fmtMoney(costoSinIva)}
@@ -620,18 +628,20 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
                     className={inputClass}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Costo con IVA</label>
-                  <input
-                    type="text" inputMode="decimal"
-                    value={costoConIva}
-                    onFocus={e => e.target.select()}
-                    onChange={handleCostoConIvaChange}
-                    onBlur={handleCostoConIvaBlur}
-                    className={inputClass}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Al salir del campo calcula el costo sin IVA</p>
-                </div>
+                {RECUPERA_IVA_COMPRAS && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Costo con IVA</label>
+                    <input
+                      type="text" inputMode="decimal"
+                      value={costoConIva}
+                      onFocus={e => e.target.select()}
+                      onChange={handleCostoConIvaChange}
+                      onBlur={handleCostoConIvaBlur}
+                      className={inputClass}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Al salir del campo calcula el costo sin IVA</p>
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Utilidad % (orientativo)</label>
                   <input
