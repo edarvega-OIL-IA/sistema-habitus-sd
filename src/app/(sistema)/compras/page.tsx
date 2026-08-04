@@ -10,6 +10,7 @@ interface ItemOrden {
   articulo_id: number | null
   cantidad_facturada: number
   cantidad_recibida: number
+  precio_unitario_con_iva: number | null
   precio_unitario_sin_iva: number
   flete_prorrateado: number
   costo_final_unitario: number
@@ -81,7 +82,7 @@ export default function ComprasPage() {
           estados_orden_compra ( nombre ),
           orden_compra_items (
             id, articulo_id, cantidad_facturada, cantidad_recibida,
-            precio_unitario_sin_iva, flete_prorrateado, costo_final_unitario, subtotal,
+            precio_unitario_con_iva, precio_unitario_sin_iva, flete_prorrateado, costo_final_unitario, subtotal,
             es_ajuste_redondeo,
             articulos ( nombre )
           )
@@ -381,6 +382,7 @@ export default function ComprasPage() {
                             <th className="text-left pb-2 text-gray-400 font-semibold">Artículo</th>
                             <th className="text-center pb-2 text-gray-400 font-semibold w-20">Cant. Fact.</th>
                             <th className="text-center pb-2 text-gray-400 font-semibold w-20">Cant. Recib.</th>
+                            <th className="text-right pb-2 text-gray-400 font-semibold w-28">P. Unit. c/IVA</th>
                             <th className="text-right pb-2 text-gray-400 font-semibold w-32">P. Unit. s/IVA</th>
                             <th className="text-right pb-2 text-gray-400 font-semibold w-28">Flete prorrateado</th>
                             <th className="text-right pb-2 text-gray-400 font-semibold w-32">Costo final unit.</th>
@@ -391,8 +393,7 @@ export default function ComprasPage() {
                           {orden.orden_compra_items.map(it => (
                             it.es_ajuste_redondeo ? (
                               <tr key={it.id} className="border-b border-gray-100 last:border-0 bg-amber-50">
-                                <td className="py-2 text-amber-700 italic" colSpan={5}>Ajuste por redondeo</td>
-                                <td className="py-2 text-right font-medium text-amber-700 italic"></td>
+                                <td className="py-2 text-amber-700 italic" colSpan={7}>Ajuste por redondeo</td>
                                 <td className="py-2 text-right font-medium text-amber-700 italic">{fmt(it.subtotal)}</td>
                               </tr>
                             ) : (
@@ -400,6 +401,7 @@ export default function ComprasPage() {
                                 <td className="py-2 text-gray-700">{it.articulos?.nombre || '—'}</td>
                                 <td className="py-2 text-center text-gray-500">{it.cantidad_facturada}</td>
                                 <td className="py-2 text-center text-gray-500">{it.cantidad_recibida}</td>
+                                <td className="py-2 text-right text-gray-400">{it.precio_unitario_con_iva != null ? fmt(it.precio_unitario_con_iva) : '—'}</td>
                                 <td className="py-2 text-right text-gray-500">{fmt(it.precio_unitario_sin_iva)}</td>
                                 <td className="py-2 text-right text-gray-500">{fmt(it.flete_prorrateado || 0)}</td>
                                 <td className="py-2 text-right font-medium text-[#3c3c3b]">{fmt(it.costo_final_unitario || 0)}</td>
