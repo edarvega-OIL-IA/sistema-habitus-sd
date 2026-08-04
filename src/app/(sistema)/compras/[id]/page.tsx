@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import { Save, X, FileCheck, Search, Trash2 } from 'lucide-react'
 
-interface Proveedor { id: number; nombre_comercial: string }
+interface Proveedor { id: number; nombre_comercial: string; discrimina_iva: boolean }
 interface Transportista { id: number; nombre: string }
 interface TasaIva { id: number; porcentaje: number }
 interface Articulo {
@@ -54,6 +54,10 @@ export default function ComprasEditarPage() {
   const [nroRemito, setNroRemito] = useState('')
   const [fechaFactura, setFechaFactura] = useState('')
   const [proveedorId, setProveedorId] = useState<number | ''>('')
+  // Igual que en Nueva orden: si el proveedor factura con IVA discriminado.
+  // Al cargar una orden existente se precarga desde el proveedor actual,
+  // editable igual (por si en su momento se cargó distinto).
+  const [discriminaIva, setDiscriminaIva] = useState(true)
   const [fechaOrden, setFechaOrden] = useState('')
   // Fecha en que la mercadería llega realmente al local — separada de
   // "fechaOrden" (pedido/pago), para medir el tiempo real entre pedir y
@@ -113,7 +117,7 @@ export default function ComprasEditarPage() {
     const supabase = createClient()
     try {
       const [provRes, transRes, artRes, tasasRes, ordenRes] = await Promise.all([
-        supabase.from('proveedores').select('id, nombre_comercial').eq('activo', true).order('nombre_comercial'),
+        supabase.from('proveedores').select('id, nombre_comercial, discrimina_iva').eq('activo', true).order('nombre_comercial'),
         supabase.from('transportistas').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('articulos').select(`
           id, nombre, codigo_interno, codigo_barra, costo_sin_iva, tasa_iva_id,
@@ -128,7 +132,7 @@ export default function ComprasEditarPage() {
           monto_comprobante, observaciones,
           orden_compra_items (
             articulo_id, cantidad_facturada, cantidad_recibida,
-            precio_unitario_sin_iva, descuento_pct, subtotal, es_ajuste_redondeo,
+            precio_unitario_con_iva, precio_unitario_sin_iva, descuento_pct, subtotal, es_ajuste_redondeo,
             articulos ( nombre, tasa_iva_id, precio_local, precio_web, precio_mayorista, precio_oferta_web )
           )
         `).eq('id', ordenId).single(),
@@ -149,6 +153,8 @@ export default function ComprasEditarPage() {
 
       setEstadoOrdenId(o.estado_orden_compra_id)
       setProveedorId(o.proveedor_id)
+      const provActual = (provRes.data || []).find((p: any) => p.id === o.proveedor_id)
+      if (provActual) setDiscriminaIva(provActual.discrimina_iva)
       setFechaOrden(o.fecha_orden)
       setFechaRecepcion(o.fecha_recepcion || '')
       setTieneComprobante(o.tiene_comprobante)
@@ -174,9 +180,17 @@ export default function ComprasEditarPage() {
       setAjusteExistente(itemAjuste ? { subtotal: itemAjuste.subtotal } : null)
 
       const itemsCargados: ItemOrden[] = itemsReales.map((it: any) => {
-        const tasa = tasas.find(t => t.id === it.articulos?.tasa_iva_id)
-        const divisor = tasa ? 1 + tasa.porcentaje / 100 : 1.21
-        const precioConIva = Math.round(it.precio_unitario_sin_iva * divisor * 100) / 100
+        // Si ya tenemos el precio tal cual se cargó, usarlo directo — más
+        // confiable que reconstruirlo desde precio_unitario_sin_iva (que
+        // puede estar mal si la orden se creó antes del fix de discrimina_iva).
+        let precioConIva: number
+        if (it.precio_unitario_con_iva != null) {
+          precioConIva = it.precio_unitario_con_iva
+        } else {
+          const tasa = tasas.find(t => t.id === it.articulos?.tasa_iva_id)
+          const divisor = tasa ? 1 + tasa.porcentaje / 100 : 1.21
+          precioConIva = Math.round(it.precio_unitario_sin_iva * divisor * 100) / 100
+        }
         return {
           articulo_id: it.articulo_id,
           articulo_nombre: it.articulos?.nombre || '',
@@ -236,6 +250,7 @@ export default function ComprasEditarPage() {
   }
 
   function getDivisorIva(tasaIvaId: number | null): number {
+    if (!discriminaIva) return 1
     const tasa = tasasIva.find(t => t.id === tasaIvaId)
     return tasa ? 1 + tasa.porcentaje / 100 : 1.21
   }
@@ -537,6 +552,7 @@ export default function ComprasEditarPage() {
           articulo_id: it.articulo_id,
           cantidad_facturada: it.cant_facturada,
           cantidad_recibida: it.cant_recibida,
+          precio_unitario_con_iva: it.precio_unitario,
           precio_unitario_sin_iva: it.precio_unitario / getDivisorIva(it.tasa_iva_id),
           descuento_pct: it.descuento_pct,
           flete_prorrateado: it.flete_prorrateado,
@@ -914,12 +930,27 @@ export default function ComprasEditarPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Proveedor <span className="text-red-500">*</span></label>
-            <select value={proveedorId} onChange={e => setProveedorId(Number(e.target.value))}
+            <select value={proveedorId}
+              onChange={e => {
+                const id = Number(e.target.value)
+                setProveedorId(id)
+                const prov = proveedores.find(p => p.id === id)
+                if (prov) setDiscriminaIva(prov.discrimina_iva)
+              }}
               disabled={esAnulada}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50">
               <option value="">Seleccionar proveedor</option>
               {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre_comercial}</option>)}
             </select>
+            <div className="flex items-center gap-2 mt-2">
+              <input type="checkbox" id="discrimina_iva" checked={discriminaIva}
+                disabled={esAnulada}
+                onChange={e => setDiscriminaIva(e.target.checked)}
+                className="w-4 h-4 text-[#00a19a] border-gray-300 rounded focus:ring-[#00a19a] disabled:opacity-50" />
+              <label htmlFor="discrimina_iva" className="text-xs text-gray-600">
+                El proveedor discrimina IVA en este comprobante
+              </label>
+            </div>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
