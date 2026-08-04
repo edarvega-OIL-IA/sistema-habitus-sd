@@ -4,8 +4,9 @@ import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Save, X, FileCheck, Search, Trash2 } from 'lucide-react'
+import { RECUPERA_IVA_COMPRAS } from '@/lib/config'
 
-interface Proveedor { id: number; nombre_comercial: string; discrimina_iva: boolean }
+interface Proveedor { id: number; nombre_comercial: string }
 interface Transportista { id: number; nombre: string }
 interface TasaIva { id: number; porcentaje: number }
 interface Articulo {
@@ -48,10 +49,6 @@ export default function ComprasNuevaPage() {
   const [nroRemito, setNroRemito] = useState('')
   const [fechaFactura, setFechaFactura] = useState('')
   const [proveedorId, setProveedorId] = useState<number | ''>('')
-  // Si el proveedor factura con IVA discriminado o no (ej. monotributista =
-  // no discrimina). Se precarga del proveedor elegido, pero queda editable
-  // por si algún pedido puntual viene distinto.
-  const [discriminaIva, setDiscriminaIva] = useState(true)
   const [fechaOrden, setFechaOrden] = useState(
     new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
   )
@@ -105,7 +102,7 @@ export default function ComprasNuevaPage() {
   async function cargarDatos() {
     const supabase = createClient()
     const [provRes, transRes, artRes, tasasRes] = await Promise.all([
-      supabase.from('proveedores').select('id, nombre_comercial, discrimina_iva').eq('activo', true).order('nombre_comercial'),
+      supabase.from('proveedores').select('id, nombre_comercial').eq('activo', true).order('nombre_comercial'),
       supabase.from('transportistas').select('id, nombre').eq('activo', true).order('nombre'),
       supabase.from('articulos').select(`
         id, nombre, codigo_interno, codigo_barra, costo_sin_iva, tasa_iva_id,
@@ -125,7 +122,9 @@ export default function ComprasNuevaPage() {
   }
 
   function getDivisorIva(tasaIvaId: number | null): number {
-    if (!discriminaIva) return 1 // el proveedor no discrimina IVA: el precio cargado ES el costo real, sin dividir
+    // Mientras no se recupere IVA (monotributista), el costo real es el
+    // total pagado — nunca se descuenta nada. Ver src/lib/config.ts
+    if (!RECUPERA_IVA_COMPRAS) return 1
     const tasa = tasasIva.find(t => t.id === tasaIvaId)
     return tasa ? 1 + tasa.porcentaje / 100 : 1.21
   }
@@ -608,25 +607,11 @@ export default function ComprasNuevaPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Proveedor <span className="text-red-500">*</span></label>
-            <select value={proveedorId}
-              onChange={e => {
-                const id = Number(e.target.value)
-                setProveedorId(id)
-                const prov = proveedores.find(p => p.id === id)
-                if (prov) setDiscriminaIva(prov.discrimina_iva)
-              }}
+            <select value={proveedorId} onChange={e => setProveedorId(Number(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
               <option value="">Seleccionar proveedor</option>
               {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre_comercial}</option>)}
             </select>
-            <div className="flex items-center gap-2 mt-2">
-              <input type="checkbox" id="discrimina_iva" checked={discriminaIva}
-                onChange={e => setDiscriminaIva(e.target.checked)}
-                className="w-4 h-4 text-[#00a19a] border-gray-300 rounded focus:ring-[#00a19a]" />
-              <label htmlFor="discrimina_iva" className="text-xs text-gray-600">
-                El proveedor discrimina IVA en este comprobante
-              </label>
-            </div>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">

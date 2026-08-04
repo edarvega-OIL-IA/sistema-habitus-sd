@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { Search, ArrowLeft } from 'lucide-react'
+import { RECUPERA_IVA_COMPRAS } from '@/lib/config'
 
 interface ArticuloPrecio {
   articulo_id: number
@@ -258,7 +259,10 @@ function ActualizarPreciosContent() {
       .map(a => {
         const ivaPct = a.tasa_iva_id != null ? (mapTasas.get(a.tasa_iva_id) ?? 0) : 0
         const costoSinIva = mapCostoOC ? (mapCostoOC.get(a.id) ?? 0) : (a.costo_sin_iva || 0)
-        const costoConIva = costoSinIva * (1 + ivaPct / 100)
+        // Mientras no se recupere IVA (monotributista, ver src/lib/config.ts),
+        // costo_sin_iva YA es el costo real completo (compras/nueva y
+        // compras/[id] lo guardan así) — no hay que volver a sumarle nada.
+        const costoConIva = RECUPERA_IVA_COMPRAS ? costoSinIva * (1 + ivaPct / 100) : costoSinIva
         const precioActual = a.precio_local || 0
         const utilidadActual = calcularUtilidadPct(precioActual, costoConIva)
         const actualizadoFecha = mapActualizado.get(a.id) || null
@@ -574,7 +578,7 @@ function ActualizarPreciosContent() {
               <tr>
                 <th className="px-4 py-3 w-8"></th>
                 <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Artículo</th>
-                <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Costo c/IVA</th>
+                <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">{RECUPERA_IVA_COMPRAS ? 'Costo c/IVA' : 'Costo'}</th>
                 <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Precio actual</th>
                 <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Utilidad actual</th>
                 <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Actualizado</th>
