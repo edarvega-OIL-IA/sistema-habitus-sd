@@ -325,6 +325,31 @@ export default function ObligacionesPage() {
           onGuardar={async (payload) => {
             setGuardando(true)
             const supabase = createClient()
+
+            // Caso 1: vincular un movimiento que ya existe (ej. se cargó por
+            // error desde Movimientos) — no se crea un Egreso nuevo.
+            if (payload.movimiento_existente_id) {
+              const { error: oblError } = await supabase.from('obligaciones').insert({
+                acreedor_id: modalPago.id,
+                categoria_gasto_id: modalPago.categoria_gasto_id,
+                concepto_gasto_id: payload.concepto_gasto_id,
+                tipo: 'Pago',
+                monto: payload.monto,
+                fecha_pago: payload.fecha_pago,
+                medio_pago_id: payload.medio_pago_id,
+                movimiento_id: payload.movimiento_existente_id,
+                observaciones: payload.observaciones || null,
+                usuario_id: usuarioId,
+              })
+              setGuardando(false)
+              if (oblError) { alert('Error al vincular el movimiento: ' + oblError.message); return }
+              setModalPago(null)
+              await cargarDatos()
+              setExpandido(prev => new Set(prev).add(modalPago.id))
+              return
+            }
+
+            // Caso 2: crear un movimiento nuevo (flujo de siempre)
             const fechaPago = payload.fecha_pago
             const mesContable = fechaPago.slice(0, 7) + '-01'
 
@@ -470,6 +495,15 @@ function ModalNuevoCargo({ acreedor, conceptos, guardando, onCerrar, onGuardar }
 
 // ─────────────────────────────────────────────────────────────────────────
 
+interface MovimientoCandidato {
+  id: number
+  fecha_utc: string
+  monto: number
+  concepto_gasto_id: number
+  medio_pago_id: number
+  observaciones: string | null
+}
+
 interface ModalRegistrarPagoProps {
   acreedor: Acreedor
   saldoPendiente: number
@@ -479,16 +513,57 @@ interface ModalRegistrarPagoProps {
   onCerrar: () => void
   onGuardar: (payload: {
     concepto_gasto_id: number; monto: number; fecha_pago: string; medio_pago_id: number; observaciones: string
+    movimiento_existente_id?: number
   }) => void
 }
 
 function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, guardando, onCerrar, onGuardar }: ModalRegistrarPagoProps) {
+  const [modo, setModo] = useState<'nuevo' | 'existente'>('nuevo')
   const [conceptoId, setConceptoId] = useState<number | ''>(() => conceptos.length === 1 ? conceptos[0].id : '')
   const [monto, setMonto] = useState(saldoPendiente)
   const [montoTexto, setMontoTexto] = useState<string | null>(null)
   const [fecha, setFecha] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }))
   const [medioPagoId, setMedioPagoId] = useState<number | ''>('')
   const [obs, setObs] = useState('')
+
+  // Movimientos Egreso de la misma categoría que todavía no están vinculados
+  // a ninguna obligación — para el caso de "ya cargué el pago en Movimientos
+  // por error, ahora quiero vincularlo en vez de duplicarlo".
+  const [candidatos, setCandidatos] = useState<MovimientoCandidato[]>([])
+  const [cargandoCandidatos, setCargandoCandidatos] = useState(false)
+  const [movimientoElegidoId, setMovimientoElegidoId] = useState<number | ''>('')
+
+  useEffect(() => {
+    if (modo !== 'existente' || candidatos.length > 0) return
+    async function cargarCandidatos() {
+      setCargandoCandidatos(true)
+      const supabase = createClient()
+      const [movRes, oblRes] = await Promise.all([
+        supabase.from('movimientos')
+          .select('id, fecha_utc, monto, concepto_gasto_id, medio_pago_id, observaciones')
+          .eq('tipo', 'Egreso').eq('anulado', false).eq('categoria_gasto_id', acreedor.categoria_gasto_id)
+          .order('fecha_utc', { ascending: false }).limit(50),
+        supabase.from('obligaciones').select('movimiento_id').not('movimiento_id', 'is', null),
+      ])
+      const yaVinculados = new Set((oblRes.data || []).map((o: any) => o.movimiento_id))
+      setCandidatos((movRes.data || []).filter((m: any) => !yaVinculados.has(m.id)))
+      setCargandoCandidatos(false)
+    }
+    cargarCandidatos()
+  }, [modo])
+
+  const movimientoElegido = candidatos.find(m => m.id === movimientoElegidoId) || null
+
+  function elegirMovimiento(id: number) {
+    setMovimientoElegidoId(id)
+    const m = candidatos.find(c => c.id === id)
+    if (m) {
+      setMonto(m.monto)
+      setFecha(m.fecha_utc)
+      setMedioPagoId(m.medio_pago_id)
+      if (conceptos.some(c => c.id === m.concepto_gasto_id)) setConceptoId(m.concepto_gasto_id)
+    }
+  }
 
   function parsearMonto(v: string): number {
     const s = v.trim()
@@ -506,9 +581,14 @@ function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, g
 
   function guardar() {
     if (!conceptoId) { alert('Elegí un concepto'); return }
-    if (!medioPagoId) { alert('Elegí un medio de pago'); return }
+    if (modo === 'existente' && !movimientoElegidoId) { alert('Elegí el movimiento a vincular'); return }
+    if (modo === 'nuevo' && !medioPagoId) { alert('Elegí un medio de pago'); return }
     if (monto <= 0) { alert('El monto debe ser mayor a 0'); return }
-    onGuardar({ concepto_gasto_id: Number(conceptoId), monto, fecha_pago: fecha, medio_pago_id: Number(medioPagoId), observaciones: obs })
+    onGuardar({
+      concepto_gasto_id: Number(conceptoId), monto, fecha_pago: fecha,
+      medio_pago_id: Number(medioPagoId), observaciones: obs,
+      movimiento_existente_id: modo === 'existente' ? Number(movimientoElegidoId) : undefined,
+    })
   }
 
   return (
@@ -519,6 +599,42 @@ function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, g
           <p className="text-xs text-gray-500 mt-1">Saldo pendiente: ${fmtMonto(saldoPendiente)} — podés pagar total o parcial.</p>
         </div>
         <div className="p-4 space-y-3">
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setModo('nuevo')}
+              className={`flex-1 px-3 py-1.5 rounded text-xs border ${modo === 'nuevo' ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-600 border-gray-300'}`}>
+              Nuevo movimiento
+            </button>
+            <button type="button" onClick={() => setModo('existente')}
+              className={`flex-1 px-3 py-1.5 rounded text-xs border ${modo === 'existente' ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-600 border-gray-300'}`}>
+              Vincular movimiento existente
+            </button>
+          </div>
+
+          {modo === 'existente' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Movimiento a vincular</label>
+              {cargandoCandidatos ? (
+                <p className="text-xs text-gray-400">Buscando movimientos sin vincular...</p>
+              ) : candidatos.length === 0 ? (
+                <p className="text-xs text-gray-400">No hay movimientos de Egreso sin vincular en esta categoría.</p>
+              ) : (
+                <select value={movimientoElegidoId} onChange={e => elegirMovimiento(Number(e.target.value))} className={inputClass}>
+                  <option value="">Seleccionar movimiento</option>
+                  {candidatos.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {fmtFecha(m.fecha_utc)} — ${fmtMonto(m.monto)}{m.observaciones ? ` — ${m.observaciones}` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {movimientoElegido && (
+                <p className="text-xs text-[#00a19a] mt-1">
+                  Se vincula al movimiento #{movimientoElegido.id} — no se crea un Egreso nuevo, evita duplicar.
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Concepto</label>
             <select value={conceptoId} onChange={e => setConceptoId(e.target.value ? Number(e.target.value) : '')} className={inputClass}>
@@ -530,16 +646,18 @@ function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, g
             <label className="block text-xs font-medium text-gray-700 mb-1">Monto a pagar</label>
             <input type="text" inputMode="decimal" value={montoTexto !== null ? montoTexto : fmtInput(monto)}
               onFocus={e => e.target.select()} onChange={e => handleMontoChange(e.target.value)} onBlur={() => setMontoTexto(null)}
-              className={inputClass} />
+              disabled={modo === 'existente'} className={inputClass + (modo === 'existente' ? ' bg-gray-100' : '')} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Fecha de pago</label>
-              <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} className={inputClass} />
+              <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
+                disabled={modo === 'existente'} className={inputClass + (modo === 'existente' ? ' bg-gray-100' : '')} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Medio de pago</label>
-              <select value={medioPagoId} onChange={e => setMedioPagoId(e.target.value ? Number(e.target.value) : '')} className={inputClass}>
+              <select value={medioPagoId} onChange={e => setMedioPagoId(e.target.value ? Number(e.target.value) : '')}
+                disabled={modo === 'existente'} className={inputClass + (modo === 'existente' ? ' bg-gray-100' : '')}>
                 <option value="">Seleccionar</option>
                 {mediosPago.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
               </select>
