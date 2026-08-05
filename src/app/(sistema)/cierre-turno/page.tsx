@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Clock, LogIn, LogOut, AlertCircle, CheckCircle2, Banknote, TrendingUp, TrendingDown, Plus, X } from 'lucide-react'
 
@@ -67,6 +68,7 @@ type Vista = 'principal' | 'abrir' | 'cerrar' | 'retiro' | 'historial' | 'reaper
 
 export default function CierreTurnoPage() {
   const supabase = createClient()
+  const router = useRouter()
 
   const [vista, setVista] = useState<Vista>('principal')
   const [turnoAbierto, setTurnoAbierto] = useState<TurnoAbierto | null>(null)
@@ -77,6 +79,7 @@ export default function CierreTurnoPage() {
   const [error, setError] = useState<string | null>(null)
   const [usuarioId, setUsuarioId] = useState<string | null>(null)
   const [sucursalId] = useState(1) // Cinco Saltos
+  const [avisoBorradores, setAvisoBorradores] = useState<number | null>(null) // cantidad pendiente, null = sin aviso
 
   // Datos del turno abierto
   const [ventasEfectivo, setVentasEfectivo] = useState<VentaEfectivo[]>([])
@@ -322,7 +325,31 @@ export default function CierreTurnoPage() {
     }
   }
 
-  async function cerrarTurno() {
+  // Chequea si hay ventas en borrador de este turno antes de cerrar. Si hay,
+  // muestra el aviso en vez de cerrar directo — el cierre real queda en
+  // ejecutarCierre().
+  async function iniciarCierre() {
+    if (!turnoAbierto || !efectivoContado) return
+    const monto = parseFloat(efectivoContado.replace(/\./g, '').replace(',', '.'))
+    if (isNaN(monto) || monto < 0) {
+      setError('Ingresá un monto válido')
+      return
+    }
+    setError(null)
+
+    const { count } = await supabase
+      .from('ventas_borrador')
+      .select('id', { count: 'exact', head: true })
+      .eq('cierre_turno_id', turnoAbierto.id)
+
+    if (count && count > 0) {
+      setAvisoBorradores(count)
+      return
+    }
+    await ejecutarCierre()
+  }
+
+  async function ejecutarCierre(eliminarBorradores = false) {
     if (!turnoAbierto || !efectivoContado) return
     const monto = parseFloat(efectivoContado.replace(/\./g, '').replace(',', '.'))
     if (isNaN(monto) || monto < 0) {
@@ -332,12 +359,16 @@ export default function CierreTurnoPage() {
     setProcesando(true)
     setError(null)
     try {
+      if (eliminarBorradores) {
+        await supabase.from('ventas_borrador').delete().eq('cierre_turno_id', turnoAbierto.id)
+      }
       const { error: err } = await supabase.rpc('cerrar_turno', {
         p_cierre_id: turnoAbierto.id,
         p_efectivo_real: monto,
         p_observaciones: observacionesCierre || null,
       })
       if (err) throw err
+      setAvisoBorradores(null)
       setTurnoAbierto(null)
       setVentasEfectivo([])
       setEgresosEfectivo([])
@@ -601,7 +632,7 @@ export default function CierreTurnoPage() {
                 if (!soloDigitos) { setEfectivoContado(''); return }
                 setEfectivoContado(parseInt(soloDigitos, 10).toLocaleString('es-AR'))
               }}
-              onKeyDown={e => e.key === 'Enter' && cerrarTurno()}
+              onKeyDown={e => e.key === 'Enter' && iniciarCierre()}
               placeholder="0"
               className="w-full px-4 py-3 border-2 border-[#00a19a] rounded-lg text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-[#00a19a]/30 text-right"
             />
@@ -653,7 +684,7 @@ export default function CierreTurnoPage() {
           )}
 
           <button
-            onClick={cerrarTurno}
+            onClick={iniciarCierre}
             disabled={!efectivoContado || procesando}
             className="w-full bg-[#3c3c3b] text-white py-3 rounded-lg font-semibold text-sm hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
@@ -662,7 +693,65 @@ export default function CierreTurnoPage() {
           </button>
         </div>
       </div>
-    )
+
+      {avisoBorradores !== null && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg border border-gray-200 w-full max-w-md">
+            <div className="p-4 border-b border-gray-200">
+              <h2 className="text-base font-semibold text-[#3c3c3b] flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-amber-500" />
+                {avisoBorradores} {avisoBorradores === 1 ? 'venta en borrador' : 'ventas en borrador'} sin terminar
+              </h2>
+            </div>
+            <div className="p-4 space-y-3 text-sm text-gray-600">
+              <p>
+                Hay {avisoBorradores === 1 ? 'una venta guardada como borrador' : `${avisoBorradores} ventas guardadas como borrador`} en
+                este turno que todavía no se cobraron.
+              </p>
+              <p className="text-xs text-gray-400">
+                Ojo: si cerrás la caja y las dejás, van a quedar guardadas en la base pero <strong>no van a volver a aparecer</strong> en
+                la lista de Borradores de Ventas (esa lista solo muestra las del turno que está abierto en ese momento) —
+                quedarían ahí sin forma fácil de recuperarlas desde la pantalla. Lo más prolijo es volver a Ventas y
+                terminarlas o eliminarlas antes de cerrar.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 p-4 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={() => { setAvisoBorradores(null); router.push('/ventas') }}
+                className="px-4 py-2 bg-[#00a19a] text-white rounded text-sm hover:bg-[#008f89]"
+              >
+                Volver a Ventas para revisarlas
+              </button>
+              <button
+                type="button"
+                onClick={() => ejecutarCierre(true)}
+                disabled={procesando}
+                className="px-4 py-2 border border-red-300 text-red-600 rounded text-sm hover:bg-red-50 disabled:opacity-50"
+              >
+                {procesando ? 'Cerrando...' : `Eliminar ${avisoBorradores === 1 ? 'el borrador' : 'los borradores'} y cerrar caja`}
+              </button>
+              <button
+                type="button"
+                onClick={() => ejecutarCierre(false)}
+                disabled={procesando}
+                className="px-4 py-2 text-gray-500 rounded text-sm hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cerrar igual y dejarlos (no recomendado)
+              </button>
+              <button
+                type="button"
+                onClick={() => setAvisoBorradores(null)}
+                className="px-4 py-2 text-gray-400 rounded text-xs hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
   }
 
   // ── VISTA: RETIRO DE CAJA ─────────────────────────────────────
