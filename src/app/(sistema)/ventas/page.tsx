@@ -220,14 +220,14 @@ export default function VentasPage() {
                 onClick={guardarBorrador}
                 disabled={guardandoBorrador}
                 title="Guardar borrador"
-                className="shrink-0 p-2 rounded border border-gray-300 text-gray-500 hover:bg-gray-50 hover:text-[#00a19a] hover:border-[#00a19a] disabled:opacity-50 transition-colors"
+                className="shrink-0 p-2 rounded border border-[#00a19a]/40 bg-[#00a19a]/10 text-[#00a19a] hover:bg-[#00a19a]/20 hover:border-[#00a19a] disabled:opacity-50 transition-colors"
               >
                 <Bookmark className="w-5 h-5" />
               </button>
               <button
                 onClick={() => { setItems([]); setBorradorActivoId(null) }}
                 title="Cancelar venta (Ctrl+X)"
-                className="shrink-0 p-2 rounded border border-gray-300 text-gray-500 hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition-colors"
+                className="shrink-0 p-2 rounded border border-red-300 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-400 transition-colors"
               >
                 <XCircle className="w-5 h-5" />
               </button>
