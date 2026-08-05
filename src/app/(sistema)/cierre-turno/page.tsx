@@ -751,7 +751,6 @@ export default function CierreTurnoPage() {
           </div>
         </div>
       )}
-    </div>
     </>
     )
   }
