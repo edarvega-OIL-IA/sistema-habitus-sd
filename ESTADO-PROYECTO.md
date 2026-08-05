@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 29/07/2026 — Sesión larga (27 al 29/07) con foco en fiscalización manual y control de deuda: pantalla nueva **Fiscalización** (pipeline de fiscalización unificado entre POS automático y reintento manual, columna `mensaje_error` real, condición de IVA/pago según el cliente real — cliente Municipalidad de Cinco Saltos cargado y facturado); un incidente real de producción (RLS faltante en 3 tablas rompió la fiscalización automática durante unas horas, detectado y resuelto el mismo día); un bug real corregido (`descuento_pct` de Compras nunca se guardaba en la base, solo se veía en pantalla); ampliación de una Orden de Compra ya guardada (Black Suplementos, $447.910,20 → $712.428,06); en Movimientos, separación de "Período" (referencia) de "Fecha" (la que manda en Dashboard/Reportes, corregido tras un error real de contabilización) más "Fecha de vencimiento" y bloqueo de Efectivo sin caja abierta; y una feature nueva grande: **Obligaciones**, cuenta corriente por acreedor (impuestos, sueldos, servicios, profesionales) con cargos y pagos totales/parciales enlazados a Movimientos reales, cargada con 16 acreedores y su historial real.
-**Estado general:** 🟢 En producción. Incidente de fiscalización del 27/07 resuelto en el día, sin pérdida de numeración real ante ARCA. Sistema de Obligaciones construido, probado y con datos reales cargados.
-**Próxima acción concreta:** seguir sumando acreedores a Obligaciones a medida que aparezcan (correr la consulta de "resumen de faltantes" contra Movimientos, ver sección 23). Resolver el pendiente crítico de reintento de fiscalización. Seguir migrando rubros al sistema de Sabores (sigue pendiente de sesiones anteriores).
+**Última actualización:** 05/08/2026 — Sesión larga: corrección de fondo del costo real de compras (el sistema descontaba IVA de más en 4 pantallas — Compras nueva/edición, Actualizar Precios, ArticuloForm — sin importar si el proveedor lo discriminaba; se centralizó en un único switch `RECUPERA_IVA_COMPRAS` en `src/lib/config.ts`, hoy en `false` porque Ariel es monotributista y el IVA pagado no se recupera, es costo real); corrección retroactiva de 58 artículos con costo mal calculado; **Ventas — Guardar borrador** (tabla `ventas_borrador`, pausar una venta en curso y retomarla, con aviso en Cierre de turno si quedan pendientes); Obligaciones ahora permite vincular un pago a un movimiento ya existente (evita duplicar cuando alguien carga el Egreso por Movimientos en vez de por Obligaciones); número de OC visible en Compras; y una sesión de planificación (sin código) de la **Vitrina web** — alcance, stock por sucursal, envíos, fotos e infraestructura de dominio, ver sección 25.
+**Estado general:** 🟢 En producción. El fix de IVA es el cambio de fondo más importante de la sesión — afecta el costo real usado en Utilidad/Reportes/Precios de gran parte del catálogo.
+**Próxima acción concreta:** confirmar en la práctica el aviso de borradores al cerrar turno. Arrancar la Vitrina web por el punto 1 (alcance) cuando Ariel lo decida — el resto de las decisiones (2 a 6) ya están tomadas, ver sección 25.
 
 ---
 
@@ -55,7 +55,7 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 7. Caja ✅ — con historial de cajas (22/07)
 8. Dashboard ✅ — responsive mobile arreglado (22/07)
 9. Historial de Artículos ✅ — **nuevo (22/07)**, cuenta corriente de stock por artículo
-10. Reportes — pendiente
+10. Reportes ✅ — **nuevo (03/08)**, Ventas mensuales + Punto de Equilibrio real por mes, Utilidad mensual Bruta/Gastos/Neta, filtro de Año
 11. **Facturación AFIP automática — ✅ EN PRODUCCIÓN REAL (14/07/2026)**, con reintento manual desde la pantalla **Fiscalización** (29/07, ver sección 23) para lo que falla o queda sin fiscalizar
 11.b **Obligaciones — ✅ nuevo (29/07)**, cuenta corriente por acreedor con cargos y pagos, ver sección 23
 12. Vitrina web propia (reemplaza Empretienda) — post-MVP, sin arrancar. Confirmado con Ariel: el dominio habitussd.com puede reapuntarse a nuestro sistema sin perderlo (es de registro independiente), pero recién tiene sentido cuando este módulo exista — hoy nuestro sistema es gestión interna, no tienda pública.
@@ -79,11 +79,11 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 ## 6. Decisiones pendientes
 
 - [ ] **Agregar columna de diagnóstico en `comprobantes`** (ej. `mensaje_error TEXT`) y capturarla en `api/ventas/route.ts` cuando ARCA/TusFacturasAPP rechaza — hoy no queda registrado en ningún lado (ni en nuestra BD ni accesible en el panel de TusFacturasAPP, que solo muestra comprobantes emitidos con éxito). Encontrado como problema real el 22/07 con la venta #1398 (ver sección 21). **Prioridad alta.**
-- [ ] **Evaluar mecanismo de reintento de fiscalización** para ventas que quedan en `estado_fiscal_id=4` (CAE_Rechazado) — hoy `fiscalizacion_intentos` se registra pero no hay ningún reintento automático ni manual desde la UI.
+- [ ] **Evaluar mecanismo de reintento de fiscalización automático** — el reintento manual desde `/fiscalizacion` ya funciona y se probó con éxito real el 03/08 (ventas #1437-#1440); lo que falta es decidir si conviene automatizarlo (cron/reintento programado) para no depender de que Ariel entre a la pantalla. Se agregó una advertencia (no bloqueante) cuando hay un comprobante anterior sin CAE confirmado, para evitar reintentos fuera de orden — evaluar si conviene que directamente bloquee en vez de solo advertir.
 - [ ] Pantalla "Correcciones" (admin, rol_id=1) para ventas de turnos ya cerrados
 - [ ] **Circuito de Nota de Crédito (NC) real dentro del sistema** — sigue pendiente el gap de esquema `comprobantes.venta_id UNIQUE` (no permite más de un comprobante por venta)
 - [ ] Limpiar políticas RLS duplicadas restantes si aparecen nuevas
-- [ ] Confirmar los archivos marcados `[?]` en `MAPA-ARCHIVOS.md`: `configuracion/page.tsx`, `reportes/page.tsx`, `page.tsx` raíz, `lib/utils.ts`
+- [ ] Confirmar los archivos marcados `[?]` en `MAPA-ARCHIVOS.md`: `configuracion/page.tsx`, `page.tsx` raíz, `lib/utils.ts` (`reportes/page.tsx` ya no aplica — construido completo el 03/08)
 - [ ] Borrar `compras/[id]/page_compras_id_old.tsx` y `src/app/(sistema)/diagnostico/`
 - [ ] Tipografías web: licenciar Antique Olive Nord D + Futura MD BT, o alternativas Google Fonts
 - [ ] Reemplazar `alert()` en confirmación de venta POS por notificación UI
@@ -92,7 +92,7 @@ Habitus SD: local de suplementos deportivos (Av. Roca 54, Cinco Saltos, Río Neg
 - [ ] Reorganización del menú lateral (post-MVP) — ✅ **avance parcial 22/07**: grupo "Artículos" ya armado, ver sección 21
 - [ ] Editar historial de cierres de caja (Admin, pantalla separada) — post-MVP. Nota: ya existe un **historial de solo lectura** desde el 22/07 (ver sección 21), esto sería la versión editable.
 - [ ] Indicador de rentabilidad caída en listado de artículos
-- [ ] Sandbox sigue sin toda la integración TusFacturasAPP — replicar cuando haya ventana
+- [ ] Sandbox sigue sin toda la integración TusFacturasAPP — replicar cuando haya ventana. Sumar también lo de esta sesión (03/08): Alquiler recategorizado a Servicios, concepto Supermercado en Insumos, condición de Período/Vencimiento en `MovimientoForm.tsx`.
 - [ ] **Filtros en Historial de cajas** (fecha, turno, responsable, estado) — pantalla nueva del 17/07, filtros identificados como siguiente paso, todavía no construidos.
 - [ ] Rol de Agustín — sigue en `rol_id=1` (Admin) temporal, hasta construir permisos granulares.
 - [ ] **Revisar el resto del catálogo por posibles descuadres de stock** — se encontró y corrigió uno más el 22/07 (artículo 1177), además de los 2 de la sesión 17/07 (1136, 1189). Con la pantalla "Historial de Artículos" y su filtro "Solo con diferencia" ya nueva, este chequeo ahora se puede hacer directo desde la UI en vez de pedir SQL.
@@ -555,3 +555,145 @@ Decidido explícitamente: **Insumos** (Artículos de limpieza, Bolsas/Packaging)
 2. Evaluar reintento **automático** de fiscalización (hoy el reintento es manual, desde `/fiscalizacion`).
 3. Replicar en sandbox la fiscalización manual + tablas de Obligaciones.
 4. Seguir con los pendientes de sesiones previas (permisos de Agustín, NC real, migración de rubros de Sabores, tabla `tipos_medida` — ver sección 6).
+
+---
+
+## 24. Sesión 30/07 - 03/08/2026 — Dashboard/Reportes con costo real, filtros por defecto, primera fiscalización real end-to-end
+
+### Bloque 1 — Costo real por venta (base de todo lo demás de esta sesión)
+
+Columna nueva `venta_items.costo_unitario`: cada venta graba el costo real del artículo en el momento exacto de la venta, para que el margen de una venta ya cerrada no cambie después aunque el costo se actualice con compras futuras. Backfill de las 232 ventas existentes con el costo actual (aproximación válida — primer mes del sistema). Además, costo promedio ponderado al confirmar una Orden de Compra (antes se reemplazaba directo por el costo de la compra más reciente). **Aviso importante:** el costo de mercadería de las ventas anteriores al 30/07 sigue siendo una aproximación (costo del artículo al momento del backfill, no el real de esa fecha); desde el 30/07 es exacto.
+
+### Bloque 2 — Dashboard: Utilidad Bruta/Neta reales, Ventas del día + Caja fusionados, diseño 3D
+
+- **Utilidad Bruta** = Ventas − costo real (`costo_unitario`). **Utilidad Neta** = Bruta − gastos fijos reales del mes en curso (misma exclusión que Punto de Equilibrio: sin Compras Mercadería ni Retiro de caja). Reemplaza el 40% fijo que Ariel usaba en su Excel.
+- **Ventas del día** pasó de 3 tarjetas + banner de Caja aparte, a **una sola fila de 4 tarjetas** (Mañana / Tarde / Total del día / Caja) — Caja a la derecha a propósito, para mantener el orden de lectura de ventas primero. Cada tarjeta de turno ahora también muestra el acumulado mensual de ese turno. Se sacó el donut "Por turno" (esa info ya está en las tarjetas de arriba).
+- **Las 3 de venta + Caja son clickeables**: Mañana/Tarde/Total redirigen a `/ventas/registro?turno=1|2|todos` (Registro de Ventas lee el parámetro con `window.location.search`, mismo patrón que `ArticuloForm.tsx`, para no forzar Suspense boundary — y tiene prioridad sobre la auto-detección del turno activo de caja). Caja redirige a `/cierre-turno`.
+- **Ingresos/Egresos/Diferencia** ahora excluyen `categoria_gasto_id=13` (Retiro/Ingreso manual de Caja) — no son ingreso ni gasto real del negocio, solo mueven plata de lugar (misma exclusión que ya tenía el checkbox de Movimientos). Antes el Egresos del Dashboard no coincidía con lo que Ariel esperaba como gasto real, por incluir los retiros.
+- **Diseño 3D** en las 10 tarjetas (Ventas del día ×4 + resumen del mes ×6): sombra doble (chica+difusa), hover con `-translate-y` y sombra más grande en las clickeables, press al click. Bordes aclarados en las tarjetas blancas para que la sombra se note más.
+- Ícono de Utilidad Bruta/Neta cambiado de `%` a `Wallet` (el valor se muestra en $, no en %).
+
+### Bloque 3 — Pantalla nueva: Reportes
+
+`reportes/page.tsx`, antes vacía. Dos gráficos (Recharts) con filtro de Año compartido (+ opción "Todo el histórico"):
+- **Ventas mensuales**: barras + línea de **Punto de Equilibrio real** calculado mes a mes (gastos fijos reales de ese mes ÷ margen real de ese mes) — no un número fijo a mano como en el Excel viejo.
+- **Utilidad mensual**: 3 barras por mes (Bruta / Gastos fijos / Neta), mismo orden que el Excel de Ariel — Gastos fijos se agregó después de una pregunta directa de Ariel ("¿por qué solo 2 columnas si mi Excel tiene 3?"), a pesar de ser matemáticamente redundante con Neta, porque ayuda a ver cuánto se come cada mes.
+- Leyenda del segundo gráfico armada a mano con `content` (no `payload`, esa versión de Recharts no lo permite en el tipo) para forzar el mismo orden que las barras.
+- Nota fija en pantalla sobre la aproximación del costo histórico pre-30/07 (Bloque 1).
+
+### Bloque 4 — Registro de Ventas: turno por URL, reset a Todos en Mes/Año, contador sin anuladas
+
+- Lee `?turno=` de la URL al montar (ver Bloque 2). Al elegir período **Mes** o **Año**, el filtro de Turno se resetea solo a "Todos" — el turno no tiene sentido en esos períodos (encontrado por Ariel viendo una combinación rara "Julio 2026 + Turno Tarde" que venía de una tarjeta del Dashboard).
+- El contador "X ventas" del encabezado del listado ahora **excluye anuladas**, igual que la tarjeta "Cantidad" (antes contaban distinto — 78 vs 77 — por criterios distintos sin que se notara). El listado de abajo sigue mostrando todas, anuladas incluidas.
+
+### Bloque 5 — Movimientos: Período/Vencimiento restringido, filtros por defecto, recategorización
+
+- **`MovimientoForm.tsx`**: Período y Fecha de vencimiento antes se mostraban para **todas** las categorías salvo Caja (lógica de exclusión al revés). Ahora es una lista de inclusión: solo **Impuestos, Empleados y Servicios** — las únicas con obligaciones recurrentes/formales. Encontrado por Ariel al ver esos campos en una compra de Local Comercial → Mantenimiento (lámparas LED) donde no correspondían.
+- **Alquiler recategorizado** de Local Comercial a Servicios (concepto `id=1` y acreedor `id=12`, `UPDATE` directo en ambas tablas) — dentro de Local Comercial convivía con Mantenimiento, que no necesita Período/Vencimiento; Servicios ya agrupa los otros pagos fijos mensuales (Edersa, Camuzzi, Aguas Rionegrinas, Internet, Claro), mismo tipo de gasto que Alquiler. Como Obligaciones agrupa por `acreedores.categoria_gasto_id` (no por el concepto), hubo que mover el acreedor aparte del concepto.
+- **Concepto nuevo:** `Supermercado` bajo categoría Insumos (`id=15`).
+- **Filtro de período por defecto** en `movimientos/page.tsx`: pasó de "Todos" a **"Mes"** — con el sistema ya en su segundo mes real, "Todos" dejó de ser útil de entrada.
+- **Filtro de Estado por defecto** en `compras/page.tsx`: pasó de "Todos" a **"Borrador"** — a Ariel le interesa ver de entrada los pedidos pendientes por llegar.
+
+### Bloque 6 — Primera fiscalización real completa (ventas #1437-#1440, PV 0004)
+
+Prueba real en producción, sin tocar código: **#1437 y #1438 fiscalizadas con éxito** (número 48 y 49). **#1439** rechazada en su primer intento porque ARCA esperaba el 49 (que #1438 todavía no había confirmado) — comportamiento esperado del sistema, no un bug: `fiscalizar.ts` reutiliza siempre el mismo número ya reservado por venta en cada reintento, nunca pide uno nuevo. **#1438** también tuvo un rechazo transitorio propio de los servicios web de ARCA (no de numeración), resuelto solo reintentando. Reintentando en el orden correcto (48→49→50→51) las 4 quedaron **Fiscalizadas**.
+
+A partir de esta prueba, se agregó una **advertencia (no bloqueante)** en `/fiscalizacion`: si el comprobante de una venta tiene un comprobante anterior (número menor, mismo `punto_venta_id`) que todavía no tiene CAE confirmado, se avisa antes de reintentar, para evitar el error de numeración de #1439 por apuro o desconocimiento.
+
+### Archivos nuevos o modificados en esta sesión (para `MAPA-ARCHIVOS.md`)
+- `src/app/(sistema)/dashboard/page.tsx` — Utilidad Bruta/Neta reales, fila de 4 tarjetas Ventas del día+Caja clickeables, diseño 3D, Ingresos/Egresos/Diferencia sin movimientos de Caja
+- `src/app/(sistema)/reportes/page.tsx` — **nuevo completo**, antes solo el título
+- `src/app/(sistema)/ventas/registro/page.tsx` — lee `?turno=` de URL, reset a Todos en Mes/Año, contador sin anuladas
+- `src/app/(sistema)/movimientos/page.tsx` — filtro de período por defecto "Mes"
+- `src/app/(sistema)/compras/page.tsx` — filtro de estado por defecto "Borrador"
+- `src/app/(sistema)/fiscalizacion/page.tsx` — advertencia de comprobante anterior sin CAE confirmado
+- `src/components/movimientos/MovimientoForm.tsx` — Período/Vencimiento restringido a Impuestos/Empleados/Servicios
+- `src/app/(sistema)/compras/nueva/page.tsx`, `compras/[id]/page.tsx` — costo promedio ponderado al confirmar OC
+
+### Pendiente para la próxima sesión
+1. Pantalla "Correcciones" para Admin (turnos cerrados) — sigue sin construir.
+2. Evaluar reintento automático de fiscalización, y si la advertencia de orden conviene que bloquee en vez de solo avisar.
+3. Replicar en sandbox: fiscalización manual + Obligaciones (sesión 23) + Alquiler/Supermercado/Período-Vencimiento (sesión 24).
+4. Seguir con los pendientes de sesiones previas sin tocar hoy (NC real, permisos de Agustín, migración de rubros de Sabores — ver sección 6).
+
+---
+
+## 25. Sesión 05/08/2026 — Fix de fondo del costo real (IVA), borradores de venta, y planificación de la Vitrina web
+
+### Bloque 1 — El bug de IVA: hallazgo y switch central
+
+Revisando por qué tuvo que corregir a mano el costo de un Collagen, Ariel encontró que **compras/nueva** dividía el precio cargado por 1,21 (IVA) para calcular `costo_sin_iva`, sin importar si el proveedor realmente facturaba con IVA discriminado. Con comprobantes reales de Black Suplementos y DisFit (ambos monotributistas, 0% IVA / "Comprobante No Válido como Factura") se confirmó el problema.
+
+**Decisión clave de Ariel** (la que define el criterio para siempre, no solo hoy): mientras sea monotributista, el IVA que un proveedor le cobra **no se recupera** como crédito fiscal — es plata real que pagó y no vuelve. El costo real de cada compra es **el total efectivamente pagado**, discrimine IVA el proveedor o no. Por eso se creó:
+
+```ts
+// src/lib/config.ts
+export const RECUPERA_IVA_COMPRAS = false
+```
+
+El día que pase a Responsable Inscripto, se cambia ese único valor a `true` y todo el sistema empieza a descontar IVA del costo — sin tocar Compras, Dashboard, Reportes ni Precios. Las compras ya cargadas antes del cambio **no se recalculan**: en su momento el IVA no era recuperable, así que ese fue su costo real para siempre.
+
+**4 archivos corregidos** para usar el switch (antes cada uno tenía su propia cuenta de IVA, algunas hasta duplicadas — `ArticuloForm.tsx` dividía el costo Y volvía a dividir el precio de venta antes de calcular Utilidad %, doble error):
+- `compras/nueva/page.tsx`, `compras/[id]/page.tsx` — `getDivisorIva()` centralizado, se sacó el checkbox "discrimina IVA" que se había agregado a mitad de sesión y después se volvió innecesario.
+- `articulos/precios/page.tsx` — la columna "Costo c/IVA" volvía a sumarle IVA a un costo que ya podía ser el real; ahora es simplemente "Costo" mientras el switch esté en `false`.
+- `ArticuloForm.tsx` — mismo criterio, más reordenamiento de la grilla de Precios (Tasa IVA a ancho completo con nota aclaratoria de que no afecta nada mientras el switch esté apagado).
+
+`orden_compra_items.precio_unitario_con_iva` (columna nueva) y `proveedores.discrimina_iva` (columna nueva, sin uso activo en el cálculo, queda como dato informativo a futuro) se agregaron en el camino pero terminaron siendo redundantes una vez que apareció el criterio real del switch único.
+
+### Bloque 2 — Corrección retroactiva de costos
+
+Con la consulta de alcance ampliada a **todas** las órdenes confirmadas (no solo Black Suplementos/DisFit — apareció también EPN), se identificaron:
+- **58 artículos** con una sola compra afectada y costo actual sin tocar después → corregidos con un único `UPDATE` (revierte la división de IVA de más).
+- **1003/1004** (Collagen Plus/Sport) — Ariel ya los había corregido a mano antes de esta sesión, se dejaron como estaban.
+- **6 artículos con cadena de compras múltiples** (1023, 1029, 1049, 1254, 1256, 1374) — al intentar reconstruir el promedio ponderado histórico se encontró que la **Orden 4** nunca generó ningún movimiento de stock para ningún artículo (0 filas en `movimientos_stock` con `origen_id=4`), y el costo/stock actual de esos 6 no coincidía con ninguna compra puntual. Se descartó reconstruir la cadena completa (edificar sobre datos con huecos reales) y en su lugar se fijó el costo de cada uno al valor corregido de su **compra confirmada más reciente**. El conteo físico real de Ariel confirmó que el **stock** de esos artículos estaba bien igual (una corrección manual sin origen registrado del 22/07 lo había dejado bien, aunque sin trazabilidad) — el problema real era solo de costo, no de cantidad.
+- Se armó además un Excel de verificación de margen (Utilidad % antigua vs. corregida) antes de aplicar nada, para detectar artículos que quedaran con margen bajo tras la corrección.
+
+**Pendiente sin resolver:** por qué la Orden 4 se salteó el paso de stock para esos 6 artículos — quedó sin investigar a fondo, no bloquea nada hoy.
+
+### Bloque 3 — Feature: Guardar borrador de venta
+
+A pedido de Ariel (Agustín tuvo que hacer una venta larga "a mano" porque el cliente tardó en volver con el efectivo, mientras atendía a otro cliente). Tabla nueva:
+
+```sql
+ventas_borrador (id, sucursal_id, cierre_turno_id, usuario_id, cliente_id, etiqueta, items JSONB, descuento_pct, creado_en)
+```
+
+En `ventas/page.tsx`: botón "Guardar borrador" (ícono, verde) pausa el carrito completo y lo limpia para la siguiente venta; botón "Borradores (N)" (ícono, junto al buscador) abre un popup con los borradores **de ese turno únicamente** (`cierre_turno_id`, nunca de otro día u otro turno), identificados por los productos que contienen (no solo la nota manual). El borrador elegido se carga al carrito pero **no se borra hasta que la venta se confirma de verdad** — cancelar la venta lo deja intacto en la lista (bug real encontrado y corregido en la primera prueba).
+
+En `cierre-turno/page.tsx`: si quedan borradores del turno al cerrar caja, aparece un aviso con 3 opciones (volver a Ventas a resolverlos, eliminarlos y cerrar, o cerrar igual dejándolos — con advertencia de que quedarían huérfanos, porque la lista de Borradores de Ventas solo muestra los del turno activo).
+
+### Bloque 4 — Obligaciones: vincular movimiento existente
+
+Mismo espíritu que el Bloque 3 (evitar que un pago cargado "por el camino equivocado" se pierda o se duplique). El modal "Registrar pago" ahora tiene dos modos: "Nuevo movimiento" (como siempre) o **"Vincular movimiento existente"** — busca Egresos de la misma categoría sin vincular todavía a ninguna obligación, y al elegir uno precarga monto/fecha/medio de pago (bloqueados) sin crear un Egreso nuevo.
+
+Aplicado a un caso real: Fabiana (Limpieza) tenía un pago de $105.500 cargado desde Movimientos por Agustín, sin cargo correspondiente ni vínculo. Se le agregó el cargo de julio (mes vencido, con `fecha_vencimiento=01/08` para que se ordene bien en la pantalla) y se vinculó el pago al movimiento #255 ya existente. De paso se unificaron sus conceptos históricos (tenía "Sueldo" mezclado con "Limpieza" — se sacó "Sueldo" de `acreedor_conceptos` para ese acreedor).
+
+### Bloque 5 — Compras: número de OC visible
+
+A pedido de Ariel (contó mal una orden a simple vista, sin el número visible, buscando la Orden 4 en la lista). Cada fila del listado ahora arranca con "OC #N" antes de la fecha.
+
+### Bloque 6 — Exportación de Empretienda: descripciones de producto (en pausa, a propósito)
+
+Ariel subió el export completo de Empretienda (369 productos, 367 con descripción real armada a mano, no solo la etiqueta legal). Se cruzó contra el catálogo de Habitus SD (471 artículos activos) con matching difuso (`rapidfuzz`, `token_sort_ratio`, con detección de marca sospechosa e IDs duplicados) y se armó un Excel de 3 hojas: **88 de alta confianza** (listos para aplicar), **207 a revisar** (score bueno pero no perfecto, o alguna señal de alerta), **74 sin match confiable** (probablemente discontinuados o marcas que Ariel ya no vende). **Decisión de Ariel: pausar esto a propósito** — no vale la pena revisar 369 productos de marcas que capaz ni sigan en el catálogo cuando la vitrina esté lista; se retoma más adelante, filtrando por categoría y stock real en ese momento. El Excel queda guardado (`revision_descripciones_empretienda.xlsx`) para no repetir el cruce.
+
+### Bloque 7 — Planificación de la Vitrina web (sin código, conversación de diseño)
+
+Decisiones tomadas, para no repetir la conversación:
+
+1. **Alcance:** carrito + checkout completo, con pago online (Mercado Pago) — no solo catálogo informativo.
+2. **Cómo entra un pedido:** la venta se crea sola en Habitus SD (con su fiscalización correspondiente). Requiere tener bien afinado el stock para no ofrecer online algo sin stock real.
+3. **Stock por sucursal (pensando en escalar a futuro, ej. un local en Córdoba):** el modelo de datos **ya está preparado** — `articulo_stock` tiene `sucursal_id` desde su diseño original. Hoy solo existe la sucursal 1 (Cinco Saltos); el día que haya una segunda sucursal, no hace falta cambiar el esquema, solo que la vitrina consulte el stock filtrando por sucursal en vez de asumir una sola.
+4. **Qué se muestra públicamente:** `disponible_web = true` **y** stock real > 0 → se muestra con precio; si no tiene stock, se muestra igual pero como "Sin stock" (no se oculta el producto).
+5. **Envíos:** arranca **solo con retiro en el local**. Andreani y Correo Argentino (que sí tenía Empretienda) quedan pendientes para una etapa posterior.
+6. **Fotos de producto:** no hay URLs cargadas en ningún lado (ni el sistema ni el export de Empretienda). Ariel las tiene guardadas localmente en distintas carpetas — las va a resubir manualmente, por categoría, a **Supabase Storage**. Trabajo manual, sin apuro.
+7. **Infraestructura:** mismo proyecto Next.js, sección pública nueva sin login. Confirmado que `habitussd.com` y `sistema-habitus-sd.vercel.app` pueden convivir sin problema — Vercel permite varios dominios en un mismo proyecto, y se puede diferenciar qué mostrar en cada uno según el hostname de la request si hiciera falta.
+8. **Diseño:** se conversó usar Figma (ya conectado) vs. ir directo a código — Ariel eligió ir directo a código entre los dos, mismo criterio que se usó para todo el resto del sistema hasta ahora.
+
+**Pendiente real para arrancar:** ninguna decisión más de las básicas — cuando Ariel dé el ok, el primer paso es diseñar el modelo de datos del carrito/checkout público y el flujo de creación de venta desde afuera del sistema.
+
+### Pendiente para la próxima sesión
+1. Confirmar en la práctica que el aviso de borradores al cerrar turno funciona bien.
+2. Investigar (si vale la pena) por qué la Orden 4 se salteó el paso de stock para 6 artículos puntuales.
+3. Arrancar la Vitrina web cuando Ariel lo indique — modelo de datos del carrito/checkout público es el primer paso técnico.
+4. Retomar las descripciones de Empretienda cuando la vitrina esté más avanzada (Excel ya armado, ver Bloque 6).
+5. Seguir con los pendientes de sesiones previas (Correcciones, sandbox, NC real, permisos de Agustín, Sabores).
