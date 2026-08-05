@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import BuscadorProductos from '@/components/ventas/BuscadorProductos'
 import CarritoItems, { ItemCarrito } from '@/components/ventas/CarritoItems'
 import PanelPagos from '@/components/ventas/PanelPagos'
+import { Bookmark, XCircle, FileStack } from 'lucide-react'
 
 interface BorradorVenta {
   id: number
@@ -208,20 +209,41 @@ export default function VentasPage() {
     <div className="flex h-[calc(100vh-48px)] -m-6 overflow-hidden">
       {/* Panel izquierdo — buscador + carrito */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Buscador siempre arriba, con acceso a Borradores al lado */}
+        {/* Buscador siempre arriba, con las acciones del carrito al lado */}
         <div className="p-4 border-b border-gray-200 bg-white flex items-center gap-3">
           <div className="flex-1">
             <BuscadorProductos onAgregarItem={agregarItem} />
           </div>
+          {items.length > 0 && (
+            <>
+              <button
+                onClick={guardarBorrador}
+                disabled={guardandoBorrador}
+                title="Guardar borrador"
+                className="shrink-0 p-2 rounded border border-gray-300 text-gray-500 hover:bg-gray-50 hover:text-[#00a19a] hover:border-[#00a19a] disabled:opacity-50 transition-colors"
+              >
+                <Bookmark className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => { setItems([]); setBorradorActivoId(null) }}
+                title="Cancelar venta (Ctrl+X)"
+                className="shrink-0 p-2 rounded border border-gray-300 text-gray-500 hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition-colors"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </>
+          )}
           <button
             onClick={() => setMostrarBorradores(true)}
-            className={`shrink-0 px-3 py-2 rounded text-sm font-medium border transition-colors ${
+            title="Ventas en borrador"
+            className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium border transition-colors ${
               borradores.length > 0
                 ? 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
                 : 'bg-white border-gray-300 text-gray-400 hover:bg-gray-50'
             }`}
           >
-            Borradores {borradores.length > 0 && `(${borradores.length})`}
+            <FileStack className="w-4 h-4" />
+            {borradores.length > 0 && borradores.length}
           </button>
         </div>
 
@@ -268,25 +290,11 @@ export default function VentasPage() {
           </div>
         )}
 
-        {/* Pie del carrito — solo con items */}
+        {/* Pie del carrito — solo con items, ahora informativo (las acciones subieron junto al buscador) */}
         {items.length > 0 && (
           <div className="p-3 border-t border-gray-200 bg-white text-xs text-gray-400 flex justify-between items-center">
             <span>{items.length} líneas · {items.reduce((s, i) => s + i.cantidad, 0)} unidades</span>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={guardarBorrador}
-                disabled={guardandoBorrador}
-                className="text-[#00a19a] hover:text-[#008f89] disabled:opacity-50 font-medium"
-              >
-                {guardandoBorrador ? 'Guardando...' : 'Guardar borrador'}
-              </button>
-              <button
-                onClick={() => { setItems([]); setBorradorActivoId(null) }}
-                className="text-red-400 hover:text-red-600"
-              >
-                Cancelar venta (Ctrl+X)
-              </button>
-            </div>
+            {guardandoBorrador && <span className="text-[#00a19a]">Guardando borrador...</span>}
           </div>
         )}
       </div>
@@ -314,15 +322,18 @@ export default function VentasPage() {
                   {borradores.map(b => {
                     const total = b.items.reduce((s, i) => s + i.precio_unitario * i.cantidad * (1 - (i.descuento_pct || 0) / 100), 0)
                       * (1 - (b.descuento_pct || 0) / 100)
-                    const cantUnidades = b.items.reduce((s, i) => s + i.cantidad, 0)
+                    const preview = b.items.map(i => `${i.cantidad > 1 ? i.cantidad + '× ' : ''}${i.nombre}`).join(', ')
+                    const previewCorta = preview.length > 60 ? preview.slice(0, 60) + '…' : preview
                     return (
                       <div key={b.id} className="p-4 flex items-center justify-between gap-3 hover:bg-gray-50">
-                        <button onClick={() => restaurarBorrador(b)} className="flex-1 text-left">
-                          <p className="text-sm font-medium text-[#3c3c3b]">
-                            {b.etiqueta || `${b.items.length} líneas · ${cantUnidades} unidades`}
-                          </p>
+                        <button onClick={() => restaurarBorrador(b)} className="flex-1 text-left min-w-0">
+                          <p className="text-sm font-medium text-[#3c3c3b] truncate">{previewCorta}</p>
+                          {b.etiqueta && (
+                            <p className="text-xs text-amber-700 mt-0.5 truncate">📝 {b.etiqueta}</p>
+                          )}
                           <p className="text-xs text-gray-400 mt-0.5">
                             {new Date(b.creado_en).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })}
+                            {' · '}{b.items.length} {b.items.length === 1 ? 'ítem' : 'ítems'}
                             {' · '}${total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </p>
                         </button>
