@@ -580,6 +580,7 @@ export default function CierreTurnoPage() {
   // ── VISTA: CERRAR TURNO ───────────────────────────────────────
   if (vista === 'cerrar') {
     return (
+      <>
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center gap-3 mb-6">
           <button onClick={() => { setVista('principal'); setError(null) }}
@@ -751,7 +752,8 @@ export default function CierreTurnoPage() {
         </div>
       )}
     </div>
-  )
+    </>
+    )
   }
 
   // ── VISTA: RETIRO DE CAJA ─────────────────────────────────────
