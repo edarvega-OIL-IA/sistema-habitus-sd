@@ -23,6 +23,7 @@ export default function VentasPage() {
   const [ventasRecientes, setVentasRecientes] = useState<any[]>([])
   const [usuarioId, setUsuarioId] = useState<string | null>(null)
   const [borradores, setBorradores] = useState<BorradorVenta[]>([])
+  const [borradorActivoId, setBorradorActivoId] = useState<number | null>(null)
   const [mostrarBorradores, setMostrarBorradores] = useState(false)
   const [guardandoBorrador, setGuardandoBorrador] = useState(false)
   const router = useRouter()
@@ -108,11 +109,22 @@ export default function VentasPage() {
     setItems(prev => prev.filter((_, i) => i !== index))
   }, [])
 
-  const ventaConfirmada = useCallback(() => {
+  const ventaConfirmada = useCallback(async () => {
+    // La venta ya se confirmó de verdad — recién ahora se borra el borrador
+    // del que vino (si vino de uno). Si se cancela en cambio, el borrador
+    // queda intacto en la lista.
+    if (borradorActivoId) {
+      const supabase = createClient()
+      await supabase.from('ventas_borrador').delete().eq('id', borradorActivoId)
+      setBorradorActivoId(null)
+    }
     setItems([])
     setDescuento_pct(0)
-    if (cierreId) cargarVentasRecientes(cierreId)
-  }, [cierreId])
+    if (cierreId) {
+      cargarVentasRecientes(cierreId)
+      cargarBorradores(cierreId)
+    }
+  }, [cierreId, borradorActivoId])
 
   async function guardarBorrador() {
     if (items.length === 0 || !cierreId || !usuarioId) return
@@ -127,25 +139,30 @@ export default function VentasPage() {
       items,
       descuento_pct,
     })
+    if (!error && borradorActivoId) {
+      // Si este carrito ya venía de un borrador, ese queda reemplazado por
+      // la versión nueva — se borra el viejo para no duplicar.
+      await supabase.from('ventas_borrador').delete().eq('id', borradorActivoId)
+    }
     setGuardandoBorrador(false)
     if (error) { alert('Error al guardar el borrador: ' + error.message); return }
     setItems([])
     setDescuento_pct(0)
+    setBorradorActivoId(null)
     cargarBorradores(cierreId)
   }
 
-  async function restaurarBorrador(borrador: BorradorVenta) {
-    // Si ya hay algo cargado en el carrito, confirmar antes de pisarlo
+  function restaurarBorrador(borrador: BorradorVenta) {
+    // Si ya hay algo cargado en el carrito, confirmar antes de pisarlo.
+    // No se borra nada acá — el borrador elegido recién se borra cuando la
+    // venta se confirma de verdad (ver ventaConfirmada).
     if (items.length > 0 && !window.confirm('Hay una venta en curso en el carrito — se va a reemplazar por este borrador. ¿Continuar?')) {
       return
     }
-    const supabase = createClient()
-    const { error } = await supabase.from('ventas_borrador').delete().eq('id', borrador.id)
-    if (error) { alert('Error al recuperar el borrador: ' + error.message); return }
     setItems(borrador.items)
     setDescuento_pct(borrador.descuento_pct)
+    setBorradorActivoId(borrador.id)
     setMostrarBorradores(false)
-    if (cierreId) cargarBorradores(cierreId)
   }
 
   async function eliminarBorrador(id: number) {
@@ -153,6 +170,7 @@ export default function VentasPage() {
     const supabase = createClient()
     const { error } = await supabase.from('ventas_borrador').delete().eq('id', id)
     if (error) { alert('Error al eliminar: ' + error.message); return }
+    if (id === borradorActivoId) setBorradorActivoId(null)
     if (cierreId) cargarBorradores(cierreId)
   }
 
@@ -263,7 +281,7 @@ export default function VentasPage() {
                 {guardandoBorrador ? 'Guardando...' : 'Guardar borrador'}
               </button>
               <button
-                onClick={() => setItems([])}
+                onClick={() => { setItems([]); setBorradorActivoId(null) }}
                 className="text-red-400 hover:text-red-600"
               >
                 Cancelar venta (Ctrl+X)
