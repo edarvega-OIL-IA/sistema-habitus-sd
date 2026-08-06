@@ -106,69 +106,41 @@ export default async function TiendaPage({
         </div>
       </header>
 
-      {/* Filtro de rubros + Filtros (marca/stock) */}
-      {(rubros.length > 0 || marcas.length > 0) && (
-        <div className="bg-white border-b border-gray-200">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center gap-2">
-            <a
-              href={`/tienda?${new URLSearchParams({ ...(marcasSeleccionadas.length > 0 && { marca: marcasSeleccionadas.join(',') }), ...(soloConStock && { stock: 'con' }) }).toString()}`}
-              className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                !rubroSeleccionado
-                  ? 'bg-[#00a19a] text-white border-[#00a19a]'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-[#00a19a]'
-              }`}
-            >
-              Todos
-            </a>
-            {rubros.map(r => (
-              <a
-                key={r}
-                href={`/tienda?${new URLSearchParams({ rubro: r, ...(marcasSeleccionadas.length > 0 && { marca: marcasSeleccionadas.join(',') }), ...(soloConStock && { stock: 'con' }) }).toString()}`}
-                className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                  rubroSeleccionado === r
-                    ? 'bg-[#00a19a] text-white border-[#00a19a]'
-                    : 'bg-white text-gray-600 border-gray-300 hover:border-[#00a19a]'
-                }`}
-              >
-                {r}
-              </a>
-            ))}
-            {marcas.length > 0 && <FiltrosTienda marcas={marcas} />}
-          </div>
-        </div>
-      )}
+      {/* Sidebar de filtros + grid de productos */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col md:flex-row gap-6">
+        <FiltrosTienda rubros={rubros} marcas={marcas} />
 
-      {/* Grid de productos */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-        {error ? (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center text-sm text-red-700">
-            No se pudo cargar el catálogo. Probá de nuevo en un momento.
-          </div>
-        ) : gruposFiltrados.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-lg p-12 text-center text-sm text-gray-400">
-            Todavía no hay productos cargados para la tienda online.
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {gruposFiltrados.map(g => (
-              <ProductoCard
-                key={g.key}
-                titulo={g.titulo}
-                marca={g.marca}
-                variantes={g.variantes.map(v => ({
-                  id: v.id,
-                  sabor: v.sabor,
-                  atributo_valor: v.atributo_valor,
-                  precio: v.precio,
-                  en_oferta: v.en_oferta,
-                  stock: v.stock,
-                  imagen_url: v.imagen_url,
-                }))}
-              />
-            ))}
-          </div>
-        )}
-      </main>
+        <main className="flex-1 min-w-0">
+          {error ? (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center text-sm text-red-700">
+              No se pudo cargar el catálogo. Probá de nuevo en un momento.
+            </div>
+          ) : gruposFiltrados.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-lg p-12 text-center text-sm text-gray-400">
+              No hay productos con los filtros aplicados.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {gruposFiltrados.map(g => (
+                <ProductoCard
+                  key={g.key}
+                  titulo={g.titulo}
+                  marca={g.marca}
+                  variantes={g.variantes.map(v => ({
+                    id: v.id,
+                    sabor: v.sabor,
+                    atributo_valor: v.atributo_valor,
+                    precio: v.precio,
+                    en_oferta: v.en_oferta,
+                    stock: v.stock,
+                    imagen_url: v.imagen_url,
+                  }))}
+                />
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
 
       <footer className="border-t border-gray-200 py-6 text-center text-xs text-gray-400">
         Av. Roca 54, Cinco Saltos, Río Negro — Hábitus SD

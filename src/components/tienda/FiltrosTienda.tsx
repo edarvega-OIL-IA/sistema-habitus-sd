@@ -2,16 +2,15 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { SlidersHorizontal } from 'lucide-react'
-import { PopoverRoot, PopoverTrigger, PopoverContent, PopoverCloseButton } from '@/components/ui/popover'
 
-export default function FiltrosTienda({ marcas }: { marcas: string[] }) {
+export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; marcas: string[] }) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
+  const rubroActual = searchParams.get('rubro') || ''
   const marcasSeleccionadas = (searchParams.get('marca') || '').split(',').filter(Boolean)
   const soloStock = searchParams.get('stock') === 'con'
-  const cantidadActiva = marcasSeleccionadas.length + (soloStock ? 1 : 0)
+  const hayFiltrosActivos = !!rubroActual || marcasSeleccionadas.length > 0 || soloStock
 
   function actualizarParam(clave: string, valor: string | null) {
     const params = new URLSearchParams(searchParams.toString())
@@ -27,31 +26,47 @@ export default function FiltrosTienda({ marcas }: { marcas: string[] }) {
     actualizarParam('marca', nuevas.length > 0 ? nuevas.join(',') : null)
   }
 
-  function limpiarFiltros() {
-    const params = new URLSearchParams(searchParams.toString())
-    params.delete('marca')
-    params.delete('stock')
-    router.push(`/tienda?${params.toString()}`)
+  function limpiarTodo() {
+    router.push('/tienda')
   }
 
   return (
-    <PopoverRoot>
-      <PopoverTrigger className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium border border-gray-300 bg-white text-gray-600 hover:border-[#00a19a] transition-colors">
-        <SlidersHorizontal className="w-3.5 h-3.5" />
-        Filtros
-        {cantidadActiva > 0 && (
-          <span className="bg-[#00a19a] text-white text-[10px] font-semibold rounded-full w-4 h-4 flex items-center justify-center">
-            {cantidadActiva}
-          </span>
-        )}
-      </PopoverTrigger>
-      <PopoverContent className="h-auto w-72 right-0 p-4">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-sm font-semibold text-[#3c3c3b]">Filtros</p>
-          <PopoverCloseButton className="text-gray-400 hover:text-gray-600 text-xs" />
-        </div>
+    <aside className="w-full md:w-56 shrink-0 space-y-6">
+      {hayFiltrosActivos && (
+        <button onClick={limpiarTodo} className="text-xs text-red-500 hover:text-red-600">
+          ✕ Limpiar filtros
+        </button>
+      )}
 
-        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer mb-3 pb-3 border-b border-gray-100">
+      {rubros.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Categorías</p>
+          <div className="space-y-0.5">
+            <button
+              onClick={() => actualizarParam('rubro', null)}
+              className={`block w-full text-left px-3 py-1.5 rounded text-sm transition-colors ${
+                !rubroActual ? 'bg-[#00a19a]/10 text-[#00a19a] font-medium' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Todos
+            </button>
+            {rubros.map(r => (
+              <button
+                key={r}
+                onClick={() => actualizarParam('rubro', rubroActual === r ? null : r)}
+                className={`block w-full text-left px-3 py-1.5 rounded text-sm transition-colors ${
+                  rubroActual === r ? 'bg-[#00a19a]/10 text-[#00a19a] font-medium' : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
           <input
             type="checkbox"
             checked={soloStock}
@@ -60,28 +75,26 @@ export default function FiltrosTienda({ marcas }: { marcas: string[] }) {
           />
           Solo con stock
         </label>
+      </div>
 
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Marca</p>
-        <div className="space-y-1.5 max-h-64 overflow-y-auto">
-          {marcas.map(m => (
-            <label key={m} className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={marcasSeleccionadas.includes(m)}
-                onChange={() => toggleMarca(m)}
-                className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
-              />
-              {m}
-            </label>
-          ))}
+      {marcas.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Marca</p>
+          <div className="space-y-1">
+            {marcas.map(m => (
+              <label key={m} className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={marcasSeleccionadas.includes(m)}
+                  onChange={() => toggleMarca(m)}
+                  className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                />
+                {m}
+              </label>
+            ))}
+          </div>
         </div>
-
-        {cantidadActiva > 0 && (
-          <button onClick={limpiarFiltros} className="text-xs text-red-500 hover:text-red-600 mt-3">
-            Limpiar filtros
-          </button>
-        )}
-      </PopoverContent>
-    </PopoverRoot>
+      )}
+    </aside>
   )
 }
