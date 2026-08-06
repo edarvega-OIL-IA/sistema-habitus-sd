@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Save, X } from 'lucide-react'
 import { RECUPERA_IVA_COMPRAS } from '@/lib/config'
+import ImagenesArticulo from './ImagenesArticulo'
 
 const articuloSchema = z.object({
   nombre: z.string().min(1, 'El nombre es requerido'),
@@ -741,7 +742,11 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
               <textarea {...register('descripcion')} rows={4} className={inputClass} />
             </div>
             <div className="md:col-span-2">
-              <p className="text-xs text-gray-500 italic">Gestión de imágenes — próximamente</p>
+              {articuloId ? (
+                <ImagenesArticulo articuloId={articuloId} />
+              ) : (
+                <p className="text-xs text-gray-500 italic">Guardá el artículo primero — recién ahí se pueden subir fotos.</p>
+              )}
             </div>
           </div>
         )}
