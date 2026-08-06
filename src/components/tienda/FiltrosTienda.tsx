@@ -1,11 +1,15 @@
 // Ruta destino: C:\Users\Usuario\Documents\sistema-habitus-sd\src\components\tienda\FiltrosTienda.tsx
 'use client'
 
+import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { ChevronDown } from 'lucide-react'
 
 export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; marcas: string[] }) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [categoriasAbierto, setCategoriasAbierto] = useState(true)
+  const [marcaAbierto, setMarcaAbierto] = useState(true)
 
   const rubroActual = searchParams.get('rubro') || ''
   const marcasSeleccionadas = (searchParams.get('marca') || '').split(',').filter(Boolean)
@@ -40,28 +44,36 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
 
       {rubros.length > 0 && (
         <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Categorías</p>
-          <div className="space-y-0.5">
-            <button
-              onClick={() => actualizarParam('rubro', null)}
-              className={`block w-full text-left px-3 py-1.5 rounded text-sm transition-colors ${
-                !rubroActual ? 'bg-[#00a19a]/10 text-[#00a19a] font-medium' : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              Todos
-            </button>
-            {rubros.map(r => (
+          <button
+            onClick={() => setCategoriasAbierto(prev => !prev)}
+            className="flex items-center justify-between w-full text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2"
+          >
+            Categorías
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${categoriasAbierto ? 'rotate-180' : ''}`} />
+          </button>
+          {categoriasAbierto && (
+            <div className="space-y-0.5">
               <button
-                key={r}
-                onClick={() => actualizarParam('rubro', rubroActual === r ? null : r)}
+                onClick={() => actualizarParam('rubro', null)}
                 className={`block w-full text-left px-3 py-1.5 rounded text-sm transition-colors ${
-                  rubroActual === r ? 'bg-[#00a19a]/10 text-[#00a19a] font-medium' : 'text-gray-600 hover:bg-gray-50'
+                  !rubroActual ? 'bg-[#00a19a]/10 text-[#00a19a] font-medium' : 'text-gray-600 hover:bg-gray-50'
                 }`}
               >
-                {r}
+                Todos
               </button>
-            ))}
-          </div>
+              {rubros.map(r => (
+                <button
+                  key={r}
+                  onClick={() => actualizarParam('rubro', rubroActual === r ? null : r)}
+                  className={`block w-full text-left px-3 py-1.5 rounded text-sm transition-colors ${
+                    rubroActual === r ? 'bg-[#00a19a]/10 text-[#00a19a] font-medium' : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -79,20 +91,28 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
 
       {marcas.length > 0 && (
         <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Marca</p>
-          <div className="space-y-1">
-            {marcas.map(m => (
-              <label key={m} className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={marcasSeleccionadas.includes(m)}
-                  onChange={() => toggleMarca(m)}
-                  className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
-                />
-                {m}
-              </label>
-            ))}
-          </div>
+          <button
+            onClick={() => setMarcaAbierto(prev => !prev)}
+            className="flex items-center justify-between w-full text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2"
+          >
+            Marca
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${marcaAbierto ? 'rotate-180' : ''}`} />
+          </button>
+          {marcaAbierto && (
+            <div className="space-y-1">
+              {marcas.map(m => (
+                <label key={m} className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={marcasSeleccionadas.includes(m)}
+                    onChange={() => toggleMarca(m)}
+                    className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                  />
+                  {m}
+                </label>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </aside>
