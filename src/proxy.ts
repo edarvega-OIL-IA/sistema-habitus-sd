@@ -1,6 +1,11 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+// Rutas públicas: no requieren login. /login por supuesto, y /tienda (la
+// Vitrina web — catálogo público + checkout) porque cualquier visitante
+// externo tiene que poder verla sin cuenta en el sistema.
+const RUTAS_PUBLICAS = ['/login', '/tienda']
+
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -33,7 +38,9 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user && !request.nextUrl.pathname.startsWith('/login')) {
+  const esRutaPublica = RUTAS_PUBLICAS.some(ruta => request.nextUrl.pathname.startsWith(ruta))
+
+  if (!user && !esRutaPublica) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
