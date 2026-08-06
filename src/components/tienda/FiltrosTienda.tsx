@@ -3,7 +3,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation'
 import { SlidersHorizontal } from 'lucide-react'
-import { PopoverRoot, PopoverTrigger, PopoverContent, PopoverCloseButton } from '@/components/Popover'
+import { PopoverRoot, PopoverTrigger, PopoverContent, PopoverCloseButton } from '@/components/ui/popover'
 
 export default function FiltrosTienda({ marcas }: { marcas: string[] }) {
   const router = useRouter()
@@ -45,7 +45,7 @@ export default function FiltrosTienda({ marcas }: { marcas: string[] }) {
           </span>
         )}
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-4">
+      <PopoverContent className="h-auto w-72 right-0 p-4">
         <div className="flex items-center justify-between mb-3">
           <p className="text-sm font-semibold text-[#3c3c3b]">Filtros</p>
           <PopoverCloseButton className="text-gray-400 hover:text-gray-600 text-xs" />
