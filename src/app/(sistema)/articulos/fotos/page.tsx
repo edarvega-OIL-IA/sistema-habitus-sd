@@ -118,14 +118,15 @@ export default function ActualizarFotosPage() {
       : it))
   }
 
-  async function toggleDisponibleWeb(articuloId: number, valorActual: boolean) {
+  async function toggleDisponibilidad(articuloId: number, campo: 'disponible_local' | 'disponible_web', valorActual: boolean) {
     const supabase = createClient()
-    setItems(prev => prev.map(it => it.articulo_id === articuloId ? { ...it, disponible_web: !valorActual } : it))
-    const { error: updError } = await supabase.from('articulos').update({ disponible_web: !valorActual }).eq('id', articuloId)
+    setItems(prev => prev.map(it => it.articulo_id === articuloId ? { ...it, [campo]: !valorActual } : it))
+    const { error: updError } = await supabase.from('articulos').update({ [campo]: !valorActual }).eq('id', articuloId)
     if (updError) {
       // Revertir en pantalla si falló el guardado
-      setItems(prev => prev.map(it => it.articulo_id === articuloId ? { ...it, disponible_web: valorActual } : it))
-      setError('No se pudo actualizar "Visible en tienda": ' + updError.message)
+      setItems(prev => prev.map(it => it.articulo_id === articuloId ? { ...it, [campo]: valorActual } : it))
+      const etiqueta = campo === 'disponible_web' ? 'Visible en tienda' : 'Disponible en local'
+      setError(`No se pudo actualizar "${etiqueta}": ` + updError.message)
     }
   }
 
@@ -294,8 +295,17 @@ export default function ActualizarFotosPage() {
                 <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-auto pt-1 cursor-pointer">
                   <input
                     type="checkbox"
+                    checked={it.disponible_local}
+                    onChange={() => toggleDisponibilidad(it.articulo_id, 'disponible_local', it.disponible_local)}
+                    className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                  />
+                  Disponible en local
+                </label>
+                <label className="flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer">
+                  <input
+                    type="checkbox"
                     checked={it.disponible_web}
-                    onChange={() => toggleDisponibleWeb(it.articulo_id, it.disponible_web)}
+                    onChange={() => toggleDisponibilidad(it.articulo_id, 'disponible_web', it.disponible_web)}
                     className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
                   />
                   Visible en tienda
