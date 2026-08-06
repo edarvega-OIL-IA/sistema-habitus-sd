@@ -68,7 +68,8 @@ export default async function TiendaPage({
 }: {
   searchParams: Promise<{ rubro?: string; marca?: string; stock?: string }>
 }) {
-  const { rubro: rubroSeleccionado, marca: marcaSeleccionada, stock: stockParam } = await searchParams
+  const { rubro: rubroSeleccionado, marca: marcaParam, stock: stockParam } = await searchParams
+  const marcasSeleccionadas = (marcaParam || '').split(',').filter(Boolean)
   const soloConStock = stockParam === 'con'
   const supabase = await createClient()
 
@@ -88,7 +89,7 @@ export default async function TiendaPage({
 
   const gruposFiltrados = grupos.filter(g => {
     if (rubroSeleccionado && g.rubro !== rubroSeleccionado) return false
-    if (marcaSeleccionada && g.marca !== marcaSeleccionada) return false
+    if (marcasSeleccionadas.length > 0 && (!g.marca || !marcasSeleccionadas.includes(g.marca))) return false
     if (soloConStock && !g.variantes.some(v => v.stock > 0)) return false
     return true
   })
@@ -105,12 +106,12 @@ export default async function TiendaPage({
         </div>
       </header>
 
-      {/* Filtro de rubros + marca + stock */}
+      {/* Filtro de rubros + Filtros (marca/stock) */}
       {(rubros.length > 0 || marcas.length > 0) && (
-        <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex gap-2 overflow-x-auto">
+        <div className="bg-white border-b border-gray-200">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center gap-2">
             <a
-              href={`/tienda?${new URLSearchParams({ ...(marcaSeleccionada && { marca: marcaSeleccionada }), ...(soloConStock && { stock: 'con' }) }).toString()}`}
+              href={`/tienda?${new URLSearchParams({ ...(marcasSeleccionadas.length > 0 && { marca: marcasSeleccionadas.join(',') }), ...(soloConStock && { stock: 'con' }) }).toString()}`}
               className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                 !rubroSeleccionado
                   ? 'bg-[#00a19a] text-white border-[#00a19a]'
@@ -122,7 +123,7 @@ export default async function TiendaPage({
             {rubros.map(r => (
               <a
                 key={r}
-                href={`/tienda?${new URLSearchParams({ rubro: r, ...(marcaSeleccionada && { marca: marcaSeleccionada }), ...(soloConStock && { stock: 'con' }) }).toString()}`}
+                href={`/tienda?${new URLSearchParams({ rubro: r, ...(marcasSeleccionadas.length > 0 && { marca: marcasSeleccionadas.join(',') }), ...(soloConStock && { stock: 'con' }) }).toString()}`}
                 className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                   rubroSeleccionado === r
                     ? 'bg-[#00a19a] text-white border-[#00a19a]'
@@ -132,12 +133,8 @@ export default async function TiendaPage({
                 {r}
               </a>
             ))}
+            {marcas.length > 0 && <FiltrosTienda marcas={marcas} />}
           </div>
-          {marcas.length > 0 && (
-            <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-3">
-              <FiltrosTienda marcas={marcas} />
-            </div>
-          )}
         </div>
       )}
 
