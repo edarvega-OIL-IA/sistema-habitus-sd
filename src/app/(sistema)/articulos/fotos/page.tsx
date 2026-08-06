@@ -35,7 +35,6 @@ export default function ActualizarFotosPage() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [rubros, setRubros] = useState<Rubro[]>([])
-  const [marcas, setMarcas] = useState<Marca[]>([])
   const [items, setItems] = useState<ArticuloFoto[]>([])
   const [modalArticuloId, setModalArticuloId] = useState<number | null>(null)
 
@@ -86,7 +85,6 @@ export default function ActualizarFotosPage() {
       }
 
       setRubros(rubrosData || [])
-      setMarcas(marcasData || [])
       setItems((articulosData || []).map((a: any) => ({
         articulo_id: a.id,
         nombre: a.nombre,
@@ -130,6 +128,30 @@ export default function ActualizarFotosPage() {
       setError('No se pudo actualizar "Visible en tienda": ' + updError.message)
     }
   }
+
+  // Marca queda scopeada al rubro elegido — mismo criterio que el resto de
+  // las pantallas de filtros (ej. la vitrina): no tiene sentido mostrar
+  // marcas que no existen en la categoría que estás mirando.
+  const marcasDisponibles = useMemo(() => {
+    const fuente = rubroFiltro === 'todos' ? items : items.filter(it => it.rubro_id?.toString() === rubroFiltro)
+    const ids = new Set<number>()
+    const resultado: Marca[] = []
+    for (const it of fuente) {
+      if (it.marca_id && !ids.has(it.marca_id)) {
+        ids.add(it.marca_id)
+        resultado.push({ id: it.marca_id, nombre: it.marcaNombre || '' })
+      }
+    }
+    return resultado.sort((a, b) => a.nombre.localeCompare(b.nombre))
+  }, [items, rubroFiltro])
+
+  // Si la marca tildada ya no está disponible en el rubro nuevo, la soltamos
+  // (evita quedar filtrando por una marca invisible sin que se note por qué)
+  useEffect(() => {
+    if (marcaFiltro !== 'todos' && !marcasDisponibles.some(m => m.id.toString() === marcaFiltro)) {
+      setMarcaFiltro('todos')
+    }
+  }, [marcasDisponibles, marcaFiltro])
 
   const itemsVisibles = useMemo(() => {
     return items.filter(it => {
@@ -195,7 +217,7 @@ export default function ActualizarFotosPage() {
             <select value={marcaFiltro} onChange={e => setMarcaFiltro(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
               <option value="todos">Todas las marcas</option>
-              {marcas.map(m => <option key={m.id} value={m.id.toString()}>{m.nombre}</option>)}
+              {marcasDisponibles.map(m => <option key={m.id} value={m.id.toString()}>{m.nombre}</option>)}
             </select>
           </div>
         </div>
