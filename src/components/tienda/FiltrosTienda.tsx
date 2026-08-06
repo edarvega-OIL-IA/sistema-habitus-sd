@@ -31,7 +31,7 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
   }
 
   return (
-    <aside className="w-full md:w-56 shrink-0 space-y-6">
+    <aside className="w-full md:w-56 shrink-0 space-y-6 md:sticky md:top-4 md:self-start md:max-h-[calc(100vh-2rem)] md:overflow-y-auto md:pr-2">
       {hayFiltrosActivos && (
         <button onClick={limpiarTodo} className="text-xs text-red-500 hover:text-red-600">
           ✕ Limpiar filtros
