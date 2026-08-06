@@ -19,6 +19,7 @@ const nav = [
     children: [
       { label: 'Administrar Artículos', href: '/articulos' },
       { label: 'Actualizar Precios', href: '/articulos/precios' },
+      { label: 'Actualizar Fotos', href: '/articulos/fotos' },
       { label: 'Historial de Artículos', href: '/articulos/historial' },
       { label: 'Movimientos de Stock', href: '/stock' },
     ],
