@@ -68,7 +68,8 @@ export default async function TiendaPage({
 }: {
   searchParams: Promise<{ rubro?: string; marca?: string; stock?: string }>
 }) {
-  const { rubro: rubroSeleccionado, marca: marcaParam, stock: stockParam } = await searchParams
+  const { rubro: rubroParam, marca: marcaParam, stock: stockParam } = await searchParams
+  const rubrosSeleccionados = (rubroParam || '').split(',').filter(Boolean)
   const marcasSeleccionadas = (marcaParam || '').split(',').filter(Boolean)
   const soloConStock = stockParam === 'con'
   const supabase = await createClient()
@@ -88,7 +89,7 @@ export default async function TiendaPage({
   const marcas = [...new Set(articulos.map(a => a.marca).filter((m): m is string => !!m))].sort()
 
   const gruposFiltrados = grupos.filter(g => {
-    if (rubroSeleccionado && g.rubro !== rubroSeleccionado) return false
+    if (rubrosSeleccionados.length > 0 && (!g.rubro || !rubrosSeleccionados.includes(g.rubro))) return false
     if (marcasSeleccionadas.length > 0 && (!g.marca || !marcasSeleccionadas.includes(g.marca))) return false
     if (soloConStock && !g.variantes.some(v => v.stock > 0)) return false
     return true

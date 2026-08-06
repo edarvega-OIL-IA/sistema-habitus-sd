@@ -11,10 +11,10 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
   const [categoriasAbierto, setCategoriasAbierto] = useState(true)
   const [marcaAbierto, setMarcaAbierto] = useState(true)
 
-  const rubroActual = searchParams.get('rubro') || ''
+  const rubrosSeleccionados = (searchParams.get('rubro') || '').split(',').filter(Boolean)
   const marcasSeleccionadas = (searchParams.get('marca') || '').split(',').filter(Boolean)
   const soloStock = searchParams.get('stock') === 'con'
-  const hayFiltrosActivos = !!rubroActual || marcasSeleccionadas.length > 0 || soloStock
+  const hayFiltrosActivos = rubrosSeleccionados.length > 0 || marcasSeleccionadas.length > 0 || soloStock
 
   function actualizarParam(clave: string, valor: string | null) {
     const params = new URLSearchParams(searchParams.toString())
@@ -23,15 +23,30 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
     router.push(`/tienda?${params.toString()}`)
   }
 
-  function toggleMarca(m: string) {
-    const nuevas = marcasSeleccionadas.includes(m)
-      ? marcasSeleccionadas.filter(x => x !== m)
-      : [...marcasSeleccionadas, m]
-    actualizarParam('marca', nuevas.length > 0 ? nuevas.join(',') : null)
+  function toggleValor(clave: 'rubro' | 'marca', seleccionados: string[], valor: string) {
+    const nuevos = seleccionados.includes(valor)
+      ? seleccionados.filter(x => x !== valor)
+      : [...seleccionados, valor]
+    actualizarParam(clave, nuevos.length > 0 ? nuevos.join(',') : null)
   }
 
   function limpiarTodo() {
     router.push('/tienda')
+  }
+
+  // Encabezado de sección: mismo estilo para Categorías y Marca, con más
+  // afordancia visual de que es clickeable (fondo al pasar el mouse, flecha
+  // más grande).
+  function EncabezadoSeccion({ titulo, abierto, onClick }: { titulo: string; abierto: boolean; onClick: () => void }) {
+    return (
+      <button
+        onClick={onClick}
+        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-2 py-1.5 -mx-2 rounded hover:bg-gray-100 hover:text-[#3c3c3b] transition-colors"
+      >
+        {titulo}
+        <ChevronDown className={`w-4 h-4 transition-transform ${abierto ? 'rotate-180' : ''}`} />
+      </button>
+    )
   }
 
   return (
@@ -44,33 +59,19 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
 
       {rubros.length > 0 && (
         <div>
-          <button
-            onClick={() => setCategoriasAbierto(prev => !prev)}
-            className="flex items-center justify-between w-full text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2"
-          >
-            Categorías
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${categoriasAbierto ? 'rotate-180' : ''}`} />
-          </button>
+          <EncabezadoSeccion titulo="Categorías" abierto={categoriasAbierto} onClick={() => setCategoriasAbierto(prev => !prev)} />
           {categoriasAbierto && (
-            <div className="space-y-0.5">
-              <button
-                onClick={() => actualizarParam('rubro', null)}
-                className={`block w-full text-left px-3 py-1.5 rounded text-sm transition-colors ${
-                  !rubroActual ? 'bg-[#00a19a]/10 text-[#00a19a] font-medium' : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                Todos
-              </button>
+            <div className="space-y-1">
               {rubros.map(r => (
-                <button
-                  key={r}
-                  onClick={() => actualizarParam('rubro', rubroActual === r ? null : r)}
-                  className={`block w-full text-left px-3 py-1.5 rounded text-sm transition-colors ${
-                    rubroActual === r ? 'bg-[#00a19a]/10 text-[#00a19a] font-medium' : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
+                <label key={r} className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={rubrosSeleccionados.includes(r)}
+                    onChange={() => toggleValor('rubro', rubrosSeleccionados, r)}
+                    className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                  />
                   {r}
-                </button>
+                </label>
               ))}
             </div>
           )}
@@ -91,13 +92,7 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
 
       {marcas.length > 0 && (
         <div>
-          <button
-            onClick={() => setMarcaAbierto(prev => !prev)}
-            className="flex items-center justify-between w-full text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2"
-          >
-            Marca
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${marcaAbierto ? 'rotate-180' : ''}`} />
-          </button>
+          <EncabezadoSeccion titulo="Marca" abierto={marcaAbierto} onClick={() => setMarcaAbierto(prev => !prev)} />
           {marcaAbierto && (
             <div className="space-y-1">
               {marcas.map(m => (
@@ -105,7 +100,7 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
                   <input
                     type="checkbox"
                     checked={marcasSeleccionadas.includes(m)}
-                    onChange={() => toggleMarca(m)}
+                    onChange={() => toggleValor('marca', marcasSeleccionadas, m)}
                     className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
                   />
                   {m}
