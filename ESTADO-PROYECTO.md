@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 05/08/2026 — Sesión larga: corrección de fondo del costo real de compras (el sistema descontaba IVA de más en 4 pantallas — Compras nueva/edición, Actualizar Precios, ArticuloForm — sin importar si el proveedor lo discriminaba; se centralizó en un único switch `RECUPERA_IVA_COMPRAS` en `src/lib/config.ts`, hoy en `false` porque Ariel es monotributista y el IVA pagado no se recupera, es costo real); corrección retroactiva de 58 artículos con costo mal calculado; **Ventas — Guardar borrador** (tabla `ventas_borrador`, pausar una venta en curso y retomarla, con aviso en Cierre de turno si quedan pendientes); Obligaciones ahora permite vincular un pago a un movimiento ya existente (evita duplicar cuando alguien carga el Egreso por Movimientos en vez de por Obligaciones); número de OC visible en Compras; y una sesión de planificación (sin código) de la **Vitrina web** — alcance, stock por sucursal, envíos, fotos e infraestructura de dominio, ver sección 25.
-**Estado general:** 🟢 En producción. El fix de IVA es el cambio de fondo más importante de la sesión — afecta el costo real usado en Utilidad/Reportes/Precios de gran parte del catálogo.
-**Próxima acción concreta:** confirmar en la práctica el aviso de borradores al cerrar turno. Arrancar la Vitrina web por el punto 1 (alcance) cuando Ariel lo decida — el resto de las decisiones (2 a 6) ya están tomadas, ver sección 25.
+**Última actualización:** 05/08/2026 (continuación) — Arrancó de verdad la construcción de la **Vitrina web**: primer catálogo público funcionando en `/tienda`, sin login, agrupado por producto con selector de sabor (reusa el sistema de Sabores del catálogo interno), con fotos reales subidas y probadas. Se sumó **Cult UI** al proyecto (librería de componentes animados sobre shadcn/Tailwind) para cuando haga falta algo más vistoso que una grilla simple. Se armaron las tablas `pedidos_web` y se confirmó `articulo_imagenes` (ya existía, sin RLS — corregido), un bucket de Storage público para las fotos, y un uploader real en `ArticuloForm.tsx`. En el camino se encontró y corrigió un criterio equivocado para `disponible_web` (no debe basarse en el stock del momento, eso ya lo resuelve el badge "Sin stock" — debe basarse en `disponible_local`, una decisión de negocio estable). Sigue siendo el fix de fondo del costo por IVA (`RECUPERA_IVA_COMPRAS`) lo más importante de la sesión larga de hoy en general.
+**Estado general:** 🟢 En producción. La Vitrina web ya tiene su primera pantalla real funcionando y probada con datos reales (Proteínas), no es más solo planificación.
+**Próxima acción concreta:** limpiar `disponible_web` en el resto del catálogo con el criterio correcto (`disponible_local`, no stock). Seguir subiendo fotos por categoría. Cuando esté listo, arrancar el checkout (Mercado Pago + retiro y pago en efectivo).
 
 ---
 
@@ -691,9 +691,38 @@ Decisiones tomadas, para no repetir la conversación:
 
 **Pendiente real para arrancar:** ninguna decisión más de las básicas — cuando Ariel dé el ok, el primer paso es diseñar el modelo de datos del carrito/checkout público y el flujo de creación de venta desde afuera del sistema.
 
-### Pendiente para la próxima sesión
+### Bloque 8 — Tablas base + Cult UI
+
+`pedidos_web` creada (estado, medio elegido Mercado Pago/efectivo local, datos de contacto, `items` JSONB con precio/cantidad congelados, `venta_id` que se completa recién cuando la venta real se crea) — con RLS + GRANT para `authenticated`, **falta a propósito** la policy para `anon` hasta armar el checkout público de verdad. `articulo_imagenes` **ya existía** de una sesión sin documentar, pero sin RLS ni GRANT — mismo patrón de siempre con tablas preexistentes, corregido.
+
+**Cult UI** (cult-ui.com, componentes animados sobre shadcn/Tailwind) sumado al proyecto a pedido de Ariel — confirmado que el proyecto ya estaba en Tailwind v4 (lo que pide Cult UI), sin migración necesaria. Se instaló `motion` y se configuró el registro en `components.json` (`"@cult-ui": "https://cult-ui.com/r/{name}.json"`) — el comando de instalación que traía la doc de Cult UI (`shadcn registry add`) no existe en la versión actual del CLI, la forma real es editar `components.json` a mano. Un 429 al correr `search @cult-ui` resultó ser un límite de tasa transitorio del lado de Cult UI, no un problema de configuración (confirmado bajando el registry.json directo). Se decidió usarlo solo para piezas vistosas de la vitrina (hero, carruseles) cuando aparezcan, no para la grilla simple del catálogo.
+
+### Bloque 9 — Catálogo público (`/tienda`)
+
+`src/proxy.ts` (el middleware de auth) ahora exceptúa `/tienda` además de `/login` — cualquier visitante externo puede verla sin cuenta.
+
+Vista `articulos_catalogo_web` (no se expone la tabla `articulos` real al rol `anon` bajo ningún concepto — ahí vive `costo_sin_iva`): `nombre`, `nombre_base`, `descripcion`, `precio` (con `COALESCE(precio_oferta_web, precio_web, precio_local)`), `en_oferta`, rubro, marca, `sabor`, `stock` real de sucursal 1, y la imagen principal (o la primera disponible) vía `LEFT JOIN LATERAL` a `articulo_imagenes`. Tuvo que rehacerse una vez en el camino — el primer `CREATE VIEW` se corrió pero después se pisó sin querer con una versión vieja que no traía `nombre_base`/`sabor`, lo que rompía el agrupado silenciosamente (todo caía en grupos de a uno). Lección: verificar la vista real (`SELECT * FROM articulos_catalogo_web LIMIT 1`) después de cualquier cambio, no asumir que el último `CREATE` corrido es el que está activo.
+
+`ProductoCard.tsx` (componente de cliente, único punto de interactividad de la pantalla): agrupa por `nombre_base + marca_id` cuando existe (los 5 rubros ya migrados al sistema de Sabores), muestra chips de sabor debajo del nombre, y al tocar uno cambia imagen/precio/stock/oferta sin recargar. Arranca mostrando el primer sabor con stock. Los rubros todavía sin migrar (`nombre_base` NULL) se siguen mostrando sueltos, sin romper nada.
+
+**Bug real encontrado por Ariel y corregido:** el primer intento de "limpiar" `disponible_web` para Proteínas usó `stock_actual > 0` como condición — mezclaba dos cosas que deben ser independientes. `disponible_web` tiene que ser una decisión de negocio estable ("esto se vende por la web"), no algo atado al stock del momento — eso ya lo resuelve el badge "Sin stock" sin ocultar el producto. El criterio correcto es `disponible_local = true` (que ya distingue unidades sueltas reales de las presentaciones "Caja X Unidades"). Aplicado así para Proteínas (10 artículos → 4 productos agrupados); **pendiente aplicar el mismo criterio al resto del catálogo**.
+
+**`precio_web`** de todo el catálogo activo confirmado igual a `precio_local` (Ariel: "los precio web cargados ahora no son reales") — no hizo falta ningún `UPDATE`, ya estaban iguales en la base; la diferencia que parecía verse en pantalla en un momento era por `precio_oferta_web` pisando el precio mostrado, no por `precio_web` en sí. Probado el circuito de oferta real: `precio_oferta_web` cargado en Frutilla de dos productos → aparece badge "OFERTA" y precio rebajado solo en ese chip, confirmado en pantalla.
+
+### Bloque 10 — Fotos de producto
+
+Bucket de Storage `articulo-imagenes` creado (público para lectura — lo tiene que poder ver cualquier visitante sin login —, restringido a `authenticated` para subir/editar/borrar). `ImagenesArticulo.tsx` (componente nuevo, en la solapa "Web y extras" de `ArticuloForm.tsx`, solo visible en artículos ya guardados — necesita el `articuloId`): subida múltiple, la primera foto sube como principal automático, después se puede cambiar cuál es la principal (pasando el mouse, ícono de estrella) o eliminar (borra de Storage y de la tabla juntos).
+
+Probado en vivo con fotos reales de Whey Protein Doypack (Body Advance, 4 sabores) — confirmado que cada sabor muestra su propia foto real (no una genérica repetida) y que el estado "Sin stock" convive bien con la foto de esa variante puntual.
+
+### Pendiente para la próxima sesión (Vitrina web)
+1. Aplicar el criterio correcto de `disponible_web` (`disponible_local`, no stock) al resto del catálogo — hoy solo Proteínas está limpio.
+2. Seguir subiendo fotos por categoría (trabajo manual de Ariel).
+3. Arrancar el checkout: Preference de Mercado Pago + webhook + creación de venta real, y el camino B (retiro + pago en efectivo, mismo criterio que un borrador de venta).
+4. Revisar precios de venta reales por producto — Ariel marcó que `precio_web` cargado hoy "no es real" en general, más allá de que hoy coincida con `precio_local`.
+
+### Pendiente general para la próxima sesión
 1. Confirmar en la práctica que el aviso de borradores al cerrar turno funciona bien.
 2. Investigar (si vale la pena) por qué la Orden 4 se salteó el paso de stock para 6 artículos puntuales.
-3. Arrancar la Vitrina web cuando Ariel lo indique — modelo de datos del carrito/checkout público es el primer paso técnico.
-4. Retomar las descripciones de Empretienda cuando la vitrina esté más avanzada (Excel ya armado, ver Bloque 6).
-5. Seguir con los pendientes de sesiones previas (Correcciones, sandbox, NC real, permisos de Agustín, Sabores).
+3. Retomar las descripciones de Empretienda cuando la vitrina esté más avanzada (Excel ya armado, ver Bloque 6).
+4. Seguir con los pendientes de sesiones previas (Correcciones, sandbox, NC real, permisos de Agustín, Sabores).
