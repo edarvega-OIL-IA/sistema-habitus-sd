@@ -2,6 +2,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
+import { Check } from 'lucide-react'
 
 export default function FiltrosTienda({ marcas }: { marcas: string[] }) {
   const router = useRouter()
@@ -17,26 +18,40 @@ export default function FiltrosTienda({ marcas }: { marcas: string[] }) {
   const marcaActual = searchParams.get('marca') || ''
   const soloStock = searchParams.get('stock') === 'con'
 
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <select
-        value={marcaActual}
-        onChange={e => actualizarParam('marca', e.target.value || null)}
-        className="px-3 py-1.5 rounded-full text-sm font-medium border border-gray-300 bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-[#00a19a]"
-      >
-        <option value="">Todas las marcas</option>
-        {marcas.map(m => <option key={m} value={m}>{m}</option>)}
-      </select>
+  const pillBase = 'shrink-0 px-4 py-1.5 rounded-full text-sm font-medium border transition-colors'
+  const pillActivo = 'bg-[#00a19a] text-white border-[#00a19a]'
+  const pillInactivo = 'bg-white text-gray-600 border-gray-300 hover:border-[#00a19a]'
 
-      <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={soloStock}
-          onChange={e => actualizarParam('stock', e.target.checked ? 'con' : null)}
-          className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
-        />
+  return (
+    <div className="flex items-center gap-2 overflow-x-auto">
+      <button
+        type="button"
+        onClick={() => actualizarParam('marca', null)}
+        className={`${pillBase} ${!marcaActual ? pillActivo : pillInactivo}`}
+      >
+        Todas las marcas
+      </button>
+      {marcas.map(m => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => actualizarParam('marca', marcaActual === m ? null : m)}
+          className={`${pillBase} ${marcaActual === m ? pillActivo : pillInactivo}`}
+        >
+          {m}
+        </button>
+      ))}
+
+      <span className="shrink-0 w-px self-stretch bg-gray-200 mx-1" />
+
+      <button
+        type="button"
+        onClick={() => actualizarParam('stock', soloStock ? null : 'con')}
+        className={`${pillBase} flex items-center gap-1.5 ${soloStock ? pillActivo : pillInactivo}`}
+      >
+        {soloStock && <Check className="w-3.5 h-3.5" />}
         Solo con stock
-      </label>
+      </button>
     </div>
   )
 }
