@@ -11,6 +11,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import ProductoCard from '@/components/tienda/ProductoCard'
+import FiltrosTienda from '@/components/tienda/FiltrosTienda'
 
 interface ArticuloCatalogo {
   id: number
@@ -65,9 +66,10 @@ function agrupar(articulos: ArticuloCatalogo[]): GrupoProducto[] {
 export default async function TiendaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ rubro?: string }>
+  searchParams: Promise<{ rubro?: string; marca?: string; stock?: string }>
 }) {
-  const { rubro: rubroSeleccionado } = await searchParams
+  const { rubro: rubroSeleccionado, marca: marcaSeleccionada, stock: stockParam } = await searchParams
+  const soloConStock = stockParam === 'con'
   const supabase = await createClient()
 
   const { data, error } = await supabase
@@ -79,10 +81,17 @@ export default async function TiendaPage({
   const grupos = agrupar(articulos)
 
   const rubros = [...new Set(articulos.map(a => a.rubro).filter((r): r is string => !!r))].sort()
+  // Marca es un filtro que cruza todos los rubros (igual que en Empretienda:
+  // /productos?marca=X mezcla categorías) — por eso la lista sale de TODO el
+  // catálogo, no solo del rubro elegido, para poder combinar ambos filtros.
+  const marcas = [...new Set(articulos.map(a => a.marca).filter((m): m is string => !!m))].sort()
 
-  const gruposFiltrados = rubroSeleccionado
-    ? grupos.filter(g => g.rubro === rubroSeleccionado)
-    : grupos
+  const gruposFiltrados = grupos.filter(g => {
+    if (rubroSeleccionado && g.rubro !== rubroSeleccionado) return false
+    if (marcaSeleccionada && g.marca !== marcaSeleccionada) return false
+    if (soloConStock && !g.variantes.some(v => v.stock > 0)) return false
+    return true
+  })
 
   return (
     <div className="min-h-screen bg-[#ededed]">
@@ -96,12 +105,12 @@ export default async function TiendaPage({
         </div>
       </header>
 
-      {/* Filtro de rubros */}
-      {rubros.length > 0 && (
+      {/* Filtro de rubros + marca + stock */}
+      {(rubros.length > 0 || marcas.length > 0) && (
         <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex gap-2 overflow-x-auto">
             <a
-              href="/tienda"
+              href={`/tienda?${new URLSearchParams({ ...(marcaSeleccionada && { marca: marcaSeleccionada }), ...(soloConStock && { stock: 'con' }) }).toString()}`}
               className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                 !rubroSeleccionado
                   ? 'bg-[#00a19a] text-white border-[#00a19a]'
@@ -113,7 +122,7 @@ export default async function TiendaPage({
             {rubros.map(r => (
               <a
                 key={r}
-                href={`/tienda?rubro=${encodeURIComponent(r)}`}
+                href={`/tienda?${new URLSearchParams({ rubro: r, ...(marcaSeleccionada && { marca: marcaSeleccionada }), ...(soloConStock && { stock: 'con' }) }).toString()}`}
                 className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                   rubroSeleccionado === r
                     ? 'bg-[#00a19a] text-white border-[#00a19a]'
@@ -124,6 +133,11 @@ export default async function TiendaPage({
               </a>
             ))}
           </div>
+          {marcas.length > 0 && (
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-3">
+              <FiltrosTienda marcas={marcas} />
+            </div>
+          )}
         </div>
       )}
 
