@@ -82,7 +82,6 @@ function ActualizarPreciosContent() {
   const [notif, setNotif] = useState<{ tipo: 'error' | 'ok'; msg: string } | null>(null)
 
   const [rubros, setRubros] = useState<Rubro[]>([])
-  const [marcas, setMarcas] = useState<Marca[]>([])
   const [ordenesCompra, setOrdenesCompra] = useState<OrdenCompraOpcion[]>([])
   const [items, setItems] = useState<ArticuloPrecio[]>([])
   const [guardando, setGuardando] = useState<Set<number>>(new Set())
@@ -208,7 +207,6 @@ function ActualizarPreciosContent() {
       }
 
       setRubros(rubrosData || [])
-      setMarcas(marcasData || [])
       setOrdenesCompra((ordenesData || []).map((o: any) => ({
         id: o.id,
         fecha_orden: o.fecha_orden,
@@ -310,6 +308,29 @@ function ActualizarPreciosContent() {
 
     setItems(nuevosItems)
   }
+
+  // Marca queda scopeada al rubro elegido — mismo criterio que "Actualizar
+  // Fotos": no tiene sentido mostrar marcas que no existen en la categoría
+  // que estás mirando.
+  const marcasDisponibles = useMemo(() => {
+    const fuente = rubroFiltro === 'todos' ? items : items.filter(it => it.rubro_id?.toString() === rubroFiltro)
+    const ids = new Set<number>()
+    const resultado: Marca[] = []
+    for (const it of fuente) {
+      if (it.marca_id && !ids.has(it.marca_id)) {
+        ids.add(it.marca_id)
+        resultado.push({ id: it.marca_id, nombre: it.marcaNombre || '' })
+      }
+    }
+    return resultado.sort((a, b) => a.nombre.localeCompare(b.nombre))
+  }, [items, rubroFiltro])
+
+  // Si la marca tildada ya no está disponible en el rubro nuevo, la soltamos
+  useEffect(() => {
+    if (marcaFiltro !== 'todos' && !marcasDisponibles.some(m => m.id.toString() === marcaFiltro)) {
+      setMarcaFiltro('todos')
+    }
+  }, [marcasDisponibles, marcaFiltro])
 
   const itemsVisibles = useMemo(() => {
     return items.filter(it => {
@@ -495,7 +516,7 @@ function ActualizarPreciosContent() {
             <select value={marcaFiltro} onChange={e => setMarcaFiltro(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
               <option value="todos">Todas las marcas</option>
-              {marcas.map(m => <option key={m.id} value={m.id.toString()}>{m.nombre}</option>)}
+              {marcasDisponibles.map(m => <option key={m.id} value={m.id.toString()}>{m.nombre}</option>)}
             </select>
           </div>
         </div>
