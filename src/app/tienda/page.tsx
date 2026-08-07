@@ -11,6 +11,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import ProductoCard from '@/components/tienda/ProductoCard'
+import CarritoBoton from '@/components/tienda/CarritoBoton'
 import FiltrosTienda from '@/components/tienda/FiltrosTienda'
 
 interface ArticuloCatalogo {
@@ -99,11 +100,14 @@ export default async function TiendaPage({
     <div className="min-h-screen bg-[#ededed]">
       {/* Header */}
       <header className="bg-[#3c3c3b] text-white">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
-          <h1 className="text-2xl font-bold tracking-tight">
-            HÁBITUS <span className="text-[#00a19a]">SD</span>
-          </h1>
-          <p className="text-sm text-white/60 mt-1">Suplementos deportivos en Cinco Saltos</p>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              HÁBITUS <span className="text-[#00a19a]">SD</span>
+            </h1>
+            <p className="text-sm text-white/60 mt-1">Suplementos deportivos en Cinco Saltos</p>
+          </div>
+          <CarritoBoton />
         </div>
       </header>
 
@@ -127,6 +131,7 @@ export default async function TiendaPage({
                   key={g.key}
                   titulo={g.titulo}
                   marca={g.marca}
+                  rubro={g.rubro}
                   variantes={g.variantes.map(v => ({
                     id: v.id,
                     sabor: v.sabor,
