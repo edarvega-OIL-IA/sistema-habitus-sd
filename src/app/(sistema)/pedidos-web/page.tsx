@@ -52,6 +52,7 @@ export default function PedidosWebPage() {
   const router = useRouter()
   const [cargando, setCargando] = useState(true)
   const [pedidos, setPedidos] = useState<PedidoWeb[]>([])
+  const [numerosVenta, setNumerosVenta] = useState<Map<number, number>>(new Map())
   const [filtro, setFiltro] = useState<'pendientes' | 'todos'>('pendientes')
   const [procesando, setProcesando] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -67,7 +68,14 @@ export default function PedidosWebPage() {
       .order('creado_en', { ascending: false })
       .limit(100)
     if (error) setError(error.message)
-    setPedidos(data || [])
+    const pedidosData = data || []
+    setPedidos(pedidosData)
+
+    const ventaIds = pedidosData.map(p => p.venta_id).filter((id): id is number => !!id)
+    if (ventaIds.length > 0) {
+      const { data: ventasData } = await supabase.from('ventas').select('id, numero_venta').in('id', ventaIds)
+      setNumerosVenta(new Map((ventasData || []).map(v => [v.id, v.numero_venta])))
+    }
     setCargando(false)
   }
 
@@ -210,7 +218,7 @@ export default function PedidosWebPage() {
                   <p className="text-xs text-gray-400 mt-1 truncate">{resumenItems}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{fmtFecha(p.creado_en)}</p>
                   {p.venta_id && (
-                    <p className="text-xs text-gray-400 mt-0.5">Venta #{p.venta_id}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Venta #{numerosVenta.get(p.venta_id) ?? p.venta_id}</p>
                   )}
                 </div>
                 <div className="text-right shrink-0">

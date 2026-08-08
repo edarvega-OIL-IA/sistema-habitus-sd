@@ -31,6 +31,7 @@ interface PanelPagosProps {
   descuento_pct: number
   onDescuentoChange: (v: number) => void
   onVentaConfirmada: (ventaId: number) => void
+  notaInterna: string
 }
 
 const MEDIOS_CON_EMISOR = ['Débito', 'Crédito']
@@ -40,6 +41,7 @@ export default function PanelPagos({
   descuento_pct,
   onDescuentoChange,
   onVentaConfirmada,
+  notaInterna,
 }: PanelPagosProps) {
   const [mediosPago, setMediosPago] = useState<MedioPago[]>([])
   const [emisores, setEmisores] = useState<EmisorPago[]>([])
@@ -219,6 +221,7 @@ export default function PanelPagos({
             referencia: p.referencia,
           })),
           descuento_pct: descuento_pct_final,
+          observaciones: notaInterna || null,
           fiscalizar,
         }),
       })

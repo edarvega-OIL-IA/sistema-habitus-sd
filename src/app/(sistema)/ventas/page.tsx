@@ -20,6 +20,7 @@ interface BorradorVenta {
 export default function VentasPage() {
   const [items, setItems] = useState<ItemCarrito[]>([])
   const [descuento_pct, setDescuento_pct] = useState(0)
+  const [notaInterna, setNotaInterna] = useState('')
   const [cajaAbierta, setCajaAbierta] = useState<boolean | null>(null)
   const [cierreId, setCierreId] = useState<number | null>(null)
   const [ventasRecientes, setVentasRecientes] = useState<any[]>([])
@@ -148,12 +149,23 @@ export default function VentasPage() {
     // Si el carrito venía de un pedido de la vitrina web (retiro + pago en
     // el local), cerramos el círculo acá: queda marcado como confirmado y
     // enlazado a la venta real recién creada.
+    // Si el carrito venía de un pedido de la vitrina web (retiro + pago en
+    // el local), cerramos el círculo acá: queda marcado como confirmado,
+    // enlazado a la venta real, y ENTREGADO — en este camino pagar y
+    // retirar son el mismo momento, a diferencia del pago por Mercado
+    // Pago (donde el retiro puede pasar horas después y se marca a mano
+    // desde /pedidos-web).
     if (pedidoWebId) {
-      await supabase.from('pedidos_web').update({ estado: 'confirmado', venta_id: ventaId }).eq('id', pedidoWebId)
+      await supabase.from('pedidos_web').update({
+        estado: 'confirmado',
+        venta_id: ventaId,
+        entregado_en: new Date().toISOString(),
+      }).eq('id', pedidoWebId)
       setPedidoWebId(null)
     }
     setItems([])
     setDescuento_pct(0)
+    setNotaInterna('')
     if (cierreId) {
       cargarVentasRecientes(cierreId)
       cargarBorradores(cierreId)
@@ -183,6 +195,7 @@ export default function VentasPage() {
     if (error) { alert('Error al guardar el borrador: ' + error.message); return }
     setItems([])
     setDescuento_pct(0)
+    setNotaInterna('')
     setBorradorActivoId(null)
     setPedidoWebId(null)
     cargarBorradores(cierreId)
@@ -272,7 +285,7 @@ export default function VentasPage() {
                 <Bookmark className="w-5 h-5" />
               </button>
               <button
-                onClick={() => { setItems([]); setBorradorActivoId(null); setPedidoWebId(null) }}
+                onClick={() => { setItems([]); setBorradorActivoId(null); setPedidoWebId(null); setNotaInterna('') }}
                 title="Cancelar venta (Ctrl+X)"
                 className="shrink-0 p-2 rounded border border-red-300 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-400 transition-colors"
               >
@@ -337,11 +350,20 @@ export default function VentasPage() {
           </div>
         )}
 
-        {/* Pie del carrito — solo con items, ahora informativo (las acciones subieron junto al buscador) */}
+        {/* Pie del carrito — nota interna + info, solo con items */}
         {items.length > 0 && (
-          <div className="p-3 border-t border-gray-200 bg-white text-xs text-gray-400 flex justify-between items-center">
-            <span>{items.length} líneas · {items.reduce((s, i) => s + i.cantidad, 0)} unidades</span>
-            {guardandoBorrador && <span className="text-[#00a19a]">Guardando borrador...</span>}
+          <div className="p-3 border-t border-gray-200 bg-white">
+            <input
+              type="text"
+              value={notaInterna}
+              onChange={e => setNotaInterna(e.target.value)}
+              placeholder="Nota interna para esta venta (opcional, no va en la factura)"
+              className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 mb-2 focus:outline-none focus:border-[#00a19a] placeholder:text-gray-400"
+            />
+            <div className="text-xs text-gray-400 flex justify-between items-center">
+              <span>{items.length} líneas · {items.reduce((s, i) => s + i.cantidad, 0)} unidades</span>
+              {guardandoBorrador && <span className="text-[#00a19a]">Guardando borrador...</span>}
+            </div>
           </div>
         )}
       </div>
@@ -352,6 +374,7 @@ export default function VentasPage() {
         descuento_pct={descuento_pct}
         onDescuentoChange={setDescuento_pct}
         onVentaConfirmada={ventaConfirmada}
+        notaInterna={notaInterna}
       />
 
       {mostrarBorradores && (
