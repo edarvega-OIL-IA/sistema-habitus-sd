@@ -205,14 +205,25 @@ async function procesarNotificacion(request: NextRequest) {
       console.error('Error al generar movimiento para venta web', venta.id, ':', movError.message)
     }
 
-    // Fiscalización — mismo pipeline que el POS y la pantalla manual. Un
-    // error acá nunca revierte la venta; queda para revisión en /fiscalizacion.
-    await fiscalizarVenta(venta.id, CLIENTE_ID_CONSUMIDOR_FINAL, true)
-
+    // Marcamos el pedido como confirmado y enlazado a la venta ANTES de
+    // fiscalizar — así una fiscalización lenta, que falle, o que corte la
+    // función por timeout (plan Hobby de Vercel, límite ~10s) nunca deja
+    // un pedido ya pagado pegado en "pendiente_pago" (bug real 08/08/2026,
+    // el pedido #3 quedó así con la venta creada pero no enlazada).
     await admin
       .from('pedidos_web')
       .update({ estado: 'confirmado', venta_id: venta.id, mercadopago_payment_id: String(paymentId) })
       .eq('id', pedidoId)
+
+    // Fiscalización — mismo pipeline que el POS y la pantalla manual.
+    // Try/catch propio: un error o timeout acá nunca debe afectar la
+    // respuesta al webhook ni lo que ya se confirmó arriba. Si falla,
+    // queda para revisión manual en /fiscalizacion, igual que el POS.
+    try {
+      await fiscalizarVenta(venta.id, CLIENTE_ID_CONSUMIDOR_FINAL, true)
+    } catch (fiscalError: any) {
+      console.error('Fiscalización falló para venta web', venta.id, ':', fiscalError.message)
+    }
 
     return NextResponse.json({ ok: true, ventaId: venta.id })
   } catch (error: any) {
