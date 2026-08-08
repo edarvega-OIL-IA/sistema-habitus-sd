@@ -30,7 +30,7 @@ interface PanelPagosProps {
   items: ItemCarrito[]
   descuento_pct: number
   onDescuentoChange: (v: number) => void
-  onVentaConfirmada: () => void
+  onVentaConfirmada: (ventaId: number) => void
 }
 
 const MEDIOS_CON_EMISOR = ['Débito', 'Crédito']
@@ -229,7 +229,7 @@ export default function PanelPagos({
       onDescuentoChange(0)
       setDescuentoValor('')
       setModoDescuento('pct')
-      onVentaConfirmada()
+      onVentaConfirmada(data.venta_id)
       alert(data.mensaje + ` — Venta #${data.numero_venta}`)
     } catch (err: any) {
       setError(err.message)

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import BuscadorProductos from '@/components/ventas/BuscadorProductos'
 import CarritoItems, { ItemCarrito } from '@/components/ventas/CarritoItems'
 import PanelPagos from '@/components/ventas/PanelPagos'
-import { Bookmark, XCircle, FileStack } from 'lucide-react'
+import { Bookmark, XCircle, FileStack, Globe } from 'lucide-react'
 
 interface BorradorVenta {
   id: number
@@ -14,6 +14,7 @@ interface BorradorVenta {
   items: ItemCarrito[]
   descuento_pct: number
   creado_en: string
+  pedido_web_id: number | null
 }
 
 export default function VentasPage() {
@@ -25,6 +26,10 @@ export default function VentasPage() {
   const [usuarioId, setUsuarioId] = useState<string | null>(null)
   const [borradores, setBorradores] = useState<BorradorVenta[]>([])
   const [borradorActivoId, setBorradorActivoId] = useState<number | null>(null)
+  // Si el carrito vino de un pedido de la vitrina web (a pagar en el
+  // local), guardamos su id acá — al confirmar la venta, se actualiza
+  // pedidos_web para cerrar el círculo automáticamente (ver ventaConfirmada).
+  const [pedidoWebId, setPedidoWebId] = useState<number | null>(null)
   const [mostrarBorradores, setMostrarBorradores] = useState(false)
   const [guardandoBorrador, setGuardandoBorrador] = useState(false)
   const router = useRouter()
@@ -46,16 +51,37 @@ export default function VentasPage() {
         setCierreId(data.id)
         cargarVentasRecientes(data.id)
         cargarBorradores(data.id)
+        cargarBorradorDesdeQuery()
       }
     }
     verificarCaja()
   }, [])
 
+  // Auto-carga el borrador si se llegó desde /pedidos-web con
+  // ?borrador=<id> — sin useSearchParams para no forzar un Suspense
+  // boundary acá (mismo criterio que ArticuloForm.tsx).
+  async function cargarBorradorDesdeQuery() {
+    const params = new URLSearchParams(window.location.search)
+    const borradorParam = params.get('borrador')
+    if (!borradorParam) return
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('ventas_borrador')
+      .select('id, items, descuento_pct, pedido_web_id')
+      .eq('id', Number(borradorParam))
+      .maybeSingle()
+    if (!data) return
+    setItems(data.items)
+    setDescuento_pct(data.descuento_pct)
+    setBorradorActivoId(data.id)
+    setPedidoWebId(data.pedido_web_id || null)
+  }
+
   async function cargarBorradores(cierreId: number) {
     const supabase = createClient()
     const { data } = await supabase
       .from('ventas_borrador')
-      .select('id, etiqueta, items, descuento_pct, creado_en')
+      .select('id, etiqueta, items, descuento_pct, creado_en, pedido_web_id')
       .eq('cierre_turno_id', cierreId)
       .order('creado_en', { ascending: true })
     setBorradores(data || [])
@@ -110,14 +136,21 @@ export default function VentasPage() {
     setItems(prev => prev.filter((_, i) => i !== index))
   }, [])
 
-  const ventaConfirmada = useCallback(async () => {
+  const ventaConfirmada = useCallback(async (ventaId: number) => {
+    const supabase = createClient()
     // La venta ya se confirmó de verdad — recién ahora se borra el borrador
     // del que vino (si vino de uno). Si se cancela en cambio, el borrador
     // queda intacto en la lista.
     if (borradorActivoId) {
-      const supabase = createClient()
       await supabase.from('ventas_borrador').delete().eq('id', borradorActivoId)
       setBorradorActivoId(null)
+    }
+    // Si el carrito venía de un pedido de la vitrina web (retiro + pago en
+    // el local), cerramos el círculo acá: queda marcado como confirmado y
+    // enlazado a la venta real recién creada.
+    if (pedidoWebId) {
+      await supabase.from('pedidos_web').update({ estado: 'confirmado', venta_id: ventaId }).eq('id', pedidoWebId)
+      setPedidoWebId(null)
     }
     setItems([])
     setDescuento_pct(0)
@@ -125,7 +158,7 @@ export default function VentasPage() {
       cargarVentasRecientes(cierreId)
       cargarBorradores(cierreId)
     }
-  }, [cierreId, borradorActivoId])
+  }, [cierreId, borradorActivoId, pedidoWebId])
 
   async function guardarBorrador() {
     if (items.length === 0 || !cierreId || !usuarioId) return
@@ -139,6 +172,7 @@ export default function VentasPage() {
       etiqueta,
       items,
       descuento_pct,
+      pedido_web_id: pedidoWebId,
     })
     if (!error && borradorActivoId) {
       // Si este carrito ya venía de un borrador, ese queda reemplazado por
@@ -150,6 +184,7 @@ export default function VentasPage() {
     setItems([])
     setDescuento_pct(0)
     setBorradorActivoId(null)
+    setPedidoWebId(null)
     cargarBorradores(cierreId)
   }
 
@@ -163,6 +198,7 @@ export default function VentasPage() {
     setItems(borrador.items)
     setDescuento_pct(borrador.descuento_pct)
     setBorradorActivoId(borrador.id)
+    setPedidoWebId(borrador.pedido_web_id || null)
     setMostrarBorradores(false)
   }
 
@@ -171,7 +207,10 @@ export default function VentasPage() {
     const supabase = createClient()
     const { error } = await supabase.from('ventas_borrador').delete().eq('id', id)
     if (error) { alert('Error al eliminar: ' + error.message); return }
-    if (id === borradorActivoId) setBorradorActivoId(null)
+    if (id === borradorActivoId) {
+      setBorradorActivoId(null)
+      setPedidoWebId(null)
+    }
     if (cierreId) cargarBorradores(cierreId)
   }
 
@@ -209,6 +248,14 @@ export default function VentasPage() {
     <div className="flex h-[calc(100vh-48px)] -m-6 overflow-hidden">
       {/* Panel izquierdo — buscador + carrito */}
       <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Aviso de pedido web — solo cuando el carrito viene de uno */}
+        {pedidoWebId && (
+          <div className="px-4 py-2 bg-[#e8f7f6] border-b border-[#00a19a]/30 flex items-center gap-2 text-xs text-[#00796b]">
+            <Globe className="w-3.5 h-3.5" />
+            Cobrando pedido web #{pedidoWebId} — al confirmar, el pedido queda marcado como resuelto automáticamente.
+          </div>
+        )}
+
         {/* Buscador siempre arriba, con las acciones del carrito al lado */}
         <div className="p-4 border-b border-gray-200 bg-white flex items-center gap-3">
           <div className="flex-1">
@@ -225,7 +272,7 @@ export default function VentasPage() {
                 <Bookmark className="w-5 h-5" />
               </button>
               <button
-                onClick={() => { setItems([]); setBorradorActivoId(null) }}
+                onClick={() => { setItems([]); setBorradorActivoId(null); setPedidoWebId(null) }}
                 title="Cancelar venta (Ctrl+X)"
                 className="shrink-0 p-2 rounded border border-red-300 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-400 transition-colors"
               >
@@ -328,6 +375,9 @@ export default function VentasPage() {
                       <div key={b.id} className="p-4 flex items-center justify-between gap-3 hover:bg-gray-50">
                         <button onClick={() => restaurarBorrador(b)} className="flex-1 text-left min-w-0">
                           <p className="text-sm font-medium text-[#3c3c3b] truncate">{previewCorta}</p>
+                          {b.pedido_web_id && (
+                            <p className="text-xs text-[#00a19a] mt-0.5 flex items-center gap-1"><Globe className="w-3 h-3" /> Pedido web #{b.pedido_web_id}</p>
+                          )}
                           {b.etiqueta && (
                             <p className="text-xs text-amber-700 mt-0.5 truncate">📝 {b.etiqueta}</p>
                           )}

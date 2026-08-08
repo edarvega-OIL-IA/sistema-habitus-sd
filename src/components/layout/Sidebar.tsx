@@ -10,6 +10,7 @@ const nav = [
   { label: 'Caja', href: '/cierre-turno', icon: '🔒' },
   { label: 'Ventas', href: '/ventas', icon: '🛒' },
   { label: 'Registro Ventas', href: '/ventas/registro', icon: '🧾' },
+  { label: 'Pedidos Web', href: '/pedidos-web', icon: '🌐' },
   { label: 'Fiscalización', href: '/fiscalizacion', icon: '⚠️' },
   { label: 'Movimientos', href: '/movimientos', icon: '💰' },
   { label: 'Obligaciones', href: '/obligaciones', icon: '📇' },
