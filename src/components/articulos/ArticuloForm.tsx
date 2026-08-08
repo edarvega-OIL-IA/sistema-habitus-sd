@@ -544,7 +544,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Nombre base</label>
-              <input {...register('nombre_base')} type="text"
+              <input {...register('nombre_base')} type="text" autoFocus={!articuloId}
                 placeholder="Nombre genérico (ej: Whey Protein True Made - 2 lb)" className={inputClass} />
               <p className="text-xs text-gray-500 mt-1">Si se completa, el Nombre de arriba se arma solo y se mantiene sincronizado al cambiar el sabor o la marca.</p>
             </div>
