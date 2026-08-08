@@ -56,12 +56,12 @@ export async function POST(request: NextRequest) {
 
     const { data: stockData, error: stockError } = await admin
       .from('articulo_stock')
-      .select('articulo_id, stock')
+      .select('articulo_id, stock_actual')
       .eq('sucursal_id', SUCURSAL_ID)
       .in('articulo_id', articuloIds)
 
     if (stockError) throw new Error('Error al leer stock: ' + stockError.message)
-    const stockMap = new Map((stockData || []).map((s: any) => [s.articulo_id, s.stock]))
+    const stockMap = new Map((stockData || []).map((s: any) => [s.articulo_id, s.stock_actual]))
 
     const articulosMap = new Map((articulos || []).map((a: any) => [a.id, a]))
 

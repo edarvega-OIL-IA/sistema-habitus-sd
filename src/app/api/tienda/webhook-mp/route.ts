@@ -85,10 +85,10 @@ async function procesarNotificacion(request: NextRequest) {
     const articuloIds = items.map(i => i.articulo_id)
     const { data: stockData } = await admin
       .from('articulo_stock')
-      .select('articulo_id, stock')
+      .select('articulo_id, stock_actual')
       .eq('sucursal_id', pedido.sucursal_id)
       .in('articulo_id', articuloIds)
-    const stockMap = new Map((stockData || []).map((s: any) => [s.articulo_id, s.stock]))
+    const stockMap = new Map((stockData || []).map((s: any) => [s.articulo_id, s.stock_actual]))
 
     const sinStock = items.some(i => (stockMap.get(i.articulo_id) ?? 0) < i.cantidad)
     if (sinStock) {
