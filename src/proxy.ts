@@ -1,10 +1,15 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-// Rutas públicas: no requieren login. /login por supuesto, y /tienda (la
+// Rutas públicas: no requieren login. /login por supuesto, /tienda (la
 // Vitrina web — catálogo público + checkout) porque cualquier visitante
-// externo tiene que poder verla sin cuenta en el sistema.
-const RUTAS_PUBLICAS = ['/login', '/tienda']
+// externo tiene que poder verla sin cuenta en el sistema, y /api/tienda
+// (checkout + webhook de Mercado Pago) por la misma razón — son endpoints
+// de servidor que nunca tienen una sesión de usuario detrás, y NO
+// arrancan con "/tienda" sino con "/api/tienda" (bug real, 08/08/2026:
+// startsWith('/tienda') no matcheaba '/api/tienda/checkout', el
+// middleware redirigía cualquier llamada al checkout a /login).
+const RUTAS_PUBLICAS = ['/login', '/tienda', '/api/tienda']
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
