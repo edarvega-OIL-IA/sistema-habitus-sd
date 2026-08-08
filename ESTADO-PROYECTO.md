@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 05/08/2026 (continuación) — Arrancó de verdad la construcción de la **Vitrina web**: primer catálogo público funcionando en `/tienda`, sin login, agrupado por producto con selector de sabor (reusa el sistema de Sabores del catálogo interno), con fotos reales subidas y probadas. Se sumó **Cult UI** al proyecto (librería de componentes animados sobre shadcn/Tailwind) para cuando haga falta algo más vistoso que una grilla simple. Se armaron las tablas `pedidos_web` y se confirmó `articulo_imagenes` (ya existía, sin RLS — corregido), un bucket de Storage público para las fotos, y un uploader real en `ArticuloForm.tsx`. En el camino se encontró y corrigió un criterio equivocado para `disponible_web` (no debe basarse en el stock del momento, eso ya lo resuelve el badge "Sin stock" — debe basarse en `disponible_local`, una decisión de negocio estable). Sigue siendo el fix de fondo del costo por IVA (`RECUPERA_IVA_COMPRAS`) lo más importante de la sesión larga de hoy en general.
-**Estado general:** 🟢 En producción. La Vitrina web ya tiene su primera pantalla real funcionando y probada con datos reales (Proteínas), no es más solo planificación.
-**Próxima acción concreta:** limpiar `disponible_web` en el resto del catálogo con el criterio correcto (`disponible_local`, no stock). Seguir subiendo fotos por categoría. Cuando esté listo, arrancar el checkout (Mercado Pago + retiro y pago en efectivo).
+**Última actualización:** 07/08/2026 — Cierre de una sesión larguísima de Vitrina web: pantalla "Actualizar Fotos" nueva, fix de Marca scopeada al Rubro (Precios y Fotos), migración completa de Sabores a **todo** el catálogo (recorrido rubro por rubro), corrección de un bug de fondo del trigger `fn_generar_nombre_articulo` que afectó a 80 artículos, Barras de proteína y Geles ya visibles en la vitrina (con criterio de mínimo de compra pensado para más adelante), y **primera versión funcional del carrito** (agregar, editar cantidad, aviso de mínimo por rubro). El checkout en sí (Mercado Pago + retiro y pago en efectivo) queda como el próximo paso concreto.
+**Estado general:** 🟢 En producción. La Vitrina ya tiene catálogo agrupado por sabor + carrito funcionando de punta a punta — falta el paso final para que un pedido se convierta en venta real.
+**Próxima acción concreta:** arrancar el checkout — `pedidos_web` ya está creada, falta la integración de Mercado Pago (Preference + webhook) y el flujo de retiro/pago en efectivo (reutilizando la lógica de `ventas_borrador`). Ver Bloque 11, sección 25.
 
 ---
 
@@ -715,14 +715,36 @@ Bucket de Storage `articulo-imagenes` creado (público para lectura — lo tiene
 
 Probado en vivo con fotos reales de Whey Protein Doypack (Body Advance, 4 sabores) — confirmado que cada sabor muestra su propia foto real (no una genérica repetida) y que el estado "Sin stock" convive bien con la foto de esa variante puntual.
 
+### Bloque 11 — Pantalla "Actualizar Fotos", fix de Marca scopeada, deploy que no disparaba, migración completa de Sabores, y arranque del carrito
+
+**Pantalla nueva `articulos/fotos/page.tsx`** (mejora pedida por Ariel, mismo estilo que Actualizar Precios): filtros Buscar/Rubro/Marca/Disponibilidad/Stock + "Con o sin fotos" (en vez de "OC pendiente"). Grilla de miniaturas, cada una abre el mismo `ImagenesArticulo.tsx` en un modal. Checkboxes inline de **"Disponible en local"** y **"Visible en tienda"** por artículo (guardan solos al tocarlos) — para no ir a Editar Artículo uno por uno. Agregada al menú (`Sidebar.tsx`, dentro de `layout/`, no en la raíz de `components` — ojo con esto la próxima vez que se pida ese archivo).
+
+**Bug real encontrado por Ariel, corregido en 2 pantallas:** tanto en Actualizar Fotos como en Actualizar Precios, el filtro de Marca mostraba **todas** las marcas del catálogo sin importar el Rubro elegido. Se corrigió calculando `marcasDisponibles` a partir de los artículos ya cargados y filtrados por rubro (no de la tabla `marcas` completa), con reseteo automático del filtro de marca si deja de tener sentido al cambiar de rubro.
+
+**Incidente resuelto: el auto-deploy de Vercel dejó de dispararse.** Un push llegó bien a `origin/master` (confirmado con `git log`) pero no generó ningún deployment nuevo. Se resolvió forzando un deploy vacío (`git commit --allow-empty`) — **queda pendiente investigar la causa real** (posible corte en la integración GitHub↔Vercel) en una sesión futura, no se llegó a diagnosticar a fondo.
+
+**Migración completa de Sabores, rubro por rubro** (recorrido alfabético a pedido de Ariel, con SQL de por medio, no vía UI): Aminoácidos, Colágenos, Energía, Foods, Salud y bienestar quedaron agrupados con `nombre_base`/`sabor_id`, creando algunos sabores nuevos en el camino (Fruit Punch, Strawberry-Lemon, Açaí, Blueberry-Raspberry, Frambuesa — reutilizados varias veces entre rubros). Confirmado sin cambios necesarios en Glutamina, Multivitamínicos, Óxido Nítrico, Pro Hormonal, Quemadores, Sales (sin variantes de sabor real). **Shakers descartado a propósito** — ahí la variante es color, no sabor, y forzarlo en `sabor_id` ensuciaría el catálogo de sabores para siempre; ya se distingue bien solo con las fotos. Confirmado que Creatinas, Bebidas Isotónicas, Pre-entrenamiento, Proteínas, Proteínas Vegetales ya estaban migrados de sesiones anteriores.
+
+**Bug de fondo encontrado en la migración, afectó a 80 artículos:** el trigger `fn_generar_nombre_articulo` arma `articulos.nombre` a partir de `nombre_base + atributo_valor + marca` — **no** de `sabor_id`. Como las migraciones de hoy solo cargaban `nombre_base`+`sabor_id` (correcto para que la vitrina agrupe), el trigger reescribió el nombre real de cada artículo sin el sabor adentro (ej. las 4 variantes de "Mtor Bcaa" quedaron con el mismo nombre "Mtor Bcaa - 270 G - Star Nutrition", sin distinguir sabor). No se notaba en `/tienda` porque ahí el título sale de `nombre_base`, no de `nombre` — recién se destapó al mirar la pantalla nueva de Actualizar Fotos, donde sí se ve el `nombre` real. **Corregido con un solo `UPDATE`** completando `atributo_valor = sabores.nombre` para los 80 casos — el mismo trigger reconstruyó bien el nombre solo. Lección para toda futura migración de sabores: cargar `nombre_base` + `sabor_id` **y también `atributo_valor`** juntos, no solo los dos primeros.
+
+**Migración de `Barras de proteína` y `Geles`/`Geles Cafeína`** (rubros que estaban con `disponible_web=false` a propósito): ya tenían `nombre_base`/`sabor_id` cargados de antes (no hizo falta agruparlos), solo se prendió `disponible_web` — con la salvedad de excluir las presentaciones "Caja X Unidades" (`nombre_base NOT ILIKE '%Caja%'`), porque esas no se venden sueltas y Ariel quiere agregarles más adelante un **mínimo de compra de 10 unidades por `nombre_base`** (mezclando sabores). Confirmado que "Geles Cafeína" como rubro separado ya no tiene artículos activos — todo se unificó bajo "Geles" con "Cafeína" en el nombre.
+
+**Arranque del carrito de la Vitrina** (primera versión funcional):
+- `CarritoContext.tsx` — Context de React, persistido en `localStorage` (no hay login en la vitrina pública, no hay otra forma de guardar estado entre visitas).
+- `src/lib/tienda/config.ts` — `MINIMOS_POR_RUBRO`, hoy `{ 'Barras de proteína': 10, 'Geles': 10 }` — fácil de ampliar.
+- `ProductoCard.tsx` ampliado: selector de cantidad (respeta el stock de la variante elegida) + botón "Agregar", con feedback visual de "Agregado" por 1,5 segundos.
+- `CarritoBoton.tsx` — ícono con contador en el header de `/tienda`.
+- `/tienda/carrito/page.tsx` — pantalla nueva: editar cantidades, sacar ítems, aviso ámbar si algún `nombre_base` de un rubro con mínimo no llega al mínimo (bloquea el botón "Continuar"), total. El botón "Continuar" todavía no lleva a ningún lado — el checkout real (Mercado Pago / retiro y pago en efectivo) queda para la próxima sesión.
+
 ### Pendiente para la próxima sesión (Vitrina web)
-1. Aplicar el criterio correcto de `disponible_web` (`disponible_local`, no stock) al resto del catálogo — hoy solo Proteínas está limpio.
-2. Seguir subiendo fotos por categoría (trabajo manual de Ariel).
-3. Arrancar el checkout: Preference de Mercado Pago + webhook + creación de venta real, y el camino B (retiro + pago en efectivo, mismo criterio que un borrador de venta).
-4. Revisar precios de venta reales por producto — Ariel marcó que `precio_web` cargado hoy "no es real" en general, más allá de que hoy coincida con `precio_local`.
+1. **Arrancar el checkout de verdad** — es el próximo paso concreto. Plan ya conversado (ver Bloque 7 de esta misma sesión): `pedidos_web` (ya creada), Preference de Mercado Pago + webhook para el camino online, y flujo tipo "borrador" para retiro + pago en efectivo en el local (reutilizar el mecanismo de `ventas_borrador`).
+2. Aplicar el mínimo de compra (10 unidades por `nombre_base`) en la validación real del checkout, no solo como aviso visual en el carrito.
+3. Seguir subiendo fotos por categoría (trabajo manual de Ariel) — Aminoácidos, Colágenos, Energía, Foods, Salud y bienestar recién migrados hoy todavía no tienen fotos.
+4. Investigar la causa real de por qué se cortó el auto-deploy de Vercel (Bloque 11) — no se llegó a diagnosticar, solo se resolvió con un deploy forzado.
+5. Revisar precios de venta reales por producto — Ariel marcó que `precio_web` "no es real" en general, más allá de que hoy coincida con `precio_local`.
+6. Retomar las descripciones de Empretienda cuando la vitrina esté más avanzada (Excel ya armado, ver Bloque 6).
 
 ### Pendiente general para la próxima sesión
 1. Confirmar en la práctica que el aviso de borradores al cerrar turno funciona bien.
 2. Investigar (si vale la pena) por qué la Orden 4 se salteó el paso de stock para 6 artículos puntuales.
-3. Retomar las descripciones de Empretienda cuando la vitrina esté más avanzada (Excel ya armado, ver Bloque 6).
-4. Seguir con los pendientes de sesiones previas (Correcciones, sandbox, NC real, permisos de Agustín, Sabores).
+3. Seguir con los pendientes de sesiones previas (Correcciones, sandbox, NC real, permisos de Agustín).
