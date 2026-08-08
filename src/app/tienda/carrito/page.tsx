@@ -110,14 +110,22 @@ export default function CarritoPage() {
               <p className="text-lg font-bold text-[#3c3c3b]">Total: {fmt(totalPrecio)}</p>
             </div>
 
-            <button
-              disabled={hayFaltantes}
-              title={hayFaltantes ? 'Completá el pedido mínimo para continuar' : undefined}
-              className="w-full mt-4 bg-[#00a19a] text-white py-3 rounded-lg font-semibold text-sm hover:bg-[#008f89] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              Continuar
-            </button>
-            <p className="text-center text-xs text-gray-400 mt-2">El siguiente paso (retiro y pago) todavía está en construcción.</p>
+            {hayFaltantes ? (
+              <button
+                disabled
+                title="Completá el pedido mínimo para continuar"
+                className="w-full mt-4 bg-[#00a19a] text-white py-3 rounded-lg font-semibold text-sm opacity-40 cursor-not-allowed transition-colors"
+              >
+                Continuar
+              </button>
+            ) : (
+              <Link
+                href="/tienda/checkout"
+                className="w-full mt-4 bg-[#00a19a] text-white py-3 rounded-lg font-semibold text-sm hover:bg-[#008f89] transition-colors flex items-center justify-center"
+              >
+                Continuar
+              </Link>
+            )}
           </>
         )}
       </main>
