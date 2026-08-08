@@ -76,7 +76,7 @@ export async function fiscalizarVenta(
     .from('articulos')
     .select('id, nombre, codigo_interno')
     .in('id', articuloIds)
-  const articulosMap = new Map((articulosData || []).map((a: any) => [a.id, a]))
+  const articulosMap = new Map<number, any>((articulosData || []).map((a: any) => [a.id, a]))
 
   // ¿Ya existe un comprobante para esta venta? (reintento tras rechazo)
   const { data: comprobanteExistente } = await supabase
