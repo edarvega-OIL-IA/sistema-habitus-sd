@@ -36,6 +36,7 @@ async function procesarNotificacion(request: NextRequest) {
   }
 
   const admin = createAdminClient()
+  let pedidoId: number | null = null
 
   try {
     // ── Confirmar el pago consultando la API de MP — nunca confiar en el
@@ -49,26 +50,21 @@ async function procesarNotificacion(request: NextRequest) {
     }
     const pago = await pagoResponse.json()
 
-    const pedidoId = Number(pago.external_reference)
+    pedidoId = Number(pago.external_reference)
     if (!pedidoId) {
       console.error('Pago', paymentId, 'sin external_reference válido')
       return NextResponse.json({ ok: true })
     }
 
-    const { data: pedido, error: pedidoError } = await admin
+    const { data: pedidoExistente, error: pedidoError } = await admin
       .from('pedidos_web')
-      .select('*')
+      .select('id')
       .eq('id', pedidoId)
       .single()
 
-    if (pedidoError || !pedido) {
+    if (pedidoError || !pedidoExistente) {
       console.error('Pedido', pedidoId, 'no encontrado para el pago', paymentId)
       return NextResponse.json({ ok: true })
-    }
-
-    // Idempotencia — MP puede reenviar la misma notificación varias veces
-    if (pedido.venta_id) {
-      return NextResponse.json({ ok: true, yaProcesado: true })
     }
 
     if (pago.status !== 'approved') {
@@ -79,6 +75,31 @@ async function procesarNotificacion(request: NextRequest) {
         .eq('estado', 'pendiente_pago') // no pisar un estado ya resuelto
       return NextResponse.json({ ok: true })
     }
+
+    // ── "Reclamar" el pedido de forma atómica ───────────────────────────
+    // MP puede (y suele) reenviar la misma notificación más de una vez, a
+    // veces casi simultáneas. Un simple "SELECT y comparar en memoria" deja
+    // una ventana donde dos llamadas concurrentes leen el pedido todavía
+    // sin resolver y las dos terminan creando una venta cada una (bug real
+    // 08/08/2026, pedido #7 → ventas #1495 y #1496 duplicadas). El UPDATE
+    // con WHERE estado='pendiente_pago' es atómico en Postgres: solo UNA
+    // llamada concurrente puede ganarlo — la que pierde recibe 0 filas
+    // afectadas y se retira sin tocar nada más.
+    const { data: pedidoReclamado, error: reclamoError } = await admin
+      .from('pedidos_web')
+      .update({ estado: 'procesando_pago' })
+      .eq('id', pedidoId)
+      .eq('estado', 'pendiente_pago')
+      .select('*')
+      .maybeSingle()
+
+    if (reclamoError) throw new Error('Error al reclamar el pedido: ' + reclamoError.message)
+    if (!pedidoReclamado) {
+      // Ya lo tomó otra llamada concurrente, o ya estaba resuelto — no hay
+      // nada más para hacer acá.
+      return NextResponse.json({ ok: true, yaProcesado: true })
+    }
+    const pedido = pedidoReclamado
 
     // ── Re-chequeo de stock real al momento de la aprobación ────────────
     const items: any[] = pedido.items
@@ -228,6 +249,21 @@ async function procesarNotificacion(request: NextRequest) {
     return NextResponse.json({ ok: true, ventaId: venta.id })
   } catch (error: any) {
     console.error('Error procesando webhook de Mercado Pago:', error)
+    // Si llegamos a reclamar el pedido (estado='procesando_pago') pero algo
+    // falló después, lo devolvemos a 'pendiente_pago' para que un reintento
+    // futuro de MP pueda volver a tomarlo — si no, quedaría trabado para
+    // siempre en un estado intermedio que nadie vuelve a procesar.
+    if (pedidoId) {
+      try {
+        await admin
+          .from('pedidos_web')
+          .update({ estado: 'pendiente_pago' })
+          .eq('id', pedidoId)
+          .eq('estado', 'procesando_pago')
+      } catch {
+        // best-effort — si esto también falla, queda para revisión manual
+      }
+    }
     // 200 igual — si devolvemos error, MP reintenta indefinidamente y
     // multiplicaría ventas si el fallo fue después de crear la venta.
     // Los console.error quedan en los logs de Vercel para revisar a mano.
