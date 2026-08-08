@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/server'
 import ProductoCard from '@/components/tienda/ProductoCard'
 import CarritoBoton from '@/components/tienda/CarritoBoton'
 import FiltrosTienda from '@/components/tienda/FiltrosTienda'
+import OrdenTienda from '@/components/tienda/OrdenTienda'
 
 interface ArticuloCatalogo {
   id: number
@@ -40,6 +41,12 @@ interface GrupoProducto {
   variantes: ArticuloCatalogo[]
 }
 
+// Mismo criterio de búsqueda que el resto del sistema: tokenizada, sin
+// acentos/mayúsculas (ver Artículos, Actualizar Precios, Actualizar Fotos).
+function normalizar(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
 function agrupar(articulos: ArticuloCatalogo[]): GrupoProducto[] {
   const mapa = new Map<string, GrupoProducto>()
   for (const a of articulos) {
@@ -64,15 +71,20 @@ function agrupar(articulos: ArticuloCatalogo[]): GrupoProducto[] {
   return [...mapa.values()]
 }
 
+function precioMinimo(g: GrupoProducto): number {
+  return Math.min(...g.variantes.map(v => v.precio))
+}
+
 export default async function TiendaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ rubro?: string; marca?: string; stock?: string }>
+  searchParams: Promise<{ rubro?: string; marca?: string; stock?: string; q?: string; orden?: string }>
 }) {
-  const { rubro: rubroParam, marca: marcaParam, stock: stockParam } = await searchParams
+  const { rubro: rubroParam, marca: marcaParam, stock: stockParam, q: busquedaParam, orden: ordenParam } = await searchParams
   const rubrosSeleccionados = (rubroParam || '').split(',').filter(Boolean)
   const marcasSeleccionadas = (marcaParam || '').split(',').filter(Boolean)
   const soloConStock = stockParam === 'con'
+  const busqueda = normalizar((busquedaParam || '').trim())
   const supabase = await createClient()
 
   const { data, error } = await supabase
@@ -89,12 +101,22 @@ export default async function TiendaPage({
   // catálogo, no solo del rubro elegido, para poder combinar ambos filtros.
   const marcas = [...new Set(articulos.map(a => a.marca).filter((m): m is string => !!m))].sort()
 
-  const gruposFiltrados = grupos.filter(g => {
+  let gruposFiltrados = grupos.filter(g => {
     if (rubrosSeleccionados.length > 0 && (!g.rubro || !rubrosSeleccionados.includes(g.rubro))) return false
     if (marcasSeleccionadas.length > 0 && (!g.marca || !marcasSeleccionadas.includes(g.marca))) return false
     if (soloConStock && !g.variantes.some(v => v.stock > 0)) return false
+    if (busqueda) {
+      const texto = normalizar(`${g.titulo} ${g.marca || ''}`)
+      if (!texto.includes(busqueda)) return false
+    }
     return true
   })
+
+  if (ordenParam === 'precio_asc') {
+    gruposFiltrados = [...gruposFiltrados].sort((a, b) => precioMinimo(a) - precioMinimo(b))
+  } else if (ordenParam === 'precio_desc') {
+    gruposFiltrados = [...gruposFiltrados].sort((a, b) => precioMinimo(b) - precioMinimo(a))
+  }
 
   return (
     <div className="min-h-screen bg-[#ededed]">
@@ -116,6 +138,13 @@ export default async function TiendaPage({
         <FiltrosTienda rubros={rubros} marcas={marcas} />
 
         <main className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-gray-500">
+              {gruposFiltrados.length} {gruposFiltrados.length === 1 ? 'producto' : 'productos'}
+            </p>
+            <OrdenTienda />
+          </div>
+
           {error ? (
             <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center text-sm text-red-700">
               No se pudo cargar el catálogo. Probá de nuevo en un momento.
