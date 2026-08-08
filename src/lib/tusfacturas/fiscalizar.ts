@@ -71,12 +71,12 @@ export async function fiscalizarVenta(
   if (clienteError || !cliente) return { ok: false, mensaje: 'No se encontró el cliente' }
 
   // Query separada + merge por Map (nunca join anidado — regla del proyecto)
-  const articuloIds = items.map((i) => i.articulo_id)
+  const articuloIds = items.map((i: any) => i.articulo_id)
   const { data: articulosData } = await supabase
     .from('articulos')
     .select('id, nombre, codigo_interno')
     .in('id', articuloIds)
-  const articulosMap = new Map((articulosData || []).map((a) => [a.id, a]))
+  const articulosMap = new Map((articulosData || []).map((a: any) => [a.id, a]))
 
   // ¿Ya existe un comprobante para esta venta? (reintento tras rechazo)
   const { data: comprobanteExistente } = await supabase
@@ -141,7 +141,7 @@ export async function fiscalizarVenta(
       tieneCuentaCorriente: cliente.tiene_cuenta_corriente,
       plazoDiasCtaCte: cliente.plazo_dias_cta_cte,
     },
-    items: items.map((item) => {
+    items: items.map((item: any) => {
       const articulo = articulosMap.get(item.articulo_id)
       return {
         articulo_nombre: articulo?.nombre || 'Artículo',
