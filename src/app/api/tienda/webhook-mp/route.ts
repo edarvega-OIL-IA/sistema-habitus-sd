@@ -241,9 +241,12 @@ async function procesarNotificacion(request: NextRequest) {
     // respuesta al webhook ni lo que ya se confirmó arriba. Si falla,
     // queda para revisión manual en /fiscalizacion, igual que el POS.
     try {
-      await fiscalizarVenta(venta.id, CLIENTE_ID_CONSUMIDOR_FINAL, true)
+      const resultadoFiscal = await fiscalizarVenta(venta.id, CLIENTE_ID_CONSUMIDOR_FINAL, true, admin)
+      if (!resultadoFiscal.ok) {
+        console.error('Fiscalización falló para venta web', venta.id, ':', resultadoFiscal.mensaje)
+      }
     } catch (fiscalError: any) {
-      console.error('Fiscalización falló para venta web', venta.id, ':', fiscalError.message)
+      console.error('Fiscalización tiró excepción para venta web', venta.id, ':', fiscalError.message)
     }
 
     return NextResponse.json({ ok: true, ventaId: venta.id })

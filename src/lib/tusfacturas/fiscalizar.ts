@@ -33,8 +33,17 @@ export async function fiscalizarVenta(
   ventaId: number,
   clienteId: number,
   esContado: boolean,
+  // Cliente opcional — por defecto arma el cliente de servidor atado a la
+  // sesión del usuario logueado (POS, pantalla manual). El webhook de
+  // Mercado Pago no tiene ninguna sesión detrás (nadie está logueado
+  // cuando corre), así que le pasa el cliente admin (Service Role) acá,
+  // en vez de que esta función arme el suyo propio y todo quede bloqueado
+  // por RLS en silencio (bug real 08/08/2026: devolvía "No se encontró la
+  // venta" no porque no existiera, sino porque el cliente sin sesión no
+  // tenía permiso para leerla).
+  supabaseClient?: any,
 ): Promise<ResultadoFiscalizacion> {
-  const supabase = await createClient()
+  const supabase = supabaseClient ?? await createClient()
 
   if (!fiscalizacionActiva()) {
     return { ok: false, mensaje: 'La fiscalización está desactivada (FISCALIZACION_TUSFACTURAS_ACTIVA no está en "true")' }
