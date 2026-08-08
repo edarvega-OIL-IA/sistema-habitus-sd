@@ -1,13 +1,13 @@
+// Ruta destino: C:\Users\Usuario\Documents\sistema-habitus-sd\src\app\(sistema)\articulos\fotos\page.tsx
 'use client'
 
-import { useEffect, useState, useMemo, useRef, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { Search, ArrowLeft } from 'lucide-react'
-import { RECUPERA_IVA_COMPRAS } from '@/lib/config'
+import { Search, ArrowLeft, ImageOff, Camera } from 'lucide-react'
+import ImagenesArticulo from '@/components/articulos/ImagenesArticulo'
 
-interface ArticuloPrecio {
+interface ArticuloFoto {
   articulo_id: number
   nombre: string
   codigo_interno: string | null
@@ -19,208 +19,87 @@ interface ArticuloPrecio {
   disponible_local: boolean
   disponible_web: boolean
   stock: number
-  tasaIvaId: number | null
-  ivaPct: number
-  costoConIva: number
-  precioActual: number
-  utilidadActual: number
-  actualizadoFecha: string | null
-  desactualizado: boolean
-  precioNuevoTexto: string
-  utilidadNuevoTexto: string
-  seleccionado: boolean
+  imagenPrincipalUrl: string | null
+  cantidadFotos: number
 }
 
 interface Rubro { id: number; nombre: string }
 interface Marca { id: number; nombre: string }
-interface OrdenCompraOpcion { id: number; fecha_orden: string; proveedorNombre: string }
 
-// Mismo criterio de búsqueda que Artículos: tokenizada, sin acentos/mayúsculas.
+// Mismo criterio de búsqueda que Artículos/Actualizar Precios: tokenizada, sin acentos/mayúsculas.
 function normalizar(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 }
 
-// Mismo parseo de montos usado en el resto del sistema (Compras,
-// ArticuloForm, Movimientos): coma o punto como decimal si hay 1-2 dígitos
-// después, como separador de miles si hay 3 o más.
-function parsearMonto(v: string): number {
-  const limpio = v.trim()
-  if (!limpio) return 0
-  const ultimoSep = Math.max(limpio.lastIndexOf(','), limpio.lastIndexOf('.'))
-  if (ultimoSep === -1) return parseInt(limpio, 10) || 0
-  const decimales = limpio.length - ultimoSep - 1
-  if (decimales >= 1 && decimales <= 2) {
-    const entero = limpio.slice(0, ultimoSep).replace(/[.,]/g, '')
-    const decimal = limpio.slice(ultimoSep + 1)
-    return parseFloat(`${entero || '0'}.${decimal}`) || 0
-  }
-  return parseInt(limpio.replace(/[.,]/g, ''), 10) || 0
-}
-
-function fmtMonto(n: number): string {
-  return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-// Utilidad % = recargo sobre el costo (markup) — misma fórmula que
-// ArticuloForm.tsx y que usaba Cover (unificado 10/07/2026).
-function calcularUtilidadPct(precio: number, costoConIva: number): number {
-  if (!costoConIva) return 0
-  return ((precio - costoConIva) / costoConIva) * 100
-}
-
-function calcularPrecioDesdeUtilidad(utilidadPct: number, costoConIva: number): number {
-  return costoConIva * (1 + utilidadPct / 100)
-}
-
-function ActualizarPreciosContent() {
-  const searchParams = useSearchParams()
-
+export default function ActualizarFotosPage() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [accesoDenegado, setAccesoDenegado] = useState(false)
-  const [usuarioId, setUsuarioId] = useState<string | null>(null)
-  const [notif, setNotif] = useState<{ tipo: 'error' | 'ok'; msg: string } | null>(null)
-
   const [rubros, setRubros] = useState<Rubro[]>([])
-  const [ordenesCompra, setOrdenesCompra] = useState<OrdenCompraOpcion[]>([])
-  const [items, setItems] = useState<ArticuloPrecio[]>([])
-  const [guardando, setGuardando] = useState<Set<number>>(new Set())
+  const [items, setItems] = useState<ArticuloFoto[]>([])
+  const [modalArticuloId, setModalArticuloId] = useState<number | null>(null)
 
-  // Cache de datos base (artículos/stock/rubros/marcas/histórico) para
-  // reconstruir `items` cuando cambia el filtro de OC sin repetir queries.
-  // useRef porque debe persistir entre renders — una variable local común
-  // se resetea cada vez que el componente vuelve a ejecutar su función.
-  const datosBaseRef = useRef<{
-    articulosData: any[]
-    mapStock: Map<number, number>
-    mapTasas: Map<number, number>
-    mapRubros: Map<number, string>
-    mapMarcas: Map<number, string>
-    mapActualizado: Map<number, string>
-    mapActualizadoTs: Map<number, string>
-    mapUltimoCostoTs: Map<number, string>
-  } | null>(null)
-
-  // Filtros — mismos nombres/valores por defecto que Artículos, + OC.
+  // Filtros — mismos nombres/valores por defecto que Actualizar Precios,
+  // + "Con fotos / Sin fotos" en vez de "OC pendiente".
   const [busqueda, setBusqueda] = useState('')
   const [rubroFiltro, setRubroFiltro] = useState('todos')
   const [marcaFiltro, setMarcaFiltro] = useState('todos')
   const [disponibilidadFiltro, setDisponibilidadFiltro] = useState('local')
   const [stockFiltro, setStockFiltro] = useState('todos')
-  const [ocFiltro, setOcFiltro] = useState('todos')
-  const [soloDesactualizados, setSoloDesactualizados] = useState(false)
-  const [pctAumento, setPctAumento] = useState('')
-
-  useEffect(() => {
-    const ocParam = searchParams.get('oc')
-    if (ocParam) setOcFiltro(ocParam)
-  }, [searchParams])
+  const [fotosFiltro, setFotosFiltro] = useState('todos')
 
   useEffect(() => { cargarDatos() }, [])
 
-  // Único lugar que decide cuándo (re)construir `items`: al terminar la
-  // carga inicial, o cuando cambia el filtro de OC después. Evita la
-  // condición de carrera entre "leer ?oc= de la URL" y "cargar datos"
-  // (si ocFiltro cambiaba antes de que cargarDatos terminara, el filtro
-  // podía no aplicarse en la primera construcción de la lista).
-  useEffect(() => {
-    if (!cargando && datosBaseRef.current) construirItems()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ocFiltro, cargando])
-
   async function cargarDatos() {
+    setCargando(true)
     const supabase = createClient()
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('No autenticado')
-
-      const { data: usuarioData, error: usuarioError } = await supabase
-        .from('usuarios').select('id, rol_id').eq('id', user.id).single()
-      if (usuarioError) throw usuarioError
-
-      // Pantalla admin-only — muestra costos (regla ya establecida).
-      if (usuarioData.rol_id !== 1) {
-        setAccesoDenegado(true)
-        setCargando(false)
-        return
-      }
-      setUsuarioId(usuarioData.id)
-
       const [
         { data: articulosData, error: articulosError },
         { data: stockData },
         { data: rubrosData },
         { data: marcasData },
-        { data: tasasData },
-        { data: historicoData },
-        { data: historicoCostoData },
-        { data: ordenesData },
-        { data: proveedoresData },
+        { data: imagenesData },
       ] = await Promise.all([
         supabase.from('articulos')
-          .select('id, nombre, codigo_interno, codigo_barra, rubro_id, marca_id, precio_local, disponible_local, disponible_web, tasa_iva_id, costo_sin_iva')
+          .select('id, nombre, codigo_interno, codigo_barra, rubro_id, marca_id, disponible_local, disponible_web')
           .eq('activo', true).order('nombre'),
         supabase.from('articulo_stock').select('articulo_id, stock_actual').eq('sucursal_id', 1),
         supabase.from('rubros').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('marcas').select('id, nombre').eq('activo', true).order('nombre'),
-        supabase.from('tasas_iva').select('id, porcentaje'),
-        // Solo cambios reales de precio (no de costo) — más recientes primero.
-        // creado_en (con hora) se usa para decidir orden real; fecha (DATE)
-        // solo para mostrar en pantalla.
-        supabase.from('historico_precios').select('articulo_id, fecha, creado_en').eq('tipo', 'precio_manual').order('creado_en', { ascending: false }),
-        // Cambios de costo (vienen de Compras al confirmar) — para detectar
-        // artículos cuyo costo subió después de la última revisión de precio.
-        supabase.from('historico_precios').select('articulo_id, fecha, creado_en').eq('tipo', 'costo').order('creado_en', { ascending: false }),
-        // Solo Borrador: una vez Confirmada, el costo de esa compra ya
-        // pasó a costo_sin_iva del artículo (costo general), así que no
-        // hace falta seguir viéndola aparte en este combo.
-        supabase.from('ordenes_compra').select('id, fecha_orden, proveedor_id').eq('estado_orden_compra_id', 1).order('id', { ascending: false }),
-        supabase.from('proveedores').select('id, nombre_comercial'),
+        supabase.from('articulo_imagenes').select('articulo_id, url, es_principal'),
       ])
 
       if (articulosError) throw articulosError
 
       const mapStock = new Map<number, number>((stockData || []).map(s => [s.articulo_id, s.stock_actual]))
-      const mapTasas = new Map<number, number>((tasasData || []).map(t => [t.id, t.porcentaje]))
-      const mapProveedores = new Map<number, string>((proveedoresData || []).map(p => [p.id, p.nombre_comercial]))
       const mapRubros = new Map<number, string>((rubrosData || []).map((r: Rubro) => [r.id, r.nombre]))
       const mapMarcas = new Map<number, string>((marcasData || []).map((m: Marca) => [m.id, m.nombre]))
 
-      // "Actualizado" = fecha del cambio de precio más reciente por
-      // artículo (para MOSTRAR). Como historicoData ya viene ordenado por
-      // creado_en desc, la primera aparición de cada articulo_id es la
-      // más reciente. mapActualizadoTs guarda el creado_en real, para
-      // COMPARAR con precisión (dos cambios el mismo día se distinguen).
-      const mapActualizado = new Map<number, string>()
-      const mapActualizadoTs = new Map<number, string>()
-      for (const h of (historicoData || [])) {
-        if (!mapActualizado.has(h.articulo_id)) {
-          mapActualizado.set(h.articulo_id, h.fecha)
-          mapActualizadoTs.set(h.articulo_id, h.creado_en)
+      const mapCantidadFotos = new Map<number, number>()
+      const mapImagenPrincipal = new Map<number, string>()
+      for (const img of (imagenesData || [])) {
+        mapCantidadFotos.set(img.articulo_id, (mapCantidadFotos.get(img.articulo_id) || 0) + 1)
+        if (img.es_principal || !mapImagenPrincipal.has(img.articulo_id)) {
+          mapImagenPrincipal.set(img.articulo_id, img.url)
         }
       }
 
-      // Misma lógica, para el último cambio de costo.
-      const mapUltimoCostoTs = new Map<number, string>()
-      for (const h of (historicoCostoData || [])) {
-        if (!mapUltimoCostoTs.has(h.articulo_id)) mapUltimoCostoTs.set(h.articulo_id, h.creado_en)
-      }
-
       setRubros(rubrosData || [])
-      setOrdenesCompra((ordenesData || []).map((o: any) => ({
-        id: o.id,
-        fecha_orden: o.fecha_orden,
-        proveedorNombre: mapProveedores.get(o.proveedor_id) || '—',
+      setItems((articulosData || []).map((a: any) => ({
+        articulo_id: a.id,
+        nombre: a.nombre,
+        codigo_interno: a.codigo_interno,
+        codigo_barra: a.codigo_barra,
+        rubro_id: a.rubro_id,
+        rubroNombre: a.rubro_id ? (mapRubros.get(a.rubro_id) || null) : null,
+        marca_id: a.marca_id,
+        marcaNombre: a.marca_id ? (mapMarcas.get(a.marca_id) || null) : null,
+        disponible_local: a.disponible_local,
+        disponible_web: a.disponible_web,
+        stock: mapStock.get(a.id) ?? 0,
+        imagenPrincipalUrl: mapImagenPrincipal.get(a.id) || null,
+        cantidadFotos: mapCantidadFotos.get(a.id) || 0,
       })))
-
-      // Guardo todo lo necesario para reconstruir items cuando cambie el
-      // filtro de OC, sin tener que volver a pedir todo a la base. La
-      // construcción de `items` en sí la dispara el efecto [ocFiltro, cargando]
-      // una vez que setCargando(false) se aplique más abajo.
-      datosBaseRef.current = {
-        articulosData: articulosData || [],
-        mapStock, mapTasas, mapRubros, mapMarcas, mapActualizado, mapActualizadoTs, mapUltimoCostoTs,
-      }
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -228,90 +107,32 @@ function ActualizarPreciosContent() {
     }
   }
 
-  async function construirItems() {
-    if (!datosBaseRef.current) return
-    const { articulosData, mapStock, mapTasas, mapRubros, mapMarcas, mapActualizado, mapActualizadoTs, mapUltimoCostoTs } = datosBaseRef.current
+  // Al cerrar el modal de gestión de fotos, solo se refresca ese artículo
+  // puntual (miniatura + cantidad) — no hace falta recargar todo de nuevo.
+  async function refrescarFotosDe(articuloId: number) {
     const supabase = createClient()
-
-    // Costo específico de una OC puntual (si hay una seleccionada).
-    let mapCostoOC: Map<number, number> | null = null
-    let idsArticulosOC: Set<number> | null = null
-    if (ocFiltro !== 'todos') {
-      const { data: itemsOC, error: itemsOCError } = await supabase
-        .from('orden_compra_items')
-        .select('articulo_id, costo_final_unitario')
-        .eq('orden_compra_id', Number(ocFiltro))
-        .eq('es_ajuste_redondeo', false)
-        .not('articulo_id', 'is', null)
-      if (itemsOCError) { setNotif({ tipo: 'error', msg: 'Error al cargar la OC: ' + itemsOCError.message }); return }
-      mapCostoOC = new Map((itemsOC || []).map((it: any) => [it.articulo_id, it.costo_final_unitario]))
-      idsArticulosOC = new Set((itemsOC || []).map((it: any) => it.articulo_id))
-    }
-
-    // Conservar ediciones ya hechas en pantalla (precioNuevoTexto,
-    // utilidadNuevoTexto, seleccionado) por artículo.
-    const mapEdicionesPrevias = new Map(items.map(it => [it.articulo_id, it]))
-
-    const nuevosItems: ArticuloPrecio[] = (articulosData as any[])
-      .filter(a => !idsArticulosOC || idsArticulosOC.has(a.id))
-      .map(a => {
-        const ivaPct = a.tasa_iva_id != null ? (mapTasas.get(a.tasa_iva_id) ?? 0) : 0
-        const costoSinIva = mapCostoOC ? (mapCostoOC.get(a.id) ?? 0) : (a.costo_sin_iva || 0)
-        // Mientras no se recupere IVA (monotributista, ver src/lib/config.ts),
-        // costo_sin_iva YA es el costo real completo (compras/nueva y
-        // compras/[id] lo guardan así) — no hay que volver a sumarle nada.
-        const costoConIva = RECUPERA_IVA_COMPRAS ? costoSinIva * (1 + ivaPct / 100) : costoSinIva
-        const precioActual = a.precio_local || 0
-        const utilidadActual = calcularUtilidadPct(precioActual, costoConIva)
-        const actualizadoFecha = mapActualizado.get(a.id) || null
-        const actualizadoTs = mapActualizadoTs.get(a.id) || null
-        const ultimoCostoTs = mapUltimoCostoTs.get(a.id) || null
-        // Desactualizado = nunca se revisó el precio manualmente, o el
-        // costo cambió (por una compra) después de la última revisión.
-        // Se compara por creado_en (TIMESTAMPTZ, formato ISO de Postgrest)
-        // en vez de fecha (DATE) para distinguir correctamente dos cambios
-        // del mismo día — con solo fecha, "empataban" y no disparaba la alerta.
-        // Comparación de strings 'YYYY-MM-DD' es válida lexicográficamente.
-        const desactualizado = !actualizadoTs || (!!ultimoCostoTs && ultimoCostoTs > actualizadoTs)
-        const previa = mapEdicionesPrevias.get(a.id)
-        const precioNuevoTexto = previa ? previa.precioNuevoTexto : fmtMonto(precioActual)
-        const precioNuevoParsed = parsearMonto(precioNuevoTexto)
-        return {
-          articulo_id: a.id,
-          nombre: a.nombre,
-          codigo_interno: a.codigo_interno,
-          codigo_barra: a.codigo_barra,
-          rubro_id: a.rubro_id,
-          rubroNombre: a.rubro_id ? (mapRubros.get(a.rubro_id) || null) : null,
-          marca_id: a.marca_id,
-          marcaNombre: a.marca_id ? (mapMarcas.get(a.marca_id) || null) : null,
-          disponible_local: a.disponible_local,
-          disponible_web: a.disponible_web,
-          stock: mapStock.get(a.id) ?? 0,
-          tasaIvaId: a.tasa_iva_id,
-          ivaPct,
-          costoConIva,
-          precioActual,
-          utilidadActual,
-          actualizadoFecha,
-          desactualizado,
-          // precioNuevoTexto sí se preserva tal cual (es un monto real,
-          // no depende del costo). utilidadNuevoTexto, en cambio, SIEMPRE
-          // se recalcula contra el costoConIva actual — si se preservara
-          // el texto viejo, quedaría mal cuando el costo cambia al
-          // seleccionar/cambiar el filtro de OC (bug encontrado 11/07/2026).
-          precioNuevoTexto,
-          utilidadNuevoTexto: precioNuevoParsed > 0 ? calcularUtilidadPct(precioNuevoParsed, costoConIva).toFixed(1) : utilidadActual.toFixed(1),
-          seleccionado: previa ? previa.seleccionado : false,
-        }
-      })
-
-    setItems(nuevosItems)
+    const { data } = await supabase.from('articulo_imagenes').select('url, es_principal').eq('articulo_id', articuloId)
+    const principal = (data || []).find(i => i.es_principal)?.url || data?.[0]?.url || null
+    setItems(prev => prev.map(it => it.articulo_id === articuloId
+      ? { ...it, imagenPrincipalUrl: principal, cantidadFotos: (data || []).length }
+      : it))
   }
 
-  // Marca queda scopeada al rubro elegido — mismo criterio que "Actualizar
-  // Fotos": no tiene sentido mostrar marcas que no existen en la categoría
-  // que estás mirando.
+  async function toggleDisponibilidad(articuloId: number, campo: 'disponible_local' | 'disponible_web', valorActual: boolean) {
+    const supabase = createClient()
+    setItems(prev => prev.map(it => it.articulo_id === articuloId ? { ...it, [campo]: !valorActual } : it))
+    const { error: updError } = await supabase.from('articulos').update({ [campo]: !valorActual }).eq('id', articuloId)
+    if (updError) {
+      // Revertir en pantalla si falló el guardado
+      setItems(prev => prev.map(it => it.articulo_id === articuloId ? { ...it, [campo]: valorActual } : it))
+      const etiqueta = campo === 'disponible_web' ? 'Visible en tienda' : 'Disponible en local'
+      setError(`No se pudo actualizar "${etiqueta}": ` + updError.message)
+    }
+  }
+
+  // Marca queda scopeada al rubro elegido — mismo criterio que el resto de
+  // las pantallas de filtros (ej. la vitrina): no tiene sentido mostrar
+  // marcas que no existen en la categoría que estás mirando.
   const marcasDisponibles = useMemo(() => {
     const fuente = rubroFiltro === 'todos' ? items : items.filter(it => it.rubro_id?.toString() === rubroFiltro)
     const ids = new Set<number>()
@@ -329,6 +150,7 @@ function ActualizarPreciosContent() {
   }, [items, rubroFiltro])
 
   // Si la marca tildada ya no está disponible en el rubro nuevo, la soltamos
+  // (evita quedar filtrando por una marca invisible sin que se note por qué)
   useEffect(() => {
     if (marcaFiltro !== 'todos' && !marcasDisponibles.some(m => m.id.toString() === marcaFiltro)) {
       setMarcaFiltro('todos')
@@ -348,149 +170,29 @@ function ActualizarPreciosContent() {
       if (disponibilidadFiltro === 'web' && !it.disponible_web) return false
       if (stockFiltro === 'con_stock' && it.stock <= 0) return false
       if (stockFiltro === 'sin_stock' && it.stock > 0) return false
-      if (soloDesactualizados && !it.desactualizado) return false
+      if (fotosFiltro === 'con_fotos' && it.cantidadFotos === 0) return false
+      if (fotosFiltro === 'sin_fotos' && it.cantidadFotos > 0) return false
       return true
     })
-  }, [items, busqueda, rubroFiltro, marcaFiltro, disponibilidadFiltro, stockFiltro, soloDesactualizados])
+  }, [items, busqueda, rubroFiltro, marcaFiltro, disponibilidadFiltro, stockFiltro, fotosFiltro])
 
-  const todosVisiblesSeleccionados = itemsVisibles.length > 0 && itemsVisibles.every(it => it.seleccionado)
-
-  function toggleSeleccionarTodos() {
-    const nuevoValor = !todosVisiblesSeleccionados
-    const idsVisibles = new Set(itemsVisibles.map(it => it.articulo_id))
-    setItems(prev => prev.map(it => idsVisibles.has(it.articulo_id) ? { ...it, seleccionado: nuevoValor } : it))
-  }
-
-  function toggleSeleccion(articuloId: number) {
-    setItems(prev => prev.map(it => it.articulo_id === articuloId ? { ...it, seleccionado: !it.seleccionado } : it))
-  }
-
-  function aplicarAumentoASeleccionados() {
-    const pct = parsearMonto(pctAumento)
-    if (!pct) { setNotif({ tipo: 'error', msg: 'Ingresá un porcentaje válido.' }); return }
-    setItems(prev => prev.map(it => {
-      if (!it.seleccionado) return it
-      const nuevoPrecio = Math.round(it.precioActual * (1 + pct / 100))
-      return {
-        ...it,
-        precioNuevoTexto: fmtMonto(nuevoPrecio),
-        utilidadNuevoTexto: calcularUtilidadPct(nuevoPrecio, it.costoConIva).toFixed(1),
-      }
-    }))
-  }
-
-  function actualizarDesdePrecio(articuloId: number, texto: string) {
-    setItems(prev => prev.map(it => {
-      if (it.articulo_id !== articuloId) return it
-      const precio = parsearMonto(texto)
-      const utilidad = calcularUtilidadPct(precio, it.costoConIva)
-      return { ...it, precioNuevoTexto: texto, utilidadNuevoTexto: precio > 0 ? utilidad.toFixed(1) : it.utilidadNuevoTexto }
-    }))
-  }
-
-  function actualizarDesdeUtilidad(articuloId: number, texto: string) {
-    setItems(prev => prev.map(it => {
-      if (it.articulo_id !== articuloId) return it
-      const utilidadPct = parseFloat(texto.replace(',', '.'))
-      if (isNaN(utilidadPct)) return { ...it, utilidadNuevoTexto: texto }
-      const precio = calcularPrecioDesdeUtilidad(utilidadPct, it.costoConIva)
-      return { ...it, utilidadNuevoTexto: texto, precioNuevoTexto: precio > 0 ? fmtMonto(Math.round(precio)) : it.precioNuevoTexto }
-    }))
-  }
-
-  function reformatearFila(articuloId: number) {
-    setItems(prev => prev.map(it => {
-      if (it.articulo_id !== articuloId) return it
-      const precio = parsearMonto(it.precioNuevoTexto)
-      const utilidad = calcularUtilidadPct(precio, it.costoConIva)
-      return {
-        ...it,
-        precioNuevoTexto: precio > 0 ? fmtMonto(precio) : it.precioNuevoTexto,
-        utilidadNuevoTexto: precio > 0 ? utilidad.toFixed(1) : it.utilidadNuevoTexto,
-      }
-    }))
-  }
-
-  async function guardarPrecio(articuloId: number) {
-    const item = items.find(it => it.articulo_id === articuloId)
-    if (!item) return
-    const nuevoPrecio = parsearMonto(item.precioNuevoTexto)
-    if (nuevoPrecio <= 0) { setNotif({ tipo: 'error', msg: 'El precio debe ser mayor a $0.' }); return }
-
-    setGuardando(prev => new Set(prev).add(articuloId))
-    const supabase = createClient()
-    try {
-      const { error: updError } = await supabase.from('articulos').update({ precio_local: nuevoPrecio }).eq('id', articuloId)
-      if (updError) throw updError
-
-      const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
-      const { error: histError } = await supabase.from('historico_precios').insert({
-        articulo_id: articuloId,
-        fecha: hoy,
-        tipo: 'precio_manual',
-        precio_local: nuevoPrecio,
-        tasa_iva_id: item.tasaIvaId,
-        origen_id: ocFiltro !== 'todos' ? Number(ocFiltro) : null,
-        usuario_id: usuarioId,
-      })
-      if (histError) throw histError
-
-      setItems(prev => prev.map(it => it.articulo_id === articuloId
-        ? { ...it, precioActual: nuevoPrecio, utilidadActual: calcularUtilidadPct(nuevoPrecio, it.costoConIva), actualizadoFecha: hoy, desactualizado: false }
-        : it))
-      setNotif({ tipo: 'ok', msg: `Precio de "${item.nombre}" actualizado a $${fmtMonto(nuevoPrecio)}.` })
-    } catch (err: any) {
-      setNotif({ tipo: 'error', msg: 'Error al guardar: ' + err.message })
-    } finally {
-      setGuardando(prev => { const s = new Set(prev); s.delete(articuloId); return s })
-    }
-  }
-
-  const hayModificados = items.some(it => parsearMonto(it.precioNuevoTexto) !== it.precioActual)
-
-  async function guardarTodosLosModificados() {
-    const idsModificados = items
-      .filter(it => parsearMonto(it.precioNuevoTexto) !== it.precioActual)
-      .map(it => it.articulo_id)
-    for (const id of idsModificados) {
-      await guardarPrecio(id)
-    }
-  }
-
-  const ordenSeleccionada = ocFiltro !== 'todos' ? ordenesCompra.find(o => o.id === Number(ocFiltro)) : null
+  const modalArticulo = modalArticuloId ? items.find(it => it.articulo_id === modalArticuloId) : null
 
   if (cargando) return <p className="text-sm text-gray-500">Cargando artículos...</p>
-  if (accesoDenegado) return <p className="text-sm text-red-500">No tenés permiso para ver esta pantalla.</p>
-  if (error) return <p className="text-sm text-red-500">Error: {error}</p>
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <Link href="/articulos" className="text-xs text-gray-400 hover:text-[#00a19a] flex items-center gap-1 mb-1">
-            <ArrowLeft className="w-3 h-3" /> Volver a Artículos
-          </Link>
-          <h1 className="text-xl font-semibold text-[#3c3c3b]">Actualizar precios</h1>
-          {ordenSeleccionada && (
-            <p className="text-xs text-gray-500">
-              Filtrado por OC #{ordenSeleccionada.id} — {ordenSeleccionada.proveedorNombre} · {ordenSeleccionada.fecha_orden.split('-').reverse().join('/')}
-            </p>
-          )}
-        </div>
-        {hayModificados && (
-          <button onClick={guardarTodosLosModificados} disabled={guardando.size > 0}
-            className="bg-[#00a19a] text-white px-4 py-2 rounded text-sm hover:bg-[#008f89] disabled:opacity-50">
-            Guardar todos los modificados
-          </button>
-        )}
+      <div className="mb-6">
+        <Link href="/articulos" className="text-xs text-gray-400 hover:text-[#00a19a] flex items-center gap-1 mb-1">
+          <ArrowLeft className="w-3 h-3" /> Volver a Artículos
+        </Link>
+        <h1 className="text-xl font-semibold text-[#3c3c3b]">Actualizar fotos</h1>
       </div>
 
-      {notif && (
-        <div className={`rounded-lg border px-4 py-3 flex items-center justify-between gap-3 mb-4 ${
-          notif.tipo === 'error' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'
-        }`}>
-          <p className="text-sm font-medium">{notif.msg}</p>
-          <button onClick={() => setNotif(null)} className="opacity-50 hover:opacity-100 text-lg leading-none">✕</button>
+      {error && (
+        <div className="rounded-lg border px-4 py-3 flex items-center justify-between gap-3 mb-4 bg-red-50 border-red-200 text-red-700">
+          <p className="text-sm font-medium">{error}</p>
+          <button onClick={() => setError(null)} className="opacity-50 hover:opacity-100 text-lg leading-none">✕</button>
         </div>
       )}
 
@@ -543,15 +245,12 @@ function ActualizarPreciosContent() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">OC pendiente</label>
-            <select value={ocFiltro} onChange={e => setOcFiltro(e.target.value)}
+            <label className="block text-xs font-medium text-gray-600 mb-1">Fotos</label>
+            <select value={fotosFiltro} onChange={e => setFotosFiltro(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
-              <option value="todos">Ninguna (costo general)</option>
-              {ordenesCompra.map(o => (
-                <option key={o.id} value={o.id.toString()}>
-                  OC #{o.id} — {o.proveedorNombre} — {o.fecha_orden.split('-').reverse().join('/')}
-                </option>
-              ))}
+              <option value="todos">Con o sin fotos</option>
+              <option value="sin_fotos">Sin fotos</option>
+              <option value="con_fotos">Con fotos</option>
             </select>
           </div>
           <div className="flex items-end">
@@ -560,120 +259,88 @@ function ActualizarPreciosContent() {
             </p>
           </div>
         </div>
-
-        <div className="mt-3 pt-3 border-t border-gray-100">
-          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer w-fit">
-            <input type="checkbox" checked={soloDesactualizados} onChange={e => setSoloDesactualizados(e.target.checked)}
-              className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]" />
-            Solo desactualizados — el costo cambió después de la última revisión de precio
-            <span className="text-gray-400">
-              ({items.filter(it => it.desactualizado).length} de {items.length})
-            </span>
-          </label>
-        </div>
       </div>
 
-      {/* Ajuste masivo */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4 flex items-center gap-3 flex-wrap">
-        <button onClick={toggleSeleccionarTodos}
-          className="text-xs border border-gray-300 rounded px-3 py-1.5 text-gray-600 hover:bg-gray-50">
-          {todosVisiblesSeleccionados ? 'Desmarcar todos' : 'Seleccionar todos'}
-        </button>
-        <span className="text-xs text-gray-400">
-          {itemsVisibles.filter(it => it.seleccionado).length} seleccionados
-        </span>
-        <div className="flex items-center gap-2 ml-auto">
-          <label className="text-xs text-gray-600">% de aumento</label>
-          <input type="text" inputMode="decimal" value={pctAumento} onChange={e => setPctAumento(e.target.value)}
-            placeholder="ej: 8"
-            className="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
-          <button onClick={aplicarAumentoASeleccionados}
-            className="text-xs bg-[#3c3c3b] text-white px-3 py-1.5 rounded hover:bg-black">
-            Aplicar a seleccionados
-          </button>
+      {/* Grilla de artículos */}
+      {itemsVisibles.length === 0 ? (
+        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
+          No se encontraron artículos con los filtros aplicados.
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          {itemsVisibles.map(it => (
+            <div key={it.articulo_id} className="bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col">
+              <button
+                onClick={() => setModalArticuloId(it.articulo_id)}
+                className="aspect-square bg-[#f5f5f4] flex items-center justify-center relative group"
+              >
+                {it.imagenPrincipalUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={it.imagenPrincipalUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <ImageOff className="w-8 h-8 text-gray-300" />
+                )}
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                  <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 bg-white rounded px-2 py-1 text-xs font-medium text-[#3c3c3b]">
+                    <Camera className="w-3.5 h-3.5" />
+                    {it.cantidadFotos > 0 ? `${it.cantidadFotos} foto${it.cantidadFotos > 1 ? 's' : ''}` : 'Subir fotos'}
+                  </span>
+                </div>
+                {it.cantidadFotos === 0 && (
+                  <span className="absolute top-1.5 left-1.5 bg-amber-500 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded">
+                    SIN FOTOS
+                  </span>
+                )}
+              </button>
+              <div className="p-2.5 flex flex-col gap-1.5 flex-1">
+                {it.marcaNombre && <p className="text-[10px] text-gray-400 uppercase tracking-wide">{it.marcaNombre}</p>}
+                <p className="text-xs font-medium text-[#3c3c3b] leading-snug line-clamp-2">{it.nombre}</p>
+                <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-auto pt-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={it.disponible_local}
+                    onChange={() => toggleDisponibilidad(it.articulo_id, 'disponible_local', it.disponible_local)}
+                    className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                  />
+                  Disponible en local
+                </label>
+                <label className="flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={it.disponible_web}
+                    onChange={() => toggleDisponibilidad(it.articulo_id, 'disponible_web', it.disponible_web)}
+                    className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                  />
+                  Visible en tienda
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
-      {/* Tabla */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-4 py-3 w-8"></th>
-                <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Artículo</th>
-                <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">{RECUPERA_IVA_COMPRAS ? 'Costo c/IVA' : 'Costo'}</th>
-                <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Precio actual</th>
-                <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Utilidad actual</th>
-                <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Actualizado</th>
-                <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold w-32">Precio nuevo</th>
-                <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold w-24">Utilidad %</th>
-                <th className="px-4 py-3 w-24"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {itemsVisibles.map(it => {
-                const precioParsed = parsearMonto(it.precioNuevoTexto)
-                const modificado = precioParsed !== it.precioActual
-                // "Sin registro" (nunca se revisó el precio) es neutro, no
-                // alarma — solo se resalta fuerte cuando SÍ hubo una
-                // revisión previa y el costo cambió después de esa fecha.
-                const alertaFuerte = it.desactualizado && !!it.actualizadoFecha
-                return (
-                  <tr key={it.articulo_id} className={modificado ? 'bg-amber-50' : alertaFuerte ? 'bg-orange-50/50' : ''}>
-                    <td className="px-4 py-3">
-                      <input type="checkbox" checked={it.seleccionado} onChange={() => toggleSeleccion(it.articulo_id)}
-                        className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]" />
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">{it.nombre}</td>
-                    <td className="px-4 py-3 text-right text-gray-500">${fmtMonto(it.costoConIva)}</td>
-                    <td className="px-4 py-3 text-right text-gray-500">${fmtMonto(it.precioActual)}</td>
-                    <td className="px-4 py-3 text-right text-gray-500">{it.utilidadActual.toFixed(1)}%</td>
-                    <td className={`px-4 py-3 text-center text-xs ${alertaFuerte ? 'text-orange-600 font-medium' : 'text-gray-400'}`}>
-                      {alertaFuerte && (
-                        <span title="El costo cambió después de la última revisión de precio" className="mr-1">⚠</span>
-                      )}
-                      {it.actualizadoFecha ? it.actualizadoFecha.split('-').reverse().join('/') : 'Sin registro'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <input type="text" inputMode="decimal" value={it.precioNuevoTexto}
-                        onChange={e => actualizarDesdePrecio(it.articulo_id, e.target.value)}
-                        onBlur={() => reformatearFila(it.articulo_id)}
-                        className="w-28 px-2 py-1 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <input type="text" inputMode="decimal" value={it.utilidadNuevoTexto}
-                        onChange={e => actualizarDesdeUtilidad(it.articulo_id, e.target.value)}
-                        onBlur={() => reformatearFila(it.articulo_id)}
-                        className="w-16 px-2 py-1 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button onClick={() => guardarPrecio(it.articulo_id)}
-                        disabled={!modificado || guardando.has(it.articulo_id)}
-                        className="text-xs bg-[#00a19a] text-white px-3 py-1.5 rounded hover:bg-[#008f89] disabled:opacity-30 disabled:cursor-not-allowed">
-                        {guardando.has(it.articulo_id) ? '...' : 'Guardar'}
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+      {/* Modal de gestión de fotos — reutiliza el mismo componente que ArticuloForm */}
+      {modalArticulo && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg border border-gray-200 w-full max-w-lg max-h-[85vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white">
+              <div>
+                <p className="text-xs text-gray-400">{modalArticulo.marcaNombre}</p>
+                <h2 className="text-sm font-semibold text-[#3c3c3b]">{modalArticulo.nombre}</h2>
+              </div>
+              <button
+                onClick={() => { refrescarFotosDe(modalArticulo.articulo_id); setModalArticuloId(null) }}
+                className="text-gray-400 hover:text-gray-600 text-sm"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="p-4">
+              <ImagenesArticulo articuloId={modalArticulo.articulo_id} />
+            </div>
+          </div>
         </div>
-        {itemsVisibles.length === 0 && (
-          <div className="p-8 text-center text-sm text-gray-500">No se encontraron artículos con los filtros aplicados.</div>
-        )}
-      </div>
+      )}
     </div>
-  )
-}
-
-// useSearchParams() (para leer ?oc=) exige estar envuelto en Suspense
-// para que Next.js pueda generar la página estáticamente.
-export default function ActualizarPreciosPage() {
-  return (
-    <Suspense fallback={<p className="text-sm text-gray-500">Cargando...</p>}>
-      <ActualizarPreciosContent />
-    </Suspense>
   )
 }
