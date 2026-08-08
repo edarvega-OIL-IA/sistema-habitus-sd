@@ -317,9 +317,12 @@ function ActualizarPreciosContent() {
     const ids = new Set<number>()
     const resultado: Marca[] = []
     for (const it of fuente) {
-      if (it.marca_id && !ids.has(it.marca_id)) {
+      // it.marcaNombre puede venir null si marca_id apunta a una marca
+      // inactiva o borrada — en ese caso se descarta, nunca se muestra
+      // una opción con nombre vacío en el combo.
+      if (it.marca_id && it.marcaNombre && !ids.has(it.marca_id)) {
         ids.add(it.marca_id)
-        resultado.push({ id: it.marca_id, nombre: it.marcaNombre || '' })
+        resultado.push({ id: it.marca_id, nombre: it.marcaNombre })
       }
     }
     return resultado.sort((a, b) => a.nombre.localeCompare(b.nombre))
