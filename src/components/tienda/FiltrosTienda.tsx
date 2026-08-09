@@ -59,7 +59,7 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
           aria-expanded={abierto}
         >
           {titulo}
-          <ChevronDown className={`w-4 h-4 transition-transform ${abierto ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`w-4 h-4 transition-transform pointer-events-none ${abierto ? 'rotate-180' : ''}`} />
         </button>
       </h2>
     )

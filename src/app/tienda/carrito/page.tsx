@@ -88,7 +88,7 @@ export default function CarritoPage() {
                         onClick={() => actualizarCantidad(it.articuloId, it.cantidad - 1)}
                         disabled={it.cantidad <= 1}
                         aria-label="Disminuir cantidad"
-                        className="min-w-[44px] min-h-[44px] w-7 h-7 flex items-center justify-center text-medium-gray hover:text-offer-teal disabled:opacity-30"
+                        className="relative w-9 h-9 flex items-center justify-center text-medium-gray hover:text-offer-teal disabled:opacity-30 before:content-[''] before:absolute before:inset-0 before:-m-1 before:pointer-events-none"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
@@ -97,7 +97,7 @@ export default function CarritoPage() {
                         onClick={() => actualizarCantidad(it.articuloId, it.cantidad + 1)}
                         disabled={it.cantidad >= it.stockDisponible}
                         aria-label="Aumentar cantidad"
-                        className="min-w-[44px] min-h-[44px] w-7 h-7 flex items-center justify-center text-medium-gray hover:text-offer-teal disabled:opacity-30"
+                        className="relative w-9 h-9 flex items-center justify-center text-medium-gray hover:text-offer-teal disabled:opacity-30 before:content-[''] before:absolute before:inset-0 before:-m-1 before:pointer-events-none"
                       >
                         <Plus className="w-3 h-3" />
                       </button>

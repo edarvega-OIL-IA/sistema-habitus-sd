@@ -93,7 +93,7 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
                 aria-checked={v.id === seleccionadaId}
                 onClick={() => cambiarSabor(v.id)}
                 title={v.stock <= 0 ? `${v.sabor} — sin stock` : v.sabor || ''}
-                className={`relative px-2 py-0.5 rounded-full text-xs font-medium border transition-colors before:content-[''] before:absolute before:inset-0 before:-m-2 ${
+                className={`relative px-2 py-0.5 rounded-full text-xs font-medium border transition-colors before:content-[''] before:absolute before:inset-0 before:-m-2 before:pointer-events-none ${
                   v.id === seleccionadaId
                     ? 'bg-offer-teal text-white border-offer-teal ring-2 ring-offer-teal ring-offset-1'
                     : v.stock <= 0
@@ -114,24 +114,24 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
           <p className="text-base font-bold text-charcoal">{fmt(seleccionada.precio)}</p>
 
           {!sinStock && (
-            <div className="flex items-center gap-2 mt-2">
-              <div className="flex items-center border border-gray-300 rounded-lg">
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <div className="flex items-center border border-gray-300 rounded-lg shrink-0">
                 <button
                   type="button"
                   onClick={() => setCantidad(c => Math.max(1, c - 1))}
                   disabled={cantidad <= 1}
                   aria-label="Disminuir cantidad"
-                  className="min-w-[44px] min-h-[44px] w-7 h-7 flex items-center justify-center text-medium-gray hover:text-offer-teal disabled:opacity-30 disabled:hover:text-medium-gray"
+                  className="relative w-9 h-9 flex items-center justify-center text-medium-gray hover:text-offer-teal disabled:opacity-30 disabled:hover:text-medium-gray before:content-[''] before:absolute before:inset-0 before:-m-1 before:pointer-events-none"
                 >
                   <Minus className="w-3 h-3" />
                 </button>
-                <span className="w-7 text-center text-sm font-medium text-charcoal" role="status" aria-live="polite" aria-label="Cantidad">{cantidad}</span>
+                <span className="w-8 text-center text-sm font-medium text-charcoal" role="status" aria-live="polite" aria-label="Cantidad">{cantidad}</span>
                 <button
                   type="button"
                   onClick={() => setCantidad(c => Math.min(seleccionada.stock, c + 1))}
                   disabled={cantidad >= seleccionada.stock}
                   aria-label="Aumentar cantidad"
-                  className="min-w-[44px] min-h-[44px] w-7 h-7 flex items-center justify-center text-medium-gray hover:text-offer-teal disabled:opacity-30 disabled:hover:text-medium-gray"
+                  className="relative w-9 h-9 flex items-center justify-center text-medium-gray hover:text-offer-teal disabled:opacity-30 disabled:hover:text-medium-gray before:content-[''] before:absolute before:inset-0 before:-m-1 before:pointer-events-none"
                 >
                   <Plus className="w-3 h-3" />
                 </button>
@@ -139,7 +139,7 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
               <button
                 type="button"
                 onClick={handleAgregar}
-                className={`flex-1 h-7 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                className={`flex-1 min-w-[100px] h-9 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
                   agregado ? 'bg-offer-teal text-white' : 'bg-charcoal text-white hover:bg-black'
                 }`}
               >
