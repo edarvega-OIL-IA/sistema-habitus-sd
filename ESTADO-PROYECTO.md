@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 07/08/2026 — Cierre de una sesión larguísima de Vitrina web: pantalla "Actualizar Fotos" nueva, fix de Marca scopeada al Rubro (Precios y Fotos), migración completa de Sabores a **todo** el catálogo (recorrido rubro por rubro), corrección de un bug de fondo del trigger `fn_generar_nombre_articulo` que afectó a 80 artículos, Barras de proteína y Geles ya visibles en la vitrina (con criterio de mínimo de compra pensado para más adelante), y **primera versión funcional del carrito** (agregar, editar cantidad, aviso de mínimo por rubro). El checkout en sí (Mercado Pago + retiro y pago en efectivo) queda como el próximo paso concreto.
-**Estado general:** 🟢 En producción. La Vitrina ya tiene catálogo agrupado por sabor + carrito funcionando de punta a punta — falta el paso final para que un pedido se convierta en venta real.
-**Próxima acción concreta:** arrancar el checkout — `pedidos_web` ya está creada, falta la integración de Mercado Pago (Preference + webhook) y el flujo de retiro/pago en efectivo (reutilizando la lógica de `ventas_borrador`). Ver Bloque 11, sección 25.
+**Última actualización:** 09/08/2026 (continuación) — **Ronda de diseño con Impeccable cerrada en Claude Code:** `/impeccable audit tienda` pasó de **11/20 a 20/20** después de aplicar los 6 fixes acordados (accesibilidad P0, migración de colores hardcodeados a tokens de diseño, badges de 10-11px subidos a 12px por legibilidad mobile, jerarquía semántica de headings + radiogroup accesible para sabores + skip link, touch targets a 44px mínimo, `loading="lazy"` en imágenes). Un hallazgo del primer audit ("falta botón Continuar al pago") resultó ser **falso positivo** — el botón ya existía y funcionaba, confirmado antes de tocar nada. Los ítems P3 (transiciones, `prefers-reduced-motion`, refactor de formateo de precio) quedaron fuera de scope a propósito, sin impacto en accesibilidad ni mobile. Sin hallazgos nuevos ni desvíos de la filosofía "The Efficient Workshop" (sin sombras decorativas, sin radios fuera de 10px) en el re-audit.
+**Estado general:** 🟢 En producción. Vitrina con circuito de compra completo (Bloque 12) y ahora también con el frente de diseño/accesibilidad de `/tienda` cerrado en 20/20.
+**Próxima acción concreta:** confirmar en un celular real (no solo emulador) que el nuevo `radiogroup` de sabores y los touch targets ampliados se sienten bien al tacto, y verificar que el último push a `master` disparó el deploy en Vercel (recordar el incidente del Bloque 11). Después, seguir con los pendientes de Vitrina: mínimo de compra en la validación real del checkout y fotos de los rubros recién migrados. Ver Bloque 14, sección 25.
 
 ---
 
@@ -736,13 +736,61 @@ Probado en vivo con fotos reales de Whey Protein Doypack (Body Advance, 4 sabore
 - `CarritoBoton.tsx` — ícono con contador en el header de `/tienda`.
 - `/tienda/carrito/page.tsx` — pantalla nueva: editar cantidades, sacar ítems, aviso ámbar si algún `nombre_base` de un rubro con mínimo no llega al mínimo (bloquea el botón "Continuar"), total. El botón "Continuar" todavía no lleva a ningún lado — el checkout real (Mercado Pago / retiro y pago en efectivo) queda para la próxima sesión.
 
+### Bloque 12 — Checkout de Mercado Pago: cierre y cadena de 5 bugs
+
+Se completaron los dos caminos de compra de la Vitrina, conversados en el Bloque 7:
+
+1. **Pago online vía Mercado Pago:** Preference creada al confirmar el carrito en `/tienda`, webhook que recibe la notificación de pago y crea la venta real en Habitus SD (con su fiscalización correspondiente).
+2. **Retiro + pago en el local:** pantalla nueva **"Pedidos Web"** (`/pedidos-web`) donde se gestionan los pedidos que eligieron este camino. Botón "Cobrar en caja" crea un registro en `ventas_borrador` con `pedido_web_id` asociado y redirige directo a `/ventas?borrador=X`, reutilizando el mecanismo de borradores del Bloque 3 en vez de duplicar lógica.
+
+**Cadena de bugs encontrados y corregidos, en el orden real en que aparecieron** (vale la pena dejarla completa porque cada uno tapaba al siguiente — sin el primero no se veía el segundo, y así):
+
+1. **`src/proxy.ts` sin `/api/tienda` en rutas públicas.** Next.js 16 renombró la convención de `middleware.ts` a `proxy.ts` — las rutas públicas de la API para el checkout y el webhook estaban bloqueadas para visitantes sin sesión porque no estaban en la lista de excepciones (la misma que ya exceptuaba `/tienda` y `/login`, ver Bloque 9).
+2. **GRANTs de `service_role` faltantes.** Postgres separa permisos de tabla y de secuencia — faltaban GRANTs sobre varias tablas nuevas del circuito **y** sobre `ALL SEQUENCES`/`ALL TABLES` en el schema `public` para el rol `service_role`. Mismo patrón de siempre con RLS + GRANTs independientes (ver lección de la sección de aprendizajes), pero esta vez además con la capa de secuencias.
+3. **Falta de suscripción de Webhooks en el panel de Mercado Pago.** El `notification_url` de cada Preference no alcanza — Mercado Pago requiere una suscripción de Webhooks configurada aparte, en el panel Developers → la app → Webhooks (modo productivo), apuntando a la URL de producción. Sin esto, MP nunca llamaba al webhook aunque el código estuviera perfecto — el bug más difícil de detectar de toda la cadena porque no había ningún error visible del lado del sistema.
+4. **Condición de carrera por notificaciones duplicadas.** Mercado Pago reenvía notificaciones del mismo pago más de una vez; el webhook, tal cual estaba, creaba una venta por cada notificación. Se corrigió con un `UPDATE` atómico que "reclama" el pedido (`WHERE estado='pendiente_pago'` al pasar a `'procesando_pago'`) en vez de un `SELECT` seguido de `UPDATE` — mismo patrón que ya se usa en otras partes del sistema para prevenir duplicados (ver lección de aprendizajes).
+5. **`fiscalizarVenta()` bloqueada por RLS en el webhook.** La función armaba su propio cliente de Supabase atado a la sesión del usuario logueado — en el caso del webhook (sin ningún usuario logueado, es Mercado Pago llamando al servidor) quedaba bloqueada por RLS en silencio, sin lanzar un error claro. Se agregó un parámetro opcional para pasarle el cliente admin (`service_role`) cuando se invoca desde un contexto sin sesión, manteniendo el comportamiento normal para el flujo de POS con usuario logueado.
+
+**Verificación real:** compra de punta a punta confirmada en producción — pago → pedido confirmado → venta creada → stock descontado → fiscalización, sin intervención manual en ningún paso. Los pedidos **#1496** y **#1497**, que habían quedado en estado "Rechazada/Error" en la pantalla de Fiscalización por el bug #5 (antes de corregirlo), ya se reintentaron desde ahí y fiscalizaron correctamente.
+
+### Bloque 13 — Frente paralelo: diseño de la Vitrina con Claude Code + Impeccable
+
+Trabajo de diseño visual puro de `/tienda`, hecho en **Claude Code** (CLI corriendo en la carpeta del proyecto), no en este chat — Claude Code no tiene memoria de esta conversación, así que cualquier cambio de diseño hecho ahí se documenta acá para no perderlo.
+
+Se instaló el plugin **Impeccable** (`pbakaus/impeccable`). Con `/impeccable init` y `/impeccable document` se generaron `PRODUCT.md` y `DESIGN.md`, ya revisados y alineados con el sistema real: paleta `#00a19a`/`#3c3c3b`/`#ededed`, filosofía **"The Efficient Workshop"** (utilitario, sin adornos, sin sombras decorativas), tipografía única Inter 14px, radios de 10px, bordes 1px.
+
+### Bloque 14 — Impeccable audit de `/tienda`: de 11/20 a 20/20
+
+Primer `/impeccable audit tienda` (sobre `src/app/tienda/page.tsx`) dio **11/20** ("Acceptable — significant work needed"). Hallazgos reales, no ruido: colores hardcodeados en vez de tokens de diseño (15+ instancias), badges/selector de sabor en 10-11px contra la "Single-Size Rule" de 14px de `DESIGN.md`, falta de `aria-label` en los controles de cantidad (bloqueante P0 de accesibilidad), jerarquía de headings incompleta, buscador sin `<label>` explícito, y touch targets por debajo del mínimo recomendado para mobile.
+
+**Decisión sobre los badges (criterio: legibilidad en mobile por sobre consistencia estricta con el DESIGN.md original):** subir de 10-11px a 12px mínimo, no documentar la excepción.
+
+**Falso positivo detectado y descartado:** el audit marcó como faltante el botón "Continuar al pago" en `carrito/page.tsx`. Se verificó código en mano antes de tocar nada — el botón existe y funciona (línea 115-130, con estado deshabilitado + tooltip cuando falta el mínimo de compra, y `<Link>` a `/tienda/checkout` cuando está todo ok). El audit truncó su lectura del archivo antes de llegar a esas líneas; no era un problema real.
+
+**Fixes aplicados, en orden:**
+1. **P0 accesibilidad:** `aria-label` en los botones de cantidad ("Disminuir cantidad"/"Aumentar cantidad") + `role="status" aria-live="polite"` para anunciar el valor a lectores de pantalla.
+2. **P1 tokens:** todos los colores hardcodeados (`#00a19a`, `#3c3c3b`, `#ededed`, clases `gray-*`) migrados a tokens semánticos nuevos en `globals.css` (`--charcoal`, `--offer-teal`, `--medium-gray`, `--border-gray`, `--surface-subtle`, `--surface-light`) y sus clases correspondientes (`bg-offer-teal`, `text-charcoal`, etc.) en `ProductoCard.tsx`, `CarritoBoton.tsx`, `carrito/page.tsx` y `OrdenTienda`.
+3. **P1 tipografía:** `text-[10px]`/`text-[11px]` → `text-xs` (12px) en badges y selector de sabor.
+4. **P1 semántica/accesibilidad:** `<h2 className="sr-only">` sobre la grilla de resultados, secciones de filtro envueltas en headings con `aria-expanded`, `<label htmlFor="tienda-search" className="sr-only">` en el buscador, selector de sabor envuelto en `role="radiogroup"` con `role="radio"`/`aria-checked` por botón + indicador visual (`ring-2 ring-offer-teal`, no solo color) + texto oculto "(seleccionado)" para lectores de pantalla, y skip link (`sr-only focus:not-sr-only`) al landmark `#productos`.
+5. **P2 mobile:** touch targets ampliados a 44px mínimo — botones de cantidad con `min-w-[44px] min-h-[44px]` (tamaño visual sin cambiar, área de toque sí), píldoras de sabor con pseudo-elemento `before` y margen negativo para ampliar el área sin cambiar el tamaño visual.
+6. **P2 performance:** `loading="lazy"` en todas las imágenes de producto.
+
+Los P3 (transiciones de estado, `prefers-reduced-motion`, refactor del formateo de precio a un helper compartido) quedaron **fuera de scope a propósito** — sin impacto real en accesibilidad ni en mobile, se retoman si hay tiempo más adelante.
+
+**Re-audit confirmó:** score final **20/20 ("Excellent")**, todos los P0/P1 resueltos, botón "Continuar" reconfirmado funcional, **sin hallazgos nuevos** — en particular, sin desvíos de la filosofía "The Efficient Workshop" (nada de sombras decorativas ni radios fuera de 10px se coló al migrar a tokens).
+
+**Pendiente real antes de dar esto por cerrado del todo:** probar en un celular real (no solo emulador) que el `radiogroup` de sabores y los touch targets ampliados se sienten bien al tacto, y confirmar que el deploy a Vercel se disparó bien con el último push (recordar el incidente del auto-deploy cortado del Bloque 11).
+
 ### Pendiente para la próxima sesión (Vitrina web)
-1. **Arrancar el checkout de verdad** — es el próximo paso concreto. Plan ya conversado (ver Bloque 7 de esta misma sesión): `pedidos_web` (ya creada), Preference de Mercado Pago + webhook para el camino online, y flujo tipo "borrador" para retiro + pago en efectivo en el local (reutilizar el mecanismo de `ventas_borrador`).
-2. Aplicar el mínimo de compra (10 unidades por `nombre_base`) en la validación real del checkout, no solo como aviso visual en el carrito.
-3. Seguir subiendo fotos por categoría (trabajo manual de Ariel) — Aminoácidos, Colágenos, Energía, Foods, Salud y bienestar recién migrados hoy todavía no tienen fotos.
-4. Investigar la causa real de por qué se cortó el auto-deploy de Vercel (Bloque 11) — no se llegó a diagnosticar, solo se resolvió con un deploy forzado.
-5. Revisar precios de venta reales por producto — Ariel marcó que `precio_web` "no es real" en general, más allá de que hoy coincida con `precio_local`.
-6. Retomar las descripciones de Empretienda cuando la vitrina esté más avanzada (Excel ya armado, ver Bloque 6).
+1. Probar en un celular real el `radiogroup` de sabores y los touch targets ampliados (Bloque 14) — no verificado más allá del emulador todavía.
+2. Confirmar que el deploy a Vercel se disparó bien con el último push de los fixes de Impeccable (recordar el incidente del auto-deploy del Bloque 11).
+3. Aplicar el mínimo de compra (10 unidades por `nombre_base`) en la validación real del checkout, no solo como aviso visual en el carrito.
+4. Seguir subiendo fotos por categoría (trabajo manual de Ariel) — Aminoácidos, Colágenos, Energía, Foods, Salud y bienestar todavía no tienen fotos.
+5. Investigar la causa real de por qué se cortó el auto-deploy de Vercel (Bloque 11) — no se llegó a diagnosticar, solo se resolvió con un deploy forzado.
+6. Revisar precios de venta reales por producto — Ariel marcó que `precio_web` "no es real" en general, más allá de que hoy coincida con `precio_local`.
+7. Retomar las descripciones de Empretienda cuando la vitrina esté más avanzada (Excel ya armado, ver Bloque 6).
+8. Mercado Pago POS (terminal física para pagos con tarjeta en el local) — auto-completar emisor + nro. de operación vía webhook (MVP v2, no confundir con el webhook de la Vitrina ya resuelto en el Bloque 12).
+9. Ítems P3 del audit de Impeccable, si hay tiempo (transiciones de estado, `prefers-reduced-motion`, formateo de precio centralizado en un helper).
 
 ### Pendiente general para la próxima sesión
 1. Confirmar en la práctica que el aviso de borradores al cerrar turno funciona bien.

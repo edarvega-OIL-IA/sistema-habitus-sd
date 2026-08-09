@@ -16,7 +16,7 @@ export default function CarritoBoton() {
     >
       <ShoppingCart className="w-5 h-5 text-white" />
       {cantidadTotal > 0 && (
-        <span className="absolute -top-1 -right-1 bg-[#00a19a] text-white text-[10px] font-semibold rounded-full w-5 h-5 flex items-center justify-center">
+        <span className="absolute -top-1 -right-1 bg-offer-teal text-white text-xs font-semibold rounded-full w-5 h-5 flex items-center justify-center">
           {cantidadTotal}
         </span>
       )}

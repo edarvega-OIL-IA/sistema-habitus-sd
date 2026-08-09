@@ -19,7 +19,7 @@ export default function OrdenTienda() {
     <select
       value={orden}
       onChange={e => cambiarOrden(e.target.value)}
-      className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-transparent"
+      className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-offer-teal focus:border-transparent"
     >
       <option value="relevancia">Ordenar por</option>
       <option value="precio_asc">Precio: menor a mayor</option>

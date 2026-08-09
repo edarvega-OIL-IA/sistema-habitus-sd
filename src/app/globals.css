@@ -46,6 +46,16 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Tienda tokens */
+  --color-charcoal: var(--charcoal);
+  --color-warm-white: var(--warm-white);
+  --color-soft-gray: var(--soft-gray);
+  --color-medium-gray: var(--medium-gray);
+  --color-border-gray: var(--border-gray);
+  --color-offer-teal: var(--offer-teal);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-light: var(--surface-light);
 }
 
 :root {
@@ -81,6 +91,16 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Tienda-specific tokens (from DESIGN.md) */
+  --charcoal: oklch(0.205 0 0);
+  --warm-white: oklch(1 0 0);
+  --soft-gray: oklch(0.97 0 0);
+  --medium-gray: oklch(0.556 0 0);
+  --border-gray: oklch(0.922 0 0);
+  --offer-teal: #00a19a;
+  --surface-subtle: #ededed;
+  --surface-light: #f5f5f4;
 }
 
 .dark {

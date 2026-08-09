@@ -49,16 +49,19 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
 
   // Encabezado de sección: mismo estilo para Categorías y Marca, con más
   // afordancia visual de que es clickeable (fondo al pasar el mouse, flecha
-  // más grande).
+  // más grande). Ahora usa h2 para jerarquía semántica.
   function EncabezadoSeccion({ titulo, abierto, onClick }: { titulo: string; abierto: boolean; onClick: () => void }) {
     return (
-      <button
-        onClick={onClick}
-        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-2 py-1.5 -mx-2 rounded hover:bg-gray-100 hover:text-[#3c3c3b] transition-colors"
-      >
-        {titulo}
-        <ChevronDown className={`w-4 h-4 transition-transform ${abierto ? 'rotate-180' : ''}`} />
-      </button>
+      <h2 className="m-0">
+        <button
+          onClick={onClick}
+          className="flex items-center justify-between w-full text-xs font-semibold text-medium-gray uppercase tracking-wide mb-2 px-2 py-1.5 -mx-2 rounded hover:bg-gray-100 hover:text-charcoal transition-colors"
+          aria-expanded={abierto}
+        >
+          {titulo}
+          <ChevronDown className={`w-4 h-4 transition-transform ${abierto ? 'rotate-180' : ''}`} />
+        </button>
+      </h2>
     )
   }
 
@@ -72,13 +75,15 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
 
       {/* Buscador */}
       <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+        <label htmlFor="tienda-search" className="sr-only">Buscar producto</label>
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-medium-gray w-4 h-4" />
         <input
+          id="tienda-search"
           type="text"
           value={busqueda}
           onChange={e => setBusqueda(e.target.value)}
           placeholder="Buscar producto..."
-          className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-transparent"
+          className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-offer-teal focus:border-transparent"
         />
       </div>
 
@@ -89,7 +94,7 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
             type="checkbox"
             checked={soloStock}
             onChange={e => actualizarParam('stock', e.target.checked ? 'con' : null)}
-            className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+            className="rounded border-gray-300 text-offer-teal focus:ring-offer-teal"
           />
           Solo con stock
         </label>
@@ -106,7 +111,7 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
                     type="checkbox"
                     checked={rubrosSeleccionados.includes(r)}
                     onChange={() => toggleValor('rubro', rubrosSeleccionados, r)}
-                    className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                    className="rounded border-gray-300 text-offer-teal focus:ring-offer-teal"
                   />
                   {r}
                 </label>
@@ -127,7 +132,7 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
                     type="checkbox"
                     checked={marcasSeleccionadas.includes(m)}
                     onChange={() => toggleValor('marca', marcasSeleccionadas, m)}
-                    className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                    className="rounded border-gray-300 text-offer-teal focus:ring-offer-teal"
                   />
                   {m}
                 </label>

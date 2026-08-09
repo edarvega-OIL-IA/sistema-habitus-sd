@@ -1,0 +1,226 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-09T20:00:00Z",
+  "title": "Design System: Sistema Habitus SD",
+  "extensions": {
+    "colorMeta": {
+      "charcoal": {
+        "role": "primary",
+        "displayName": "Charcoal",
+        "canonical": "oklch(0.205 0 0)",
+        "tonalRamp": [
+          "oklch(0.145 0 0)",
+          "oklch(0.205 0 0)",
+          "oklch(0.269 0 0)",
+          "oklch(0.371 0 0)",
+          "oklch(0.439 0 0)",
+          "oklch(0.556 0 0)",
+          "oklch(0.708 0 0)",
+          "oklch(0.922 0 0)"
+        ]
+      },
+      "warm-white": {
+        "role": "neutral",
+        "displayName": "Warm White",
+        "canonical": "oklch(1 0 0)",
+        "tonalRamp": [
+          "oklch(0.97 0 0)",
+          "oklch(0.985 0 0)",
+          "oklch(1 0 0)",
+          "oklch(1 0 0)",
+          "oklch(1 0 0)",
+          "oklch(1 0 0)",
+          "oklch(1 0 0)",
+          "oklch(1 0 0)"
+        ]
+      },
+      "teal-accent": {
+        "role": "accent",
+        "displayName": "Teal Accent",
+        "canonical": "oklch(0.488 0.243 264.376)",
+        "tonalRamp": [
+          "oklch(0.25 0.243 264.376)",
+          "oklch(0.35 0.243 264.376)",
+          "oklch(0.488 0.243 264.376)",
+          "oklch(0.60 0.243 264.376)",
+          "oklch(0.70 0.243 264.376)",
+          "oklch(0.80 0.15 264.376)",
+          "oklch(0.90 0.08 264.376)",
+          "oklch(0.95 0.04 264.376)"
+        ]
+      },
+      "alert-red": {
+        "role": "destructive",
+        "displayName": "Alert Red",
+        "canonical": "oklch(0.577 0.245 27.325)",
+        "tonalRamp": [
+          "oklch(0.30 0.245 27.325)",
+          "oklch(0.40 0.245 27.325)",
+          "oklch(0.577 0.245 27.325)",
+          "oklch(0.65 0.245 27.325)",
+          "oklch(0.75 0.18 27.325)",
+          "oklch(0.85 0.12 27.325)",
+          "oklch(0.92 0.06 27.325)",
+          "oklch(0.97 0.03 27.325)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default text for all content—product names, prices, table cells, form labels."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Form labels, button text, navigation items, section headings. Weight increase signals hierarchy."
+      },
+      "mono": {
+        "displayName": "Monospace",
+        "purpose": "CUIT, barcode references, transaction IDs, timestamps. Compact tabular data."
+      }
+    },
+    "shadows": [
+      {
+        "name": "focus-ring",
+        "value": "0 0 0 3px oklch(0.708 0 0 / 50%)",
+        "purpose": "Keyboard focus indicator on interactive elements."
+      },
+      {
+        "name": "mobile-drawer",
+        "value": "0 4px 24px rgba(0, 0, 0, 0.15)",
+        "purpose": "Ambient shadow for sidebar drawer overlay on mobile."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Default easing for state transitions (200ms duration)."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Default action button for confirming operations, submitting forms, primary navigation.",
+      "html": "<button class=\"ds-btn-primary\">Confirmar Venta</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; background: oklch(0.205 0 0); color: oklch(1 0 0); font-family: Inter, system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; padding: 0.5rem 0.625rem; border-radius: 0.625rem; border: 1px solid transparent; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer; white-space: nowrap; } .ds-btn-primary:hover { background: oklch(0.205 0 0 / 80%); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px oklch(0.708 0 0 / 50%); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary action button, alternative to primary without visual weight.",
+      "html": "<button class=\"ds-btn-outline\">Cancelar</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; background: oklch(1 0 0); color: oklch(0.205 0 0); font-family: Inter, system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; padding: 0.5rem 0.625rem; border-radius: 0.625rem; border: 1px solid oklch(0.922 0 0); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer; white-space: nowrap; } .ds-btn-outline:hover { background: oklch(0.97 0 0); } .ds-btn-outline:focus-visible { outline: none; border-color: oklch(0.556 0 0); box-shadow: 0 0 0 3px oklch(0.708 0 0 / 50%); }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Standard form input for text, numbers, search.",
+      "html": "<input type=\"text\" class=\"ds-input\" placeholder=\"Buscar producto...\">",
+      "css": ".ds-input { display: block; width: 100%; background: oklch(1 0 0); color: oklch(0.205 0 0); font-family: Inter, system-ui, sans-serif; font-size: 0.875rem; font-weight: 400; padding: 0.5rem 0.625rem; border-radius: 0.625rem; border: 1px solid oklch(0.922 0 0); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); } .ds-input::placeholder { color: oklch(0.556 0 0); } .ds-input:focus { outline: none; border-color: oklch(0.556 0 0); box-shadow: 0 0 0 3px oklch(0.708 0 0 / 50%); } .ds-input:disabled { opacity: 0.5; pointer-events: none; }"
+    },
+    {
+      "name": "Card Container",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Content container for dashboard tiles, product cards, form sections.",
+      "html": "<div class=\"ds-card\"><h3 class=\"ds-card-title\">Ventas del Mes</h3><p class=\"ds-card-value\">$1.245.890,50</p></div>",
+      "css": ".ds-card { background: oklch(1 0 0); border: 1px solid oklch(0.922 0 0); border-radius: 0.875rem; padding: 1.5rem; } .ds-card-title { font-family: Inter, system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; color: oklch(0.556 0 0); margin: 0 0 0.5rem 0; } .ds-card-value { font-family: Inter, system-ui, sans-serif; font-size: 1.5rem; font-weight: 600; color: oklch(0.205 0 0); margin: 0; }"
+    },
+    {
+      "name": "Status Badge (Success)",
+      "kind": "chip",
+      "refersTo": "badge-success",
+      "description": "Success state indicator for completed operations, balanced cash registers, in-stock items.",
+      "html": "<span class=\"ds-badge ds-badge-success\">Cuadrada</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 0.25rem; font-family: Inter, system-ui, sans-serif; font-size: 0.75rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 0.375rem; white-space: nowrap; } .ds-badge-success { background: oklch(0.97 0 0); color: oklch(0.205 0 0); }"
+    },
+    {
+      "name": "Status Badge (Error)",
+      "kind": "chip",
+      "refersTo": "badge-error",
+      "description": "Error state indicator for cash discrepancies, out-of-stock, fiscal rejections.",
+      "html": "<span class=\"ds-badge ds-badge-error\">Con diferencia</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 0.25rem; font-family: Inter, system-ui, sans-serif; font-size: 0.75rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 0.375rem; white-space: nowrap; } .ds-badge-error { background: oklch(0.577 0.245 27.325 / 10%); color: oklch(0.577 0.245 27.325); }"
+    },
+    {
+      "name": "Sidebar Navigation Item",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Primary navigation item in left sidebar.",
+      "html": "<a href=\"#\" class=\"ds-nav-item\"><span class=\"ds-nav-icon\">🛒</span><span class=\"ds-nav-label\">Ventas</span></a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: oklch(1 0 0); text-decoration: none; border-radius: 0.5rem; transition: background 0.2s cubic-bezier(0.4, 0, 0.2, 1); } .ds-nav-item:hover { background: oklch(1 0 0 / 10%); } .ds-nav-item.active { background: oklch(0.488 0.243 264.376); } .ds-nav-icon { font-size: 1.25rem; line-height: 1; } .ds-nav-label { font-family: Inter, system-ui, sans-serif; font-size: 0.875rem; font-weight: 400; }"
+    },
+    {
+      "name": "Data Table Row",
+      "kind": "custom",
+      "refersTo": "table-row",
+      "description": "Compact table row for product lists, transaction history, inventory views.",
+      "html": "<table class=\"ds-table\"><tbody><tr class=\"ds-table-row\"><td class=\"ds-table-cell\">Creatina Monohidrato 300g</td><td class=\"ds-table-cell ds-table-cell-number\">$12.500,00</td><td class=\"ds-table-cell ds-table-cell-number\">45</td></tr></tbody></table>",
+      "css": ".ds-table { width: 100%; border-collapse: collapse; } .ds-table-row { border-bottom: 1px solid oklch(0.922 0 0); transition: background 0.15s; } .ds-table-row:hover { background: oklch(0.97 0 0); } .ds-table-cell { font-family: Inter, system-ui, sans-serif; font-size: 0.875rem; font-weight: 400; color: oklch(0.205 0 0); padding: 0.75rem 0.5rem; text-align: left; } .ds-table-cell-number { text-align: right; font-variant-numeric: tabular-nums; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Efficient Workshop",
+    "overview": "Sistema Habitus SD is designed as a tool-focused workspace where every element serves operational efficiency. The interface is restrained and utilitarian—no decorative flourishes, no unnecessary hierarchy. Like a well-organized workshop where every tool has its place and is immediately accessible, the system prioritizes speed, clarity, and minimal friction in daily retail operations.\n\nThe visual language is built on a neutral achromatic base (charcoal and warm white) with functional color accents used sparingly for status signals and key actions. Typography is clean and legible, optimized for rapid scanning of product names, prices, and financial data. Layout density balances information richness with breathing room—screens pack substantial data without feeling cramped.\n\nThe system deliberately avoids the \"polished dashboard\" aesthetic common in enterprise SaaS. Instead, it embraces directness: buttons look like buttons, inputs are clearly defined, navigation is literal. This straightforward approach matches the operational context—a two-person team managing both counter sales and back-office tasks, where UI friction directly translates to customer wait time.",
+    "keyCharacteristics": [
+      "Achromatic neutral base with minimal color",
+      "High information density without clutter",
+      "Immediate clarity over visual sophistication",
+      "Keyboard-optimized workflows",
+      "Consistent spacing and alignment rhythm",
+      "Functional typography hierarchy"
+    ],
+    "rules": [
+      {
+        "name": "The Monochrome Default Rule",
+        "body": "Charts, graphs, and data visualizations use the five-step grayscale palette. Color appears only for status (red for loss, teal for highlight). Readability through contrast, not hue.",
+        "section": "colors"
+      },
+      {
+        "name": "The Single-Size Rule",
+        "body": "The entire interface operates at 14px base. Headers use weight, not size, for hierarchy. This enforces density and eliminates the visual noise of competing type scales.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-First Rule",
+        "body": "Surfaces are flat and border-defined at rest. Shadows appear only for state (focus, overlay, elevation changes). Never use shadows to create persistent \"card float\" or decorative depth.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use the 10px base radius consistently across buttons, inputs, and cards",
+      "Do maintain the 14px base font size throughout—no display or headline sizes",
+      "Do right-align numeric data in tables for easy scanning",
+      "Do use 1px borders to define component boundaries—shadows are for state only",
+      "Do keep spacing increments to 4px multiples (8px, 12px, 16px, 24px)",
+      "Do use medium-weight (500) for labels and navigation; regular (400) for body text",
+      "Do validate color contrast meets WCAG AA for all text",
+      "Do use emoji navigation icons (⊞ Dashboard, 🛒 Ventas, etc.) for immediate visual recognition"
+    ],
+    "donts": [
+      "Don't add decorative shadows or depth effects—the system is intentionally flat",
+      "Don't introduce additional font sizes—the single-size hierarchy is a defining constraint",
+      "Don't use color as the sole indicator of state—combine with text, icons, or borders",
+      "Don't create pill-shaped buttons (50% radius)—keep the 10px rounded rectangle",
+      "Don't add marketing or decorative copy—every word serves operational function",
+      "Don't use auto-generated color palettes or Material Design presets—this system has a custom achromatic foundation",
+      "Don't break the keyboard-first workflow—every critical action must have a keyboard shortcut or natural tab-order access"
+    ]
+  }
+}

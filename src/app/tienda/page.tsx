@@ -119,13 +119,13 @@ export default async function TiendaPage({
   }
 
   return (
-    <div className="min-h-screen bg-[#ededed]">
+    <div className="min-h-screen bg-surface-subtle">
       {/* Header */}
-      <header className="bg-[#3c3c3b] text-white">
+      <header className="bg-charcoal text-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">
-              HÁBITUS <span className="text-[#00a19a]">SD</span>
+              HÁBITUS <span className="text-offer-teal">SD</span>
             </h1>
             <p className="text-sm text-white/60 mt-1">Suplementos deportivos en Cinco Saltos</p>
           </div>
@@ -133,13 +133,19 @@ export default async function TiendaPage({
         </div>
       </header>
 
+      {/* Skip link */}
+      <a href="#productos" className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:bg-charcoal focus:text-white focus:px-4 focus:py-2 focus:rounded-lg">
+        Saltar al catálogo
+      </a>
+
       {/* Sidebar de filtros + grid de productos */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col md:flex-row gap-6">
         <FiltrosTienda rubros={rubros} marcas={marcas} />
 
-        <main className="flex-1 min-w-0">
+        <main id="productos" className="flex-1 min-w-0">
+          <h2 className="sr-only">Resultados</h2>
           <div className="flex items-center justify-between mb-4">
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-medium-gray">
               {gruposFiltrados.length} {gruposFiltrados.length === 1 ? 'producto' : 'productos'}
             </p>
             <OrdenTienda />
@@ -150,7 +156,7 @@ export default async function TiendaPage({
               No se pudo cargar el catálogo. Probá de nuevo en un momento.
             </div>
           ) : gruposFiltrados.length === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-lg p-12 text-center text-sm text-gray-400">
+            <div className="bg-white border border-border-gray rounded-lg p-12 text-center text-sm text-medium-gray">
               No hay productos con los filtros aplicados.
             </div>
           ) : (
@@ -177,7 +183,7 @@ export default async function TiendaPage({
         </main>
       </div>
 
-      <footer className="border-t border-gray-200 py-6 text-center text-xs text-gray-400">
+      <footer className="border-t border-border-gray py-6 text-center text-xs text-medium-gray">
         Av. Roca 54, Cinco Saltos, Río Negro — Hábitus SD
       </footer>
     </div>
