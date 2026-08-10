@@ -2,7 +2,7 @@
 
 **Última actualización:** 09/08/2026 (continuación 2) — **Verificación en celular real de los fixes de Impeccable destapó una regresión seria y ya corregida:** después del re-audit 20/20 (Bloque 14), la prueba manual en mobile real encontró que el botón "Agregar" quedaba cortado (bug de layout) y, más grave, que **el touch dejó de funcionar** en el selector de sabor, los botones +/- de cantidad y los headers de Categorías/Marca — el `aria-checked` cambiaba visualmente pero la acción real no se disparaba. Causa raíz: los pseudo-elementos `before:absolute` agregados para ampliar el área de toque a 44px (y el ícono `ChevronDown` en los headers) estaban **interceptando el evento táctil sin propagarlo** al elemento con el `onClick` real — típico problema de pseudo-elementos superpuestos en touch devices, que no se manifestaba con mouse en desktop. Corregido agregando `pointer-events-none` a esos elementos. Verificado en tres instancias (mock, dev server local, y finalmente un **Preview Deployment de Vercel**) — el dev server local accedido por IP de LAN dio un falso "sigue roto" en la prueba intermedia; el preview real confirmó que el fix era correcto. Mergeado a `master` y **confirmado funcionando en producción real** desde el celular.
 **Estado general:** 🟢 En producción. Vitrina con circuito de compra completo (Bloque 12), diseño/accesibilidad 20/20 (Bloque 14), y ahora también verificada de punta a punta en un celular real sin bugs de touch (Bloque 15).
-**Próxima acción concreta:** seguir con los pendientes de Vitrina: mínimo de compra en la validación real del checkout, fotos de los rubros recién migrados, y **investigar por qué algunos artículos puntuales (ej. "Caffeine - 60 Cápsulas - Ena", una Creatina Monohidrato $38.000) se muestran sin selector de cantidad ni botón Agregar** — visto dos veces en esta sesión, sin diagnosticar todavía. Ver Bloque 15, sección 25.
+**Próxima acción concreta:** seguir con los pendientes de Vitrina: mínimo de compra en la validación real del checkout y fotos de los rubros recién migrados. Ver Bloque 15, sección 25.
 
 ---
 
@@ -811,18 +811,17 @@ Aplicado en `ProductoCard.tsx` (píldoras de sabor y botones de cantidad), `carr
 
 **Efecto colateral resuelto:** el archivo `src/app/test-cards/page.tsx` (mock creado por Claude Code para verificar el layout cuando no tenía acceso a Supabase en un momento intermedio) se eliminó al cierre — nunca llegó a estar commiteado en git, así que no hubo riesgo de exposición pública real.
 
-**Hallazgo nuevo, sin resolver todavía:** en el camino de las pruebas aparecieron **dos artículos puntuales** que se muestran sin selector de cantidad ni botón "Agregar" — solo el precio suelto ("Caffeine - 60 Cápsulas - 60 Servicios - Ena" en desktop, y una "Creatina Monohidrato - 300... Neutro" a $38.000 en mobile). No se investigó la causa todavía; sospecha de algún campo nulo o condición de `disponible_local`/stock específica de esos artículos que rompe el render del selector, a diferencia del resto del catálogo que sí lo muestra bien.
+**Falso positivo descartado:** en el camino de las pruebas parecía que algunos artículos puntuales se mostraban sin selector de cantidad ni botón "Agregar" sin explicación ("Caffeine - 60 Cápsulas - 60 Servicios - Ena", una Creatina Monohidrato a $38.000). Verificado con una captura completa: **sí tenían el badge "SIN STOCK"** correctamente — el recorte de una captura anterior lo había dejado fuera de cuadro, lo que generó la falsa alarma. Comportamiento correcto, sin nada que corregir.
 
 
 ### Pendiente para la próxima sesión (Vitrina web)
-1. **Investigar por qué algunos artículos puntuales se muestran sin selector de cantidad ni botón "Agregar"** (Bloque 15) — visto en "Caffeine - 60 Cápsulas - Ena" y una Creatina Monohidrato $38.000, sospecha de campo nulo o condición de disponibilidad específica de esos casos.
-2. Aplicar el mínimo de compra (10 unidades por `nombre_base`) en la validación real del checkout, no solo como aviso visual en el carrito.
-3. Seguir subiendo fotos por categoría (trabajo manual de Ariel) — Aminoácidos, Colágenos, Energía, Foods, Salud y bienestar todavía no tienen fotos.
-4. Investigar la causa real de por qué se cortó el auto-deploy de Vercel (Bloque 11) — no se llegó a diagnosticar, solo se resolvió con un deploy forzado.
-5. Revisar precios de venta reales por producto — Ariel marcó que `precio_web` "no es real" en general, más allá de que hoy coincida con `precio_local`.
-6. Retomar las descripciones de Empretienda cuando la vitrina esté más avanzada (Excel ya armado, ver Bloque 6).
-7. Mercado Pago POS (terminal física para pagos con tarjeta en el local) — auto-completar emisor + nro. de operación vía webhook (MVP v2, no confundir con el webhook de la Vitrina ya resuelto en el Bloque 12).
-8. Ítems P3 del audit de Impeccable, si hay tiempo (transiciones de estado, `prefers-reduced-motion`, formateo de precio centralizado en un helper).
+1. Aplicar el mínimo de compra (10 unidades por `nombre_base`) en la validación real del checkout, no solo como aviso visual en el carrito.
+2. Seguir subiendo fotos por categoría (trabajo manual de Ariel) — Aminoácidos, Colágenos, Energía, Foods, Salud y bienestar todavía no tienen fotos.
+3. Investigar la causa real de por qué se cortó el auto-deploy de Vercel (Bloque 11) — no se llegó a diagnosticar, solo se resolvió con un deploy forzado.
+4. Revisar precios de venta reales por producto — Ariel marcó que `precio_web` "no es real" en general, más allá de que hoy coincida con `precio_local`.
+5. Retomar las descripciones de Empretienda cuando la vitrina esté más avanzada (Excel ya armado, ver Bloque 6).
+6. Mercado Pago POS (terminal física para pagos con tarjeta en el local) — auto-completar emisor + nro. de operación vía webhook (MVP v2, no confundir con el webhook de la Vitrina ya resuelto en el Bloque 12).
+7. Ítems P3 del audit de Impeccable, si hay tiempo (transiciones de estado, `prefers-reduced-motion`, formateo de precio centralizado en un helper).
 
 ### Pendiente general para la próxima sesión
 1. Confirmar en la práctica que el aviso de borradores al cerrar turno funciona bien.
