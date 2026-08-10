@@ -827,7 +827,9 @@ Aplicado en `ProductoCard.tsx` (píldoras de sabor y botones de cantidad), `carr
 **Patrón confirmado en Fiscalización — no es un bug nuevo:** la venta #1498 (pedido web #9, primera compra real después del cierre del Bloque 15) quedó "Rechazada/Error" en el primer intento automático, igual que había pasado antes con #1496 y #1497 (Bloque 12). El botón "Reintentar" de la pantalla Fiscalización la resolvió sin problema, mismo patrón que los casos anteriores. **Con tres casos ya confirmados con el mismo comportamiento**, queda anotado como algo a vigilar — si se vuelve más frecuente, vale la pena investigar la causa de fondo (posible timing/timeout puntual con TusFacturasAPP en el primer intento), pero por ahora el circuito de reintento manual absorbe el problema sin bloquear ninguna venta.
 
 
-### Pendiente para la próxima sesión (Vitrina web)
+**Ordenamiento del catálogo — con stock primero:** en `/tienda`, el listado ordenaba por el criterio del dropdown "Ordenar por" (nombre por defecto) sin distinguir stock, lo que hacía que productos "SIN STOCK" aparecieran mezclados arriba de la grilla — mala primera impresión para un cliente nuevo. Cambiado a un orden de dos niveles: primer nivel fijo (con stock siempre primero, sin stock al final), segundo nivel el criterio que ya elige el usuario en el dropdown (nombre, precio ascendente/descendente). El checkbox "Solo con stock" sigue funcionando igual, sin cambios — este ajuste es solo de orden visual por defecto. Confirmado en local.
+
+
 1. Seguir subiendo fotos por categoría (trabajo manual de Ariel) — Aminoácidos, Colágenos, Energía, Foods, Salud y bienestar todavía no tienen fotos.
 2. Investigar la causa real de por qué se cortó el auto-deploy de Vercel (Bloque 11) — no se llegó a diagnosticar, solo se resolvió con un deploy forzado.
 3. Revisar precios de venta reales por producto — Ariel marcó que `precio_web` "no es real" en general, más allá de que hoy coincida con `precio_local`.
