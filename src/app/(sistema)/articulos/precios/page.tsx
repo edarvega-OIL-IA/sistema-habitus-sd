@@ -23,11 +23,14 @@ interface ArticuloPrecio {
   ivaPct: number
   costoConIva: number
   precioActual: number
+  precioWebActual: number
   utilidadActual: number
   actualizadoFecha: string | null
   desactualizado: boolean
   precioNuevoTexto: string
+  precioWebNuevoTexto: string
   utilidadNuevoTexto: string
+  precioWebEditadoManualmente: boolean
   seleccionado: boolean
 }
 
@@ -158,7 +161,7 @@ function ActualizarPreciosContent() {
         { data: proveedoresData },
       ] = await Promise.all([
         supabase.from('articulos')
-          .select('id, nombre, codigo_interno, codigo_barra, rubro_id, marca_id, precio_local, disponible_local, disponible_web, tasa_iva_id, costo_sin_iva')
+          .select('id, nombre, codigo_interno, codigo_barra, rubro_id, marca_id, precio_local, precio_web, disponible_local, disponible_web, tasa_iva_id, costo_sin_iva')
           .eq('activo', true).order('nombre'),
         supabase.from('articulo_stock').select('articulo_id, stock_actual').eq('sucursal_id', 1),
         supabase.from('rubros').select('id, nombre').eq('activo', true).order('nombre'),
@@ -262,6 +265,7 @@ function ActualizarPreciosContent() {
         // compras/[id] lo guardan así) — no hay que volver a sumarle nada.
         const costoConIva = RECUPERA_IVA_COMPRAS ? costoSinIva * (1 + ivaPct / 100) : costoSinIva
         const precioActual = a.precio_local || 0
+        const precioWebActual = a.precio_web || 0
         const utilidadActual = calcularUtilidadPct(precioActual, costoConIva)
         const actualizadoFecha = mapActualizado.get(a.id) || null
         const actualizadoTs = mapActualizadoTs.get(a.id) || null
@@ -276,6 +280,10 @@ function ActualizarPreciosContent() {
         const previa = mapEdicionesPrevias.get(a.id)
         const precioNuevoTexto = previa ? previa.precioNuevoTexto : fmtMonto(precioActual)
         const precioNuevoParsed = parsearMonto(precioNuevoTexto)
+        // Precio web: si hay edición previa, la preservamos; sino, sincronizamos con precio_local nuevo
+        const precioWebNuevoTexto = previa?.precioWebEditadoManualmente
+          ? previa.precioWebNuevoTexto
+          : fmtMonto(precioNuevoParsed > 0 ? precioNuevoParsed : precioWebActual)
         return {
           articulo_id: a.id,
           nombre: a.nombre,
@@ -292,6 +300,7 @@ function ActualizarPreciosContent() {
           ivaPct,
           costoConIva,
           precioActual,
+          precioWebActual,
           utilidadActual,
           actualizadoFecha,
           desactualizado,
@@ -301,7 +310,9 @@ function ActualizarPreciosContent() {
           // el texto viejo, quedaría mal cuando el costo cambia al
           // seleccionar/cambiar el filtro de OC (bug encontrado 11/07/2026).
           precioNuevoTexto,
+          precioWebNuevoTexto,
           utilidadNuevoTexto: precioNuevoParsed > 0 ? calcularUtilidadPct(precioNuevoParsed, costoConIva).toFixed(1) : utilidadActual.toFixed(1),
+          precioWebEditadoManualmente: previa?.precioWebEditadoManualmente || false,
           seleccionado: previa ? previa.seleccionado : false,
         }
       })
@@ -374,6 +385,8 @@ function ActualizarPreciosContent() {
       return {
         ...it,
         precioNuevoTexto: fmtMonto(nuevoPrecio),
+        // Sincronizar precio_web solo si no fue editado manualmente
+        precioWebNuevoTexto: it.precioWebEditadoManualmente ? it.precioWebNuevoTexto : fmtMonto(nuevoPrecio),
         utilidadNuevoTexto: calcularUtilidadPct(nuevoPrecio, it.costoConIva).toFixed(1),
       }
     }))
@@ -384,7 +397,25 @@ function ActualizarPreciosContent() {
       if (it.articulo_id !== articuloId) return it
       const precio = parsearMonto(texto)
       const utilidad = calcularUtilidadPct(precio, it.costoConIva)
-      return { ...it, precioNuevoTexto: texto, utilidadNuevoTexto: precio > 0 ? utilidad.toFixed(1) : it.utilidadNuevoTexto }
+      return {
+        ...it,
+        precioNuevoTexto: texto,
+        // Sincronizar precio_web solo si no fue editado manualmente
+        precioWebNuevoTexto: it.precioWebEditadoManualmente ? it.precioWebNuevoTexto : texto,
+        utilidadNuevoTexto: precio > 0 ? utilidad.toFixed(1) : it.utilidadNuevoTexto
+      }
+    }))
+  }
+
+  function actualizarDesdePrecioWeb(articuloId: number, texto: string) {
+    setItems(prev => prev.map(it => {
+      if (it.articulo_id !== articuloId) return it
+      return {
+        ...it,
+        precioWebNuevoTexto: texto,
+        // Marcar como editado manualmente para que deje de sincronizarse
+        precioWebEditadoManualmente: true
+      }
     }))
   }
 
@@ -394,7 +425,14 @@ function ActualizarPreciosContent() {
       const utilidadPct = parseFloat(texto.replace(',', '.'))
       if (isNaN(utilidadPct)) return { ...it, utilidadNuevoTexto: texto }
       const precio = calcularPrecioDesdeUtilidad(utilidadPct, it.costoConIva)
-      return { ...it, utilidadNuevoTexto: texto, precioNuevoTexto: precio > 0 ? fmtMonto(Math.round(precio)) : it.precioNuevoTexto }
+      const precioNuevoTexto = precio > 0 ? fmtMonto(Math.round(precio)) : it.precioNuevoTexto
+      return {
+        ...it,
+        utilidadNuevoTexto: texto,
+        precioNuevoTexto,
+        // Sincronizar precio_web solo si no fue editado manualmente
+        precioWebNuevoTexto: it.precioWebEditadoManualmente ? it.precioWebNuevoTexto : precioNuevoTexto
+      }
     }))
   }
 
@@ -402,10 +440,12 @@ function ActualizarPreciosContent() {
     setItems(prev => prev.map(it => {
       if (it.articulo_id !== articuloId) return it
       const precio = parsearMonto(it.precioNuevoTexto)
+      const precioWeb = parsearMonto(it.precioWebNuevoTexto)
       const utilidad = calcularUtilidadPct(precio, it.costoConIva)
       return {
         ...it,
         precioNuevoTexto: precio > 0 ? fmtMonto(precio) : it.precioNuevoTexto,
+        precioWebNuevoTexto: precioWeb > 0 ? fmtMonto(precioWeb) : it.precioWebNuevoTexto,
         utilidadNuevoTexto: precio > 0 ? utilidad.toFixed(1) : it.utilidadNuevoTexto,
       }
     }))
@@ -415,20 +455,27 @@ function ActualizarPreciosContent() {
     const item = items.find(it => it.articulo_id === articuloId)
     if (!item) return
     const nuevoPrecio = parsearMonto(item.precioNuevoTexto)
-    if (nuevoPrecio <= 0) { setNotif({ tipo: 'error', msg: 'El precio debe ser mayor a $0.' }); return }
+    const nuevoPrecioWeb = parsearMonto(item.precioWebNuevoTexto)
+    if (nuevoPrecio <= 0) { setNotif({ tipo: 'error', msg: 'El precio local debe ser mayor a $0.' }); return }
+    if (nuevoPrecioWeb <= 0) { setNotif({ tipo: 'error', msg: 'El precio web debe ser mayor a $0.' }); return }
 
     setGuardando(prev => new Set(prev).add(articuloId))
     const supabase = createClient()
     try {
-      const { error: updError } = await supabase.from('articulos').update({ precio_local: nuevoPrecio }).eq('id', articuloId)
+      // Actualizar ambos precios en la tabla articulos
+      const { error: updError } = await supabase.from('articulos')
+        .update({ precio_local: nuevoPrecio, precio_web: nuevoPrecioWeb })
+        .eq('id', articuloId)
       if (updError) throw updError
 
       const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+      // Insertar en histórico solo el precio_local (para no duplicar registros)
       const { error: histError } = await supabase.from('historico_precios').insert({
         articulo_id: articuloId,
         fecha: hoy,
         tipo: 'precio_manual',
         precio_local: nuevoPrecio,
+        precio_web: nuevoPrecioWeb,
         tasa_iva_id: item.tasaIvaId,
         origen_id: ocFiltro !== 'todos' ? Number(ocFiltro) : null,
         usuario_id: usuarioId,
@@ -436,9 +483,16 @@ function ActualizarPreciosContent() {
       if (histError) throw histError
 
       setItems(prev => prev.map(it => it.articulo_id === articuloId
-        ? { ...it, precioActual: nuevoPrecio, utilidadActual: calcularUtilidadPct(nuevoPrecio, it.costoConIva), actualizadoFecha: hoy, desactualizado: false }
+        ? {
+            ...it,
+            precioActual: nuevoPrecio,
+            precioWebActual: nuevoPrecioWeb,
+            utilidadActual: calcularUtilidadPct(nuevoPrecio, it.costoConIva),
+            actualizadoFecha: hoy,
+            desactualizado: false
+          }
         : it))
-      setNotif({ tipo: 'ok', msg: `Precio de "${item.nombre}" actualizado a $${fmtMonto(nuevoPrecio)}.` })
+      setNotif({ tipo: 'ok', msg: `Precios de "${item.nombre}" actualizados: Local $${fmtMonto(nuevoPrecio)}, Web $${fmtMonto(nuevoPrecioWeb)}.` })
     } catch (err: any) {
       setNotif({ tipo: 'error', msg: 'Error al guardar: ' + err.message })
     } finally {
@@ -446,11 +500,17 @@ function ActualizarPreciosContent() {
     }
   }
 
-  const hayModificados = items.some(it => parsearMonto(it.precioNuevoTexto) !== it.precioActual)
+  const hayModificados = items.some(it =>
+    parsearMonto(it.precioNuevoTexto) !== it.precioActual ||
+    parsearMonto(it.precioWebNuevoTexto) !== it.precioWebActual
+  )
 
   async function guardarTodosLosModificados() {
     const idsModificados = items
-      .filter(it => parsearMonto(it.precioNuevoTexto) !== it.precioActual)
+      .filter(it =>
+        parsearMonto(it.precioNuevoTexto) !== it.precioActual ||
+        parsearMonto(it.precioWebNuevoTexto) !== it.precioWebActual
+      )
       .map(it => it.articulo_id)
     for (const id of idsModificados) {
       await guardarPrecio(id)
@@ -606,7 +666,8 @@ function ActualizarPreciosContent() {
                 <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Precio actual</th>
                 <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Utilidad actual</th>
                 <th className="text-center px-4 py-3 text-xs text-gray-600 font-semibold">Actualizado</th>
-                <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold w-32">Precio nuevo</th>
+                <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold w-32">Precio local</th>
+                <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold w-32">Precio web</th>
                 <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold w-24">Utilidad %</th>
                 <th className="px-4 py-3 w-24"></th>
               </tr>
@@ -614,7 +675,8 @@ function ActualizarPreciosContent() {
             <tbody className="divide-y divide-gray-100">
               {itemsVisibles.map(it => {
                 const precioParsed = parsearMonto(it.precioNuevoTexto)
-                const modificado = precioParsed !== it.precioActual
+                const precioWebParsed = parsearMonto(it.precioWebNuevoTexto)
+                const modificado = precioParsed !== it.precioActual || precioWebParsed !== it.precioWebActual
                 // "Sin registro" (nunca se revisó el precio) es neutro, no
                 // alarma — solo se resalta fuerte cuando SÍ hubo una
                 // revisión previa y el costo cambió después de esa fecha.
@@ -640,6 +702,15 @@ function ActualizarPreciosContent() {
                         onChange={e => actualizarDesdePrecio(it.articulo_id, e.target.value)}
                         onBlur={() => reformatearFila(it.articulo_id)}
                         className="w-28 px-2 py-1 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <input type="text" inputMode="decimal" value={it.precioWebNuevoTexto}
+                        onChange={e => actualizarDesdePrecioWeb(it.articulo_id, e.target.value)}
+                        onBlur={() => reformatearFila(it.articulo_id)}
+                        className={`w-28 px-2 py-1 border rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${
+                          it.precioWebEditadoManualmente ? 'border-blue-400 bg-blue-50' : 'border-gray-300'
+                        }`}
+                        title={it.precioWebEditadoManualmente ? 'Editado manualmente — no se sincroniza con precio local' : 'Sincronizado con precio local'} />
                     </td>
                     <td className="px-4 py-3 text-right">
                       <input type="text" inputMode="decimal" value={it.utilidadNuevoTexto}
