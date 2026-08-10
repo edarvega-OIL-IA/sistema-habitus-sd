@@ -112,11 +112,26 @@ export default async function TiendaPage({
     return true
   })
 
-  if (ordenParam === 'precio_asc') {
-    gruposFiltrados = [...gruposFiltrados].sort((a, b) => precioMinimo(a) - precioMinimo(b))
-  } else if (ordenParam === 'precio_desc') {
-    gruposFiltrados = [...gruposFiltrados].sort((a, b) => precioMinimo(b) - precioMinimo(a))
-  }
+  // Ordenamiento con dos niveles: primero con stock / sin stock, luego el
+  // criterio elegido (nombre/precio). Los SIN STOCK siempre van al final,
+  // sin importar qué opción tenga seleccionada "Ordenar por".
+  gruposFiltrados = [...gruposFiltrados].sort((a, b) => {
+    const stockA = a.variantes.some(v => v.stock > 0) ? 1 : 0
+    const stockB = b.variantes.some(v => v.stock > 0) ? 1 : 0
+
+    // Primer nivel: productos con stock primero
+    if (stockA !== stockB) return stockB - stockA
+
+    // Segundo nivel: criterio del dropdown
+    if (ordenParam === 'precio_asc') {
+      return precioMinimo(a) - precioMinimo(b)
+    } else if (ordenParam === 'precio_desc') {
+      return precioMinimo(b) - precioMinimo(a)
+    } else {
+      // Por defecto: alfabético por título (nombre_base o nombre)
+      return a.titulo.localeCompare(b.titulo)
+    }
+  })
 
   return (
     <div className="min-h-screen bg-surface-subtle">
