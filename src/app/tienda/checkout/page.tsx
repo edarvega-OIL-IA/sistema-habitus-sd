@@ -115,6 +115,7 @@ export default function CheckoutPage() {
 
           <div>
             <label className="text-xs font-medium text-gray-500">Nombre y apellido *</label>
+            <p className="text-xs text-gray-400 mt-0.5">Nombre de quien retira el pedido en el local — te vamos a pedir el DNI al momento de la entrega.</p>
             <input
               value={nombre}
               onChange={e => setNombre(e.target.value)}
