@@ -11,16 +11,16 @@ const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigi
 export default function CarritoPage() {
   const { items, cargado, actualizarCantidad, quitar, vaciar, totalPrecio } = useCarrito()
 
-  // Chequeo de mínimo por nombre_base — mezclando sabores, solo para los
-  // rubros que lo exigen (ver src/lib/tienda/config.ts).
-  const totalesPorNombreBase = new Map<string, { cantidad: number; minimo: number }>()
+  // Chequeo de mínimo por rubro completo — cualquier combinación de productos
+  // y sabores dentro del rubro cuenta junta (ver src/lib/tienda/config.ts).
+  const totalesPorRubro = new Map<string, { cantidad: number; minimo: number }>()
   for (const it of items) {
     const minimo = it.rubro ? MINIMOS_POR_RUBRO[it.rubro] : undefined
-    if (!minimo) continue
-    const actual = totalesPorNombreBase.get(it.nombreBase)
-    totalesPorNombreBase.set(it.nombreBase, { cantidad: (actual?.cantidad || 0) + it.cantidad, minimo })
+    if (!minimo || !it.rubro) continue
+    const actual = totalesPorRubro.get(it.rubro)
+    totalesPorRubro.set(it.rubro, { cantidad: (actual?.cantidad || 0) + it.cantidad, minimo })
   }
-  const faltantes = [...totalesPorNombreBase.entries()].filter(([, v]) => v.cantidad < v.minimo)
+  const faltantes = [...totalesPorRubro.entries()].filter(([, v]) => v.cantidad < v.minimo)
   const hayFaltantes = faltantes.length > 0
 
   if (!cargado) {
@@ -52,9 +52,9 @@ export default function CarritoPage() {
                 <div className="text-sm text-amber-800">
                   <p className="font-medium mb-1">Faltan unidades para el pedido mínimo:</p>
                   <ul className="space-y-0.5">
-                    {faltantes.map(([nombreBase, v]) => (
-                      <li key={nombreBase}>
-                        {nombreBase}: tenés {v.cantidad}, el mínimo es {v.minimo} (podés combinar sabores) — faltan {v.minimo - v.cantidad}.
+                    {faltantes.map(([rubro, v]) => (
+                      <li key={rubro}>
+                        {rubro}: tenés {v.cantidad} {v.cantidad === 1 ? 'unidad' : 'unidades'}, el mínimo es {v.minimo} — faltan {v.minimo - v.cantidad}.
                       </li>
                     ))}
                   </ul>
