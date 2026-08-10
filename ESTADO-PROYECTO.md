@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 09/08/2026 (continuación) — **Ronda de diseño con Impeccable cerrada en Claude Code:** `/impeccable audit tienda` pasó de **11/20 a 20/20** después de aplicar los 6 fixes acordados (accesibilidad P0, migración de colores hardcodeados a tokens de diseño, badges de 10-11px subidos a 12px por legibilidad mobile, jerarquía semántica de headings + radiogroup accesible para sabores + skip link, touch targets a 44px mínimo, `loading="lazy"` en imágenes). Un hallazgo del primer audit ("falta botón Continuar al pago") resultó ser **falso positivo** — el botón ya existía y funcionaba, confirmado antes de tocar nada. Los ítems P3 (transiciones, `prefers-reduced-motion`, refactor de formateo de precio) quedaron fuera de scope a propósito, sin impacto en accesibilidad ni mobile. Sin hallazgos nuevos ni desvíos de la filosofía "The Efficient Workshop" (sin sombras decorativas, sin radios fuera de 10px) en el re-audit.
-**Estado general:** 🟢 En producción. Vitrina con circuito de compra completo (Bloque 12) y ahora también con el frente de diseño/accesibilidad de `/tienda` cerrado en 20/20.
-**Próxima acción concreta:** confirmar en un celular real (no solo emulador) que el nuevo `radiogroup` de sabores y los touch targets ampliados se sienten bien al tacto, y verificar que el último push a `master` disparó el deploy en Vercel (recordar el incidente del Bloque 11). Después, seguir con los pendientes de Vitrina: mínimo de compra en la validación real del checkout y fotos de los rubros recién migrados. Ver Bloque 14, sección 25.
+**Última actualización:** 09/08/2026 (continuación 2) — **Verificación en celular real de los fixes de Impeccable destapó una regresión seria y ya corregida:** después del re-audit 20/20 (Bloque 14), la prueba manual en mobile real encontró que el botón "Agregar" quedaba cortado (bug de layout) y, más grave, que **el touch dejó de funcionar** en el selector de sabor, los botones +/- de cantidad y los headers de Categorías/Marca — el `aria-checked` cambiaba visualmente pero la acción real no se disparaba. Causa raíz: los pseudo-elementos `before:absolute` agregados para ampliar el área de toque a 44px (y el ícono `ChevronDown` en los headers) estaban **interceptando el evento táctil sin propagarlo** al elemento con el `onClick` real — típico problema de pseudo-elementos superpuestos en touch devices, que no se manifestaba con mouse en desktop. Corregido agregando `pointer-events-none` a esos elementos. Verificado en tres instancias (mock, dev server local, y finalmente un **Preview Deployment de Vercel**) — el dev server local accedido por IP de LAN dio un falso "sigue roto" en la prueba intermedia; el preview real confirmó que el fix era correcto. Mergeado a `master` y **confirmado funcionando en producción real** desde el celular.
+**Estado general:** 🟢 En producción. Vitrina con circuito de compra completo (Bloque 12), diseño/accesibilidad 20/20 (Bloque 14), y ahora también verificada de punta a punta en un celular real sin bugs de touch (Bloque 15).
+**Próxima acción concreta:** seguir con los pendientes de Vitrina: mínimo de compra en la validación real del checkout, fotos de los rubros recién migrados, y **investigar por qué algunos artículos puntuales (ej. "Caffeine - 60 Cápsulas - Ena", una Creatina Monohidrato $38.000) se muestran sin selector de cantidad ni botón Agregar** — visto dos veces en esta sesión, sin diagnosticar todavía. Ver Bloque 15, sección 25.
 
 ---
 
@@ -779,18 +779,50 @@ Los P3 (transiciones de estado, `prefers-reduced-motion`, refactor del formateo 
 
 **Re-audit confirmó:** score final **20/20 ("Excellent")**, todos los P0/P1 resueltos, botón "Continuar" reconfirmado funcional, **sin hallazgos nuevos** — en particular, sin desvíos de la filosofía "The Efficient Workshop" (nada de sombras decorativas ni radios fuera de 10px se coló al migrar a tokens).
 
-**Pendiente real antes de dar esto por cerrado del todo:** probar en un celular real (no solo emulador) que el `radiogroup` de sabores y los touch targets ampliados se sienten bien al tacto, y confirmar que el deploy a Vercel se disparó bien con el último push (recordar el incidente del auto-deploy cortado del Bloque 11).
+### Bloque 15 — Verificación en celular real: bug de layout + regresión seria de touch (y su fix)
+
+Después del re-audit 20/20 del Bloque 14, en vez de darlo por cerrado se probó a mano en un celular real (además del emulador de Chrome) — decisión que resultó clave, porque destapó dos problemas que el audit automatizado nunca iba a detectar (mide estructura de código y accesibilidad estática, no comportamiento real en interacción táctil).
+
+**Bug 1 — Botón "Agregar" cortado.** Visible tanto en desktop como en mobile, en todas las cards: el texto quedaba truncado a solo el ícono del carrito + una letra suelta. Causa: el `min-w-[44px]` agregado a los botones de cantidad (fix de touch targets del Bloque 14) empujaba el ancho combinado de la fila (selector de cantidad + botón Agregar) más allá del espacio disponible en la card, en cualquier breakpoint.
+
+**Fix aplicado en `ProductoCard.tsx` y `carrito/page.tsx`:**
+- `flex-wrap` en el contenedor de esa fila — el botón "Agregar" puede bajar a una fila propia si no entra.
+- Botones de cantidad: `w-9 h-9` (36px visual) en vez de `min-w-[44px]` fijo, con `shrink-0` para que no se compriman.
+- Botón "Agregar": `min-w-[100px]` para garantizar espacio al texto completo.
+- **Touch target mantenido en 44px real** (no se resignó a bajar a solo AA): pseudo-elemento `before:absolute before:inset-0 before:-m-1` que amplía el área de toque sin cambiar el tamaño visual de 36px — mismo mecanismo ya usado en las píldoras de sabor.
+
+**Bug 2 — Regresión seria: el touch dejó de funcionar (más grave que el anterior).** Confirmado en celular real, no en emulador: el selector de sabor mostraba el aro verde de selección moviéndose, pero **no cambiaba imagen/precio/stock real** — como si solo se actualizara el `aria-checked` sin disparar la acción real. Mismo síntoma en los headers colapsables de "Categorías"/"Marca" (no desplegaban al tocar) y en el checkbox "Solo con stock" (quedaba marcado pero no filtraba). Todo esto funcionaba bien en desktop con mouse — el bug era específico de touch.
+
+**Causa raíz, confirmada:** los pseudo-elementos `before:absolute` agregados para ampliar áreas de toque (sabor, cantidad) y el ícono `<ChevronDown>` dentro de los headers colapsables estaban **interceptando el evento táctil sin propagarlo** al elemento padre que tenía el `onClick` real — un problema clásico de elementos superpuestos con `position: absolute` en dispositivos táctiles, que el mouse en desktop tolera mejor que el motor de touch de un celular.
+
+**Fix:** agregar `pointer-events-none` a los pseudo-elementos y al ícono `ChevronDown`, para que sigan ampliando visualmente el área pero dejen pasar el evento al elemento real debajo.
+```
+/* Antes (bloqueaba touch) */
+before:content-[''] before:absolute before:inset-0 before:-m-1
+
+/* Después (touch funciona, área visual expandida a 44px) */
+before:content-[''] before:absolute before:inset-0 before:-m-1 before:pointer-events-none
+```
+Aplicado en `ProductoCard.tsx` (píldoras de sabor y botones de cantidad), `carrito/page.tsx` (botones de cantidad) y `FiltrosTienda.tsx` (ícono `ChevronDown` en los headers de Categorías/Marca).
+
+**Camino de verificación, con un tropiezo instructivo en el medio:** la primera prueba después del fix se hizo contra el servidor de desarrollo local (`next dev`), accedido desde el celular por la IP de la red LAN (`http://192.168.x.x:3000`) — y **seguía fallando todo**, incluso peor que antes (ni el checkbox "Solo con stock" filtraba). En vez de seguir parchando a ciegas, se probó la hipótesis de que el propio dev server (overlay de Fast Refresh / WebSocket de hot-reload) estuviera interfiriendo con eventos táctiles al accederlo por LAN — algo que no pasa con `localhost` puro ni en un build real. Se armó una rama (`fix/impeccable-touch`), se pusheó, y se probó contra el **Preview Deployment** que generó Vercel automáticamente: ahí los 4 puntos (sabor, cantidad, categorías/marca, stock) funcionaron perfecto en el celular. Confirmada la hipótesis: el código estaba bien, el problema era artefacto del dev server accedido por LAN. Se mergeó `fix/impeccable-touch` a `master` (fast-forward, commit `1ddcac1`) y se **reconfirmó en producción real** desde el celular, sin bugs.
+
+**Lección para futuras rondas de accesibilidad:** el truco de pseudo-elemento para ampliar áreas de toque (`before:absolute before:inset-0` con margen negativo) **siempre necesita `pointer-events-none`** — si no, en touch devices puede robar el evento al elemento real sin que se note en pruebas de desktop con mouse. Y para verificar comportamiento táctil real, el dev server accedido por IP de LAN no es confiable — usar un Preview Deployment de Vercel (o el build de producción) da resultados representativos de verdad.
+
+**Efecto colateral resuelto:** el archivo `src/app/test-cards/page.tsx` (mock creado por Claude Code para verificar el layout cuando no tenía acceso a Supabase en un momento intermedio) se eliminó al cierre — nunca llegó a estar commiteado en git, así que no hubo riesgo de exposición pública real.
+
+**Hallazgo nuevo, sin resolver todavía:** en el camino de las pruebas aparecieron **dos artículos puntuales** que se muestran sin selector de cantidad ni botón "Agregar" — solo el precio suelto ("Caffeine - 60 Cápsulas - 60 Servicios - Ena" en desktop, y una "Creatina Monohidrato - 300... Neutro" a $38.000 en mobile). No se investigó la causa todavía; sospecha de algún campo nulo o condición de `disponible_local`/stock específica de esos artículos que rompe el render del selector, a diferencia del resto del catálogo que sí lo muestra bien.
+
 
 ### Pendiente para la próxima sesión (Vitrina web)
-1. Probar en un celular real el `radiogroup` de sabores y los touch targets ampliados (Bloque 14) — no verificado más allá del emulador todavía.
-2. Confirmar que el deploy a Vercel se disparó bien con el último push de los fixes de Impeccable (recordar el incidente del auto-deploy del Bloque 11).
-3. Aplicar el mínimo de compra (10 unidades por `nombre_base`) en la validación real del checkout, no solo como aviso visual en el carrito.
-4. Seguir subiendo fotos por categoría (trabajo manual de Ariel) — Aminoácidos, Colágenos, Energía, Foods, Salud y bienestar todavía no tienen fotos.
-5. Investigar la causa real de por qué se cortó el auto-deploy de Vercel (Bloque 11) — no se llegó a diagnosticar, solo se resolvió con un deploy forzado.
-6. Revisar precios de venta reales por producto — Ariel marcó que `precio_web` "no es real" en general, más allá de que hoy coincida con `precio_local`.
-7. Retomar las descripciones de Empretienda cuando la vitrina esté más avanzada (Excel ya armado, ver Bloque 6).
-8. Mercado Pago POS (terminal física para pagos con tarjeta en el local) — auto-completar emisor + nro. de operación vía webhook (MVP v2, no confundir con el webhook de la Vitrina ya resuelto en el Bloque 12).
-9. Ítems P3 del audit de Impeccable, si hay tiempo (transiciones de estado, `prefers-reduced-motion`, formateo de precio centralizado en un helper).
+1. **Investigar por qué algunos artículos puntuales se muestran sin selector de cantidad ni botón "Agregar"** (Bloque 15) — visto en "Caffeine - 60 Cápsulas - Ena" y una Creatina Monohidrato $38.000, sospecha de campo nulo o condición de disponibilidad específica de esos casos.
+2. Aplicar el mínimo de compra (10 unidades por `nombre_base`) en la validación real del checkout, no solo como aviso visual en el carrito.
+3. Seguir subiendo fotos por categoría (trabajo manual de Ariel) — Aminoácidos, Colágenos, Energía, Foods, Salud y bienestar todavía no tienen fotos.
+4. Investigar la causa real de por qué se cortó el auto-deploy de Vercel (Bloque 11) — no se llegó a diagnosticar, solo se resolvió con un deploy forzado.
+5. Revisar precios de venta reales por producto — Ariel marcó que `precio_web` "no es real" en general, más allá de que hoy coincida con `precio_local`.
+6. Retomar las descripciones de Empretienda cuando la vitrina esté más avanzada (Excel ya armado, ver Bloque 6).
+7. Mercado Pago POS (terminal física para pagos con tarjeta en el local) — auto-completar emisor + nro. de operación vía webhook (MVP v2, no confundir con el webhook de la Vitrina ya resuelto en el Bloque 12).
+8. Ítems P3 del audit de Impeccable, si hay tiempo (transiciones de estado, `prefers-reduced-motion`, formateo de precio centralizado en un helper).
 
 ### Pendiente general para la próxima sesión
 1. Confirmar en la práctica que el aviso de borradores al cerrar turno funciona bien.
