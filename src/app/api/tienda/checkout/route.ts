@@ -99,21 +99,28 @@ export async function POST(request: NextRequest) {
     if (errores.length > 0)
       return NextResponse.json({ error: 'Hay artículos que cambiaron', detalles: errores }, { status: 409 })
 
-    // ── Mínimo de compra por rubro (server-side, no solo el aviso visual) ──
-    const totalesPorRubroYBase = new Map<string, number>()
+    // ── Mínimo de compra por rubro completo (server-side, última línea de ──
+    // defensa — cualquier combinación de productos y sabores del rubro cuenta
+    // junta). Mismo criterio que el frontend en carrito/page.tsx.
+    const totalesPorRubro = new Map<string, number>()
     for (const linea of lineas) {
       if (!linea.rubro_nombre || !(linea.rubro_nombre in MINIMOS_POR_RUBRO)) continue
-      const clave = `${linea.rubro_nombre}::${linea.nombre_base}`
-      totalesPorRubroYBase.set(clave, (totalesPorRubroYBase.get(clave) || 0) + linea.cantidad)
+      totalesPorRubro.set(
+        linea.rubro_nombre,
+        (totalesPorRubro.get(linea.rubro_nombre) || 0) + linea.cantidad
+      )
     }
-    for (const [clave, cantidadTotal] of totalesPorRubroYBase.entries()) {
-      const [rubroNombre, nombreBase] = clave.split('::')
+    for (const [rubroNombre, cantidadTotal] of totalesPorRubro.entries()) {
       const minimo = MINIMOS_POR_RUBRO[rubroNombre]
-      if (cantidadTotal < minimo)
+      if (cantidadTotal < minimo) {
+        const faltante = minimo - cantidadTotal
         return NextResponse.json(
-          { error: `${nombreBase} requiere un mínimo de ${minimo} unidades (mezclando sabores)` },
-          { status: 409 }
+          {
+            error: `${rubroNombre}: tenés ${cantidadTotal} ${cantidadTotal === 1 ? 'unidad' : 'unidades'}, el mínimo es ${minimo} — faltan ${faltante}.`,
+          },
+          { status: 400 }
         )
+      }
     }
 
     const total = lineas.reduce((sum, l) => sum + l.subtotal, 0)
