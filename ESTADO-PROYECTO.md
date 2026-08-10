@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 09/08/2026 (continuación 3) — **Mínimo de compra por rubro cerrado en ambas capas:** cambiado de por-producto a por-rubro tanto en el frontend (`carrito/page.tsx`) como en la validación server-side de `api/tienda/checkout/route.ts` (que tenía el mismo bug de agrupación que el frontend antes del fix, ya corregido). Agregado texto de ayuda en el checkout aclarando quién debe figurar como "Nombre y apellido" (quien retira, DNI a pedir en el local), y confirmado un tercer caso (#1498) del patrón ya conocido de fiscalización que falla en el primer intento y se resuelve con "Reintentar".
-**Estado general:** 🟢 En producción. Vitrina con circuito de compra completo (Bloque 12), diseño/accesibilidad 20/20 (Bloque 14), verificada en celular real sin bugs de touch (Bloque 15), y mínimo de compra por rubro cerrado en frontend + servidor (Bloque 16).
-**Próxima acción concreta:** seguir subiendo fotos de los rubros recién migrados y revisar el resto de pendientes de Vitrina antes de apuntar el dominio `habitussd.com` esta semana. Ver Bloque 16, sección 25.
+**Última actualización:** 09-10/08/2026 (continuación 5) — **Favicon de marca aplicado** (símbolo "H" extraído del brandguide, reemplaza el ícono genérico de Vercel en las pestañas) y **sincronización `precio_local`/`precio_web` resuelta**: se detectó que 6 artículos de Geles mostraban en la vitrina un precio distinto al del sistema por desactualización manual de un campo separado — corregido con una regla de sincronización automática (con excepción manual por artículo) en la pantalla de Actualizar Precios, y los 6 casos existentes ya corregidos en producción.
+**Estado general:** 🟢 En producción, con dominio propio activo, identidad visual completa (favicon incluido), y catálogo con precios consistentes entre sistema y vitrina.
+**Próxima acción concreta:** confirmar una compra real de punta a punta con Mercado Pago en el dominio nuevo (pendiente de un tercero), y seguir con fotos y pendientes menores de Vitrina. Ver Bloque 18, sección 25.
 
 ---
 
@@ -829,14 +829,45 @@ Aplicado en `ProductoCard.tsx` (píldoras de sabor y botones de cantidad), `carr
 
 **Ordenamiento del catálogo — con stock primero:** en `/tienda`, el listado ordenaba por el criterio del dropdown "Ordenar por" (nombre por defecto) sin distinguir stock, lo que hacía que productos "SIN STOCK" aparecieran mezclados arriba de la grilla — mala primera impresión para un cliente nuevo. Cambiado a un orden de dos niveles: primer nivel fijo (con stock siempre primero, sin stock al final), segundo nivel el criterio que ya elige el usuario en el dropdown (nombre, precio ascendente/descendente). El checkbox "Solo con stock" sigue funcionando igual, sin cambios — este ajuste es solo de orden visual por defecto. Confirmado en local.
 
+### Bloque 17 — Lanzamiento del dominio propio: `habitussd.com` apuntado a producción
 
-1. Seguir subiendo fotos por categoría (trabajo manual de Ariel) — Aminoácidos, Colágenos, Energía, Foods, Salud y bienestar todavía no tienen fotos.
-2. Investigar la causa real de por qué se cortó el auto-deploy de Vercel (Bloque 11) — no se llegó a diagnosticar, solo se resolvió con un deploy forzado.
-3. Revisar precios de venta reales por producto — Ariel marcó que `precio_web` "no es real" en general, más allá de que hoy coincida con `precio_local`.
+**Objetivo cumplido:** `habitussd.com` (y `www.habitussd.com`) dejaron de apuntar a Empretienda y ahora apuntan al sistema propio en Vercel. El corte se hizo en el mismo día, sin bloquearse en la dependencia de terceros.
+
+**Camino recorrido, con un obstáculo real en el medio:**
+1. Se agregó `habitussd.com` como dominio del proyecto en Vercel (Settings → Domains → "Add Existing"), que entregó los registros DNS objetivo: `A @ → 216.198.79.1` y `CNAME www → 3daab47f5db18da5.vercel-dns-017.com`.
+2. **Obstáculo:** el DNS de `habitussd.com` no se administraba en GoDaddy (que solo era el registrador) sino en la infraestructura propia de **Empretienda** (nameservers `ns1-4.empretienda.net`), con los dos registros A del dominio bloqueados para edición manual — solo editables por Empretienda mismo, vía ticket de soporte con demora de hasta 24hs hábiles.
+3. **Se evitó la demora:** como Ariel no usa las casillas de correo `@habitussd.com` (usa Gmail propio), no había riesgo real en cortar por completo la zona DNS de Empretienda. Se cambiaron los **nameservers del dominio de vuelta a los predeterminados de GoDaddy** (`ns07/ns08.domaincontrol.com`) desde el panel de GoDaddy → Dominio → DNS → Servidores de nombres — esto le devolvió a Ariel el control total del DNS sin depender de que Empretienda respondiera el ticket. Propagación confirmada en minutos, no horas.
+4. Con el DNS ya en GoDaddy, se editaron los dos registros (A y CNAME) con los valores de Vercel. Propagación también rápida — confirmado por Vercel pasando de "Invalid Configuration" a "Valid Configuration" en los tres dominios (`habitussd.com`, `www.habitussd.com`, y el `.vercel.app` original).
+
+**Nota para el futuro:** como el dominio ahora vive en los nameservers de GoDaddy y no en los de Empretienda, la tienda de Empretienda quedó con su dominio propio desconectado — si en algún momento hace falta reactivarla como respaldo, habría que reconfigurar el dominio ahí de nuevo (no es automático).
+
+**Verificado en producción real** con el circuito completo: catálogo cargando con fotos en `habitussd.com/tienda`, carrito, checkout con el texto de ayuda del Bloque 16 visible. La compra real de punta a punta con Mercado Pago quedó pendiente de una prueba de un tercero (no bloqueante — el resto del circuito ya está confirmado funcionando en el dominio nuevo desde sesiones anteriores).
+
+**Efecto colateral encontrado y corregido — dos bugs en cadena:**
+1. Como `habitussd.com` apunta a todo el proyecto de Vercel (no solo a `/tienda`), la raíz del dominio caía en el login del sistema interno — mala exposición de cara al público. Corregido en `src/app/page.tsx`: la raíz `/` ahora redirige a `/tienda` en vez de `/dashboard`. Confirmado que `proxy.ts` sigue protegiendo `/dashboard` y el resto de rutas internas igual que siempre — este cambio solo mueve el destino del redirect público, no saca ninguna protección.
+2. Ese cambio rompió a su vez el flujo de login: `src/app/login/page.tsx` redirigía a `/` después de un ingreso exitoso, confiando en que `page.tsx` lo mandaría a `/dashboard` — al cambiar ese destino a `/tienda`, cualquiera que iniciara sesión (Ariel, Agustín) terminaba en la vitrina en vez del sistema. Corregido haciendo el redirect explícito en el login mismo (`router.push('/dashboard')` en vez de `router.push('/')`), sin depender del comportamiento de la raíz.
+
+**Los 4 casos verificados en producción real, funcionando:**
+- `habitussd.com` (sin sesión) → vitrina ✓
+- `habitussd.com/tienda` (sin sesión) → vitrina ✓
+- Login desde `sistema-habitus-sd.vercel.app/login` → `/dashboard` ✓
+- Login desde `www.habitussd.com/login` → `/dashboard` ✓
+
+### Bloque 18 — Favicon de marca y sincronización precio local/web
+
+**Favicon:** las pestañas del navegador mostraban el ícono genérico negro de Vercel en vez de la identidad de Habitus. Se extrajo el símbolo "H" (imagotipo, gradiente Persian Green) directo del `HABITUS_BRANDGUIDE_2025.pdf`, se recortó con fondo transparente y se generaron los archivos estándar de Next.js 16 App Router (`icon.png` 512px, `apple-icon.png` 180px, `favicon.ico` multi-resolución 16/32/48px) — colocados directo en `src/app/`, sin necesidad de tocar `layout.tsx` ni código. Confirmado funcionando en las pestañas del navegador tras el deploy.
+
+**Sincronización `precio_local` / `precio_web`:** se detectó que la Vitrina mostraba precios desactualizados en varios productos de Geles (Nutremax) — el sistema de admin ya tenía actualizado `precio_local`, pero `precio_web` es un campo separado que no se actualizaba solo. Alcance real, confirmado por consulta antes de tocar nada: **solo 6 artículos afectados** (ids 1129-1131 y 1089-1091, todos Geles, todos con $200 de diferencia — sin NULLs ni casos raros). Regla de negocio definida: por defecto ambos precios van sincronizados; si se edita `precio_web` puntualmente en la pantalla de Actualizar Precios, ese artículo queda "fijado" en ese valor (deja de sincronizarse automático) hasta que se vuelva a igualar a mano. Implementado en `articulos/precios/page.tsx`: columna nueva "Precio web" editable, flag `precioWebEditadoManualmente` por artículo con indicador visual (borde/color) de si está sincronizado o fijado a mano, `guardarPrecio()` actualiza ambos campos y registra ambos valores en `historico_precios`. Corrección única de los 6 artículos desfasados ejecutada por Ariel directamente en el SQL Editor de producción. Probado en local (sincronización automática y fijación manual funcionando) y confirmado en producción con los precios de Geles ya coincidiendo entre sistema y `habitussd.com/tienda`.
+
+**Nota de proceso:** a partir de esta sesión, las consultas SQL de **solo lectura** (SELECT, conteos, verificaciones) las corre Ariel directamente en el SQL Editor de producción en lugar de pedírselas a Claude Code — evita vueltas innecesarias (incluida una página temporal de verificación que se armó y se descartó en el camino, por no tener Claude Code la `SERVICE_ROLE_KEY` en el entorno local). Los cambios reales de datos (UPDATE/INSERT/DELETE) se siguen revisando y aprobando antes de ejecutar, como siempre.
+
+### Pendiente para la próxima sesión (Vitrina web)
+1. Confirmar una compra real de punta a punta con Mercado Pago en `habitussd.com/tienda` (pendiente de que un tercero la complete) — resto del circuito ya verificado.
+2. Seguir subiendo fotos por categoría (trabajo manual de Ariel) — Aminoácidos, Colágenos, Energía, Foods, Salud y bienestar todavía no tienen fotos.
+3. Investigar la causa real de por qué se cortó el auto-deploy de Vercel (Bloque 11) — no se llegó a diagnosticar, solo se resolvió con un deploy forzado.
 4. Retomar las descripciones de Empretienda cuando la vitrina esté más avanzada (Excel ya armado, ver Bloque 6).
 5. Mercado Pago POS (terminal física para pagos con tarjeta en el local) — auto-completar emisor + nro. de operación vía webhook (MVP v2, no confundir con el webhook de la Vitrina ya resuelto en el Bloque 12).
 6. Ítems P3 del audit de Impeccable, si hay tiempo (transiciones de estado, `prefers-reduced-motion`, formateo de precio centralizado en un helper).
-7. Antes de apuntar `habitussd.com` esta semana: confirmar el estado del DNS en GoDaddy y los pasos concretos para conectarlo a Vercel.
 
 ### Pendiente general para la próxima sesión
 1. Confirmar en la práctica que el aviso de borradores al cerrar turno funciona bien.
