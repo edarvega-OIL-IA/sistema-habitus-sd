@@ -18,6 +18,7 @@ export default function CheckoutPage() {
   const [email, setEmail] = useState('')
   const [dni, setDni] = useState('')
   const [cuit, setCuit] = useState('')
+  const [observaciones, setObservaciones] = useState('')
   const [medioElegido, setMedioElegido] = useState<'mercado_pago' | 'retiro_efectivo'>('mercado_pago')
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -59,6 +60,7 @@ export default function CheckoutPage() {
             dni: dni.trim() || undefined,
             cuit: cuit.trim() || undefined,
           },
+          observaciones: observaciones.trim() || undefined,
         }),
       })
       const data = await res.json()
@@ -185,6 +187,18 @@ export default function CheckoutPage() {
                 Retirar y pagar en el local
               </label>
             </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-gray-500">Observaciones (opcional)</label>
+            <p className="text-xs text-gray-400 mt-0.5">Horario de retiro, alguna preferencia u otra cosa que quieras avisarnos.</p>
+            <textarea
+              value={observaciones}
+              onChange={e => setObservaciones(e.target.value)}
+              rows={2}
+              maxLength={300}
+              className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] resize-none"
+            />
           </div>
 
           <button

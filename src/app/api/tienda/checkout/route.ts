@@ -22,10 +22,11 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
 
-  const { items, medioElegido, cliente } = body as {
+  const { items, medioElegido, cliente, observaciones } = body as {
     items: ItemCarrito[]
     medioElegido: 'mercado_pago' | 'retiro_efectivo'
     cliente: ClienteCheckout
+    observaciones?: string
   }
 
   if (!items || items.length === 0)
@@ -140,6 +141,7 @@ export async function POST(request: NextRequest) {
         cliente_cuit: cliente.cuit || null,
         items: lineas,
         total,
+        observaciones: observaciones?.trim() ? observaciones.trim().slice(0, 300) : null,
       })
       .select('id')
       .single()

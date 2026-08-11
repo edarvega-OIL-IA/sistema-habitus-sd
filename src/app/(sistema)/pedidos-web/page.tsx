@@ -24,6 +24,7 @@ interface PedidoWeb {
   cliente_nombre: string
   cliente_telefono: string
   cliente_email: string | null
+  observaciones: string | null
   items: ItemPedido[]
   total: number
   venta_id: number | null
@@ -232,6 +233,11 @@ export default function PedidosWebPage() {
                     </a>
                   </p>
                   <p className="text-xs text-gray-400 mt-1 truncate">{resumenItems}</p>
+                  {p.observaciones && (
+                    <p className="text-xs text-[#3c3c3b] mt-1 bg-amber-50 border border-amber-200 rounded px-2 py-1 inline-block">
+                      📝 {p.observaciones}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-400 mt-0.5">{fmtFecha(p.creado_en)}</p>
                   {p.venta_id && (
                     <p className="text-xs text-gray-400 mt-0.5">Venta #{numerosVenta.get(p.venta_id) ?? p.venta_id}</p>
