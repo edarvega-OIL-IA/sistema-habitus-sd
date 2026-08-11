@@ -66,7 +66,7 @@ export default function HistorialArticulosPage() {
     const supabase = createClient()
     const [artRes, rubRes, marRes, stockRes, subtiposRes, movRes, itemsRes] = await Promise.all([
       supabase.from('articulos').select('id, nombre, rubro_id, marca_id, codigo_interno').eq('activo', true).eq('disponible_local', true),
-      supabase.from('rubros').select('id, nombre'),
+      supabase.from('rubros').select('id, nombre').order('nombre'),
       supabase.from('marcas').select('id, nombre'),
       supabase.from('articulo_stock').select('articulo_id, stock_actual').eq('sucursal_id', 1),
       supabase.from('subtipos_movimiento_stock').select('id, nombre'),
