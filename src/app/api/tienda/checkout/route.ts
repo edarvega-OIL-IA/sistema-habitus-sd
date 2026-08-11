@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     const articuloIds = items.map(i => i.articuloId)
     const { data: articulos, error: artError } = await admin
       .from('articulos')
-      .select('id, nombre_base, rubro_id, precio_local, precio_web, precio_oferta_web, disponible_web, sabor_id')
+      .select('id, nombre, nombre_base, rubro_id, precio_local, precio_web, precio_oferta_web, disponible_web, sabor_id')
       .in('id', articuloIds)
 
     if (artError) throw new Error('Error al leer artículos: ' + artError.message)
@@ -75,19 +75,20 @@ export async function POST(request: NextRequest) {
         errores.push(`Artículo ${item.articuloId} ya no existe en el catálogo`)
         continue
       }
+      const nombreArticulo = art.nombre_base ?? art.nombre
       if (!art.disponible_web) {
-        errores.push(`${art.nombre_base} ya no está disponible`)
+        errores.push(`${nombreArticulo} ya no está disponible`)
         continue
       }
       const stockReal = stockMap.get(item.articuloId) ?? 0
       if (stockReal < item.cantidad) {
-        errores.push(`${art.nombre_base}: solo quedan ${stockReal} unidades`)
+        errores.push(`${nombreArticulo}: solo quedan ${stockReal} unidades`)
         continue
       }
       const precio = art.precio_oferta_web ?? art.precio_web ?? art.precio_local
       lineas.push({
         articulo_id: art.id,
-        nombre_base: art.nombre_base,
+        nombre_base: nombreArticulo,
         sabor: art.sabor_id ? saboresMap.get(art.sabor_id) ?? null : null,
         rubro_nombre: rubrosMap.get(art.rubro_id) ?? null,
         cantidad: item.cantidad,
