@@ -210,12 +210,18 @@ export default function ObligacionesPage() {
           const saldo = saldoDe(acreedor.id)
           const abierto = expandido.has(acreedor.id)
 
-          // Saldo corrido para mostrar en cada fila del detalle
+          // Saldo corrido para mostrar en cada fila del detalle — se calcula
+          // en orden cronológico ascendente (obligatorio para que el saldo
+          // corrido sea correcto), y recién después se invierte el array
+          // solo para el renderizado, así en pantalla aparecen primero los
+          // movimientos más recientes sin alterar el cálculo.
           let corrido = 0
-          const itemsConSaldo = items.map(o => {
-            corrido += o.tipo === 'Cargo' ? o.monto : -o.monto
-            return { ...o, saldoCorrido: corrido }
-          })
+          const itemsConSaldo = items
+            .map(o => {
+              corrido += o.tipo === 'Cargo' ? o.monto : -o.monto
+              return { ...o, saldoCorrido: corrido }
+            })
+            .reverse()
 
           return (
             <div key={acreedor.id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
