@@ -27,6 +27,9 @@ export async function emitirFacturaC(body: TusFacturasRequestBody): Promise<TusF
     body: JSON.stringify(body),
   })
 
-  const data = (await respuesta.json()) as TusFacturasRespuesta
+  // Forzar decodificación UTF-8: TusFacturasAPP no envía charset en Content-Type,
+  // lo que causa que .json() interprete mal los acentos/ñ (situaciÃ³n → situación)
+  const text = await respuesta.text()
+  const data = JSON.parse(text) as TusFacturasRespuesta
   return data
 }

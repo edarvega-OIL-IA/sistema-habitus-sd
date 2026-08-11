@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Globe, Package, CheckCircle2, ShoppingCart, AlertTriangle } from 'lucide-react'
+import { Globe, Package, CheckCircle2, ShoppingCart, AlertTriangle, MessageCircle } from 'lucide-react'
 
 interface ItemPedido {
   articulo_id: number
@@ -47,6 +47,12 @@ function fmtFecha(iso: string): string {
 }
 
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
+
+function linkWhatsApp(telefono: string): string {
+  const soloDigitos = telefono.replace(/\D/g, '')
+  const numero = soloDigitos.startsWith('54') ? soloDigitos : `549${soloDigitos}`
+  return `https://wa.me/${numero}`
+}
 
 export default function PedidosWebPage() {
   const router = useRouter()
@@ -214,7 +220,18 @@ export default function PedidosWebPage() {
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-[#3c3c3b] mt-1">{p.cliente_nombre} · {p.cliente_telefono}</p>
+                  <p className="text-sm text-[#3c3c3b] mt-1 flex items-center gap-2">
+                    <span>{p.cliente_nombre} · {p.cliente_telefono}</span>
+                    <a
+                      href={linkWhatsApp(p.cliente_telefono)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-green-600 hover:text-green-700 shrink-0"
+                      title="Escribir por WhatsApp"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                    </a>
+                  </p>
                   <p className="text-xs text-gray-400 mt-1 truncate">{resumenItems}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{fmtFecha(p.creado_en)}</p>
                   {p.venta_id && (
