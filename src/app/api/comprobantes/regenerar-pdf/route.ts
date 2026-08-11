@@ -72,16 +72,6 @@ export async function POST(request: NextRequest) {
       },
     }
 
-    console.log('[DEBUG] Request a TusFacturasAPP:', {
-      endpoint: TUSFACTURAS_ENDPOINT,
-      comprobante: requestBody.comprobante,
-      tiene_credenciales: {
-        usertoken: !!requestBody.usertoken,
-        apikey: !!requestBody.apikey,
-        apitoken: !!requestBody.apitoken,
-      }
-    })
-
     const response = await fetch(TUSFACTURAS_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -89,13 +79,6 @@ export async function POST(request: NextRequest) {
     })
 
     const data = (await response.json()) as RegenerarPdfRespuesta
-
-    console.log('[DEBUG] Respuesta de TusFacturasAPP:', {
-      status: response.status,
-      error: data.error,
-      tiene_pdf_url: !!data.comprobante_pdf_url,
-      errores: data.errores,
-    })
 
     if (data.error === 'N' && data.comprobante_pdf_url) {
       return NextResponse.json({
