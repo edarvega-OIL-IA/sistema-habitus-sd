@@ -220,16 +220,15 @@ export default function PedidosWebPage() {
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-[#3c3c3b] mt-1 flex items-center gap-2">
+                  <p className="text-sm text-[#3c3c3b] mt-1 flex items-center gap-2 flex-wrap">
                     <span>{p.cliente_nombre} · {p.cliente_telefono}</span>
                     <a
                       href={linkWhatsApp(p.cliente_telefono)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-green-600 hover:text-green-700 shrink-0"
-                      title="Escribir por WhatsApp"
+                      className="inline-flex items-center gap-1 text-[11px] font-medium bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full hover:bg-green-100 transition-colors shrink-0"
                     >
-                      <MessageCircle className="w-4 h-4" />
+                      <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                     </a>
                   </p>
                   <p className="text-xs text-gray-400 mt-1 truncate">{resumenItems}</p>
