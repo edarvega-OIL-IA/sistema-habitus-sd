@@ -18,6 +18,7 @@ interface Comprobante {
   numero: number
   punto_venta_id: number
   estado_fiscal_id: number
+  factura_cae: string | null
   mensaje_error: string | null
   fiscalizacion_intentos: number
 }
@@ -77,7 +78,7 @@ export default function FiscalizacionPage() {
       const ventaIds = ventasData.map(v => v.id)
       const { data: comprobantesData } = await supabase
         .from('comprobantes')
-        .select('venta_id, numero, punto_venta_id, estado_fiscal_id, mensaje_error, fiscalizacion_intentos')
+        .select('venta_id, numero, punto_venta_id, estado_fiscal_id, factura_cae, mensaje_error, fiscalizacion_intentos')
         .in('venta_id', ventaIds)
 
       setComprobantesPorVenta(new Map((comprobantesData || []).map(c => [c.venta_id, c])))
@@ -139,6 +140,25 @@ export default function FiscalizacionPage() {
       setResultados(prev => new Map(prev).set(ventaId, { ok: false, mensaje: 'Error de conexión: ' + err.message }))
     } finally {
       setProcesando(null)
+    }
+  }
+
+  async function descargarPDF(ventaId: number) {
+    try {
+      const res = await fetch('/api/comprobantes/regenerar-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venta_id: ventaId }),
+      })
+      const data = await res.json()
+
+      if (data.ok && data.pdf_url) {
+        window.open(data.pdf_url, '_blank')
+      } else {
+        alert('Error al obtener el PDF: ' + (data.mensaje || 'Desconocido'))
+      }
+    } catch (err: any) {
+      alert('Error al descargar PDF: ' + err.message)
     }
   }
 
@@ -254,6 +274,16 @@ export default function FiscalizacionPage() {
                           </option>
                         </select>
                       </div>
+                    )}
+
+                    {comprobante?.estado_fiscal_id === ESTADO_FISCAL_CAE_RECIBIDO && comprobante.factura_cae && (
+                      <button
+                        type="button"
+                        onClick={() => descargarPDF(venta.id)}
+                        className="bg-gray-100 text-gray-700 px-4 py-2 rounded text-sm hover:bg-gray-200 transition-colors border border-gray-300"
+                      >
+                        Descargar PDF
+                      </button>
                     )}
 
                     <button

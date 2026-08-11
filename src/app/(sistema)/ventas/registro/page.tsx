@@ -23,8 +23,15 @@ interface Venta {
   venta_pagos: { monto: number; medios_pago: { nombre: string } | null; emisores_pago: { nombre: string } | null }[]
 }
 
+interface Comprobante {
+  venta_id: number
+  estado_fiscal_id: number
+  factura_cae: string | null
+}
+
 export default function RegistroVentasPage() {
   const [ventas, setVentas] = useState<Venta[]>([])
+  const [comprobantes, setComprobantes] = useState<Map<number, Comprobante>>(new Map())
   const [loading, setLoading] = useState(true)
   const [expandida, setExpandida] = useState<number | null>(null)
   const [anulando, setAnulando] = useState<number | null>(null)
@@ -84,7 +91,38 @@ export default function RegistroVentasPage() {
       .eq('sucursal_id', 1)
       .order('id', { ascending: false })
     setVentas(data as any || [])
+
+    // Cargar comprobantes asociados (solo ventas fiscalizadas, estado_venta_id = 4)
+    if (data && data.length > 0) {
+      const ventaIds = data.map(v => v.id)
+      const { data: comprobantesData } = await supabase
+        .from('comprobantes')
+        .select('venta_id, estado_fiscal_id, factura_cae')
+        .in('venta_id', ventaIds)
+
+      setComprobantes(new Map((comprobantesData || []).map(c => [c.venta_id, c])))
+    }
+
     setLoading(false)
+  }
+
+  async function descargarPDF(ventaId: number) {
+    try {
+      const res = await fetch('/api/comprobantes/regenerar-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venta_id: ventaId }),
+      })
+      const data = await res.json()
+
+      if (data.ok && data.pdf_url) {
+        window.open(data.pdf_url, '_blank')
+      } else {
+        alert('Error al obtener el PDF: ' + (data.mensaje || 'Desconocido'))
+      }
+    } catch (err: any) {
+      alert('Error al descargar PDF: ' + err.message)
+    }
   }
 
   async function anularVenta(ventaId: number) {
@@ -363,6 +401,8 @@ export default function RegistroVentasPage() {
               const turnoNombre = (v.cierres_turno as any)?.turnos?.nombre || '—'
               const medios = (v.venta_pagos || []).map(p => p.medios_pago?.nombre).filter(Boolean)
               const mediosUnicos = [...new Set(medios)].join(' + ')
+              const comprobante = comprobantes.get(v.id)
+              const tienePDFDisponible = v.estado_venta_id === 4 && comprobante?.estado_fiscal_id === 3 && comprobante?.factura_cae
               const estadoChip = v.estado_venta_id === 3
                 ? <span className="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700">Anulada</span>
                 : v.estado_venta_id === 1
@@ -396,7 +436,16 @@ export default function RegistroVentasPage() {
                     </span>
                     <span className="w-32 flex justify-start">{estadoChip}</span>
                     <span className="w-32 text-right font-bold text-[#3c3c3b] text-sm">{fmt(v.total)}</span>
-                    <span className="w-16 flex justify-end gap-2">
+                    <span className="w-28 flex justify-end gap-2">
+                      {tienePDFDisponible && (
+                        <button
+                          onClick={e => { e.stopPropagation(); descargarPDF(v.id) }}
+                          className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200 border border-gray-300 transition-colors"
+                          title="Descargar PDF de la factura"
+                        >
+                          PDF
+                        </button>
+                      )}
                       {v.estado_venta_id === 2 && v.cierre_turno_id !== null && v.cierre_turno_id === cierreActivoId && (
                         <>
                           <button
