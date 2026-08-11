@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 09-10/08/2026 (continuación 5) — **Favicon de marca aplicado** (símbolo "H" extraído del brandguide, reemplaza el ícono genérico de Vercel en las pestañas) y **sincronización `precio_local`/`precio_web` resuelta**: se detectó que 6 artículos de Geles mostraban en la vitrina un precio distinto al del sistema por desactualización manual de un campo separado — corregido con una regla de sincronización automática (con excepción manual por artículo) en la pantalla de Actualizar Precios, y los 6 casos existentes ya corregidos en producción.
-**Estado general:** 🟢 En producción, con dominio propio activo, identidad visual completa (favicon incluido), y catálogo con precios consistentes entre sistema y vitrina.
-**Próxima acción concreta:** confirmar una compra real de punta a punta con Mercado Pago en el dominio nuevo (pendiente de un tercero), y seguir con fotos y pendientes menores de Vitrina. Ver Bloque 18, sección 25.
+**Última actualización:** 10/08/2026 — **Primer cliente real pidiendo factura**, resuelto con un botón nuevo "Descargar PDF" en Registro de Ventas/Fiscalización que llama al endpoint de regeneración de TusFacturasAPP (el PDF en sí lo sigue diseñando y generando TusFacturasAPP, no el sistema propio). En el camino se corrigió un bug de formato (número de punto de venta/tipo de comprobante reconstruidos desde tablas relacionadas en vez de usar las constantes ya probadas de `mapeo.ts`), y se confirmó funcionando en producción real descargando la factura real del cliente.
+**Estado general:** 🟢 En producción, con dominio propio, identidad visual completa, precios consistentes, y ahora también descarga de facturas sin salir del sistema.
+**Próxima acción concreta:** confirmar una compra real de punta a punta con Mercado Pago en el dominio nuevo (pendiente de un tercero), y seguir con fotos y pendientes menores de Vitrina. Ver Bloque 19, sección 25.
 
 ---
 
@@ -861,7 +861,21 @@ Aplicado en `ProductoCard.tsx` (píldoras de sabor y botones de cantidad), `carr
 
 **Nota de proceso:** a partir de esta sesión, las consultas SQL de **solo lectura** (SELECT, conteos, verificaciones) las corre Ariel directamente en el SQL Editor de producción en lugar de pedírselas a Claude Code — evita vueltas innecesarias (incluida una página temporal de verificación que se armó y se descartó en el camino, por no tener Claude Code la `SERVICE_ROLE_KEY` en el entorno local). Los cambios reales de datos (UPDATE/INSERT/DELETE) se siguen revisando y aprobando antes de ejecutar, como siempre.
 
-### Pendiente para la próxima sesión (Vitrina web)
+### Bloque 19 — Primera factura real pedida por un cliente + botón de descarga de PDF
+
+**Primer caso real de un cliente pidiendo la factura de una compra** (Factura C PV 0004 #00000081, $110.000, CAE `86327787685432` confirmado) — hasta ahora se resolvió descargándola manualmente desde el panel de TusFacturasAPP (`tusfacturas.app/app/misventas.html`), lo cual funciona pero implica salir del sistema propio.
+
+**Se agregó un botón "Descargar PDF"** en Registro de Ventas y en Fiscalización, visible solo en ventas con `estado_fiscal_id = 3` (CAE confirmado), para bajar el comprobante sin ir al panel externo — pensado para uso ocasional (~4 veces al mes), por lo que se descartó automatizar el envío por mail/WhatsApp (no vale la pena la complejidad/costo de una integración de envío para ese volumen).
+
+**Funcionamiento:** el PDF **no lo genera ni lo diseña el sistema propio** — el botón llama al endpoint de regeneración de TusFacturasAPP (`POST /facturacion/regenerar_pdf`) al momento del clic y abre la URL que devuelven (temporal, válida solo el día de la consulta) en una pestaña nueva. Nuevo endpoint: `src/app/api/comprobantes/regenerar-pdf/route.ts`. Confirmado que estas llamadas cuentan como requests contra el plan de TusFacturasAPP (no contra el límite de 1000 comprobantes/mes) — con 4 usos mensuales, impacto insignificante.
+
+**Bug encontrado y corregido en el camino:** la primera versión armaba el número de punto de venta y tipo de comprobante consultando las tablas relacionadas `puntos_venta`/`tipos_comprobante`, lo que generaba un formato distinto al que espera la API de TusFacturasAPP ("Las credenciales API son inválidas" — mensaje engañoso, la causa real no eran las credenciales sino el formato de esos dos campos). Corregido usando las mismas constantes hardcodeadas que ya usa `mapeo.ts` para la fiscalización normal (`PUNTO_VENTA = '0004'`, `'FACTURA C'`), en vez de reconstruirlas desde la base.
+
+**Verificación:** no se pudo probar en local (mismo límite ya conocido: `SUPABASE_SERVICE_ROLE_KEY` y credenciales de TusFacturasAPP solo disponibles en el entorno de Vercel) — se decidió saltar directo a producción real dado el riesgo bajo del cambio (solo lee un PDF ya existente, no crea ni modifica ningún comprobante). **Confirmado funcionando en producción**, descarga correcta de la factura real del cliente de hoy.
+
+**Nota para el futuro — logo en la factura:** el diseño del PDF (hoy con los datos personales de Ariel en el encabezado, sin logo de Habitus) es el layout estándar de TusFacturasAPP, no algo generado por el sistema propio. Si se quiere personalizar con el logo de Habitus, la configuración vive del lado del panel de TusFacturasAPP (sección de personalización/marca de la cuenta), no en el código — pendiente sin explorar todavía.
+
+
 1. Confirmar una compra real de punta a punta con Mercado Pago en `habitussd.com/tienda` (pendiente de que un tercero la complete) — resto del circuito ya verificado.
 2. Seguir subiendo fotos por categoría (trabajo manual de Ariel) — Aminoácidos, Colágenos, Energía, Foods, Salud y bienestar todavía no tienen fotos.
 3. Investigar la causa real de por qué se cortó el auto-deploy de Vercel (Bloque 11) — no se llegó a diagnosticar, solo se resolvió con un deploy forzado.
