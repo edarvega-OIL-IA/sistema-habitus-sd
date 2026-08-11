@@ -78,6 +78,7 @@ export default function DashboardPage() {
   const [ventasPorTurnoMes, setVentasPorTurnoMes] = useState<VentasPorTurnoMes>({ manana: 0, tarde: 0 })
   const [ultimaDiferenciaCaja, setUltimaDiferenciaCaja] = useState<number | null>(null)
   const [ritmoVentas, setRitmoVentas] = useState<number | null>(null)
+  const [pedidosPendientes, setPedidosPendientes] = useState(0)
 
   const [mostrarStockValorizado, setMostrarStockValorizado] = useState(false)
   const [mostrarStockMinimo, setMostrarStockMinimo] = useState(false)
@@ -102,6 +103,7 @@ export default function DashboardPage() {
         cargarVentasPorTurnoMes(),
         cargarUltimaDiferenciaCaja(),
         cargarRitmoVentas(),
+        cargarPedidosPendientes(),
       ])
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : JSON.stringify(err))
@@ -434,6 +436,16 @@ export default function DashboardPage() {
     })))
   }
 
+  async function cargarPedidosPendientes() {
+    const { data, error } = await supabase
+      .from('pedidos_web')
+      .select('id, estado, entregado_en')
+      .or('estado.eq.pendiente_retiro,and(estado.eq.confirmado,entregado_en.is.null)')
+
+    if (error) throw error
+    setPedidosPendientes((data || []).length)
+  }
+
   async function calcularStockValorizado() {
     setCalculandoStock(true)
     try {
@@ -532,6 +544,30 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-semibold text-[#3c3c3b]">Dashboard</h1>
+
+      {/* Alerta de pedidos web pendientes */}
+      {pedidosPendientes > 0 && (
+        <button
+          onClick={() => router.push('/pedidos-web')}
+          className="w-full bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center gap-3 hover:bg-amber-100 transition-colors text-left"
+        >
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-900">
+              {pedidosPendientes} {pedidosPendientes === 1 ? 'pedido web pendiente' : 'pedidos web pendientes'} de acción
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              {pedidosPendientes === 1 ? 'Requiere' : 'Requieren'} cobro en caja o confirmar retiro
+            </p>
+          </div>
+          <div className="flex items-center gap-1 text-amber-700 shrink-0">
+            <span className="text-xs font-medium">Ver pedidos</span>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </button>
+      )}
 
       {/* Ventas del día (incluye Caja como 4ta tarjeta, a la derecha) */}
       <div>
