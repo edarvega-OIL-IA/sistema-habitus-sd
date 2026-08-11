@@ -22,6 +22,8 @@ export default function OrdenTienda() {
       className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-offer-teal focus:border-transparent"
     >
       <option value="relevancia">Ordenar por</option>
+      <option value="nombre_asc">Alfabético: A-Z</option>
+      <option value="nombre_desc">Alfabético: Z-A</option>
       <option value="precio_asc">Precio: menor a mayor</option>
       <option value="precio_desc">Precio: mayor a menor</option>
     </select>

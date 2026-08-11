@@ -127,8 +127,10 @@ export default async function TiendaPage({
       return precioMinimo(a) - precioMinimo(b)
     } else if (ordenParam === 'precio_desc') {
       return precioMinimo(b) - precioMinimo(a)
+    } else if (ordenParam === 'nombre_desc') {
+      return b.titulo.localeCompare(a.titulo)
     } else {
-      // Por defecto: alfabético por título (nombre_base o nombre)
+      // Por defecto ('relevancia' o 'nombre_asc'): alfabético por título (nombre_base o nombre)
       return a.titulo.localeCompare(b.titulo)
     }
   })
