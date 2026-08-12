@@ -279,7 +279,7 @@ export default function PedidosWebPage() {
                       {fmtFechaCorta(p.creado_en)} {fmtHora(p.creado_en)}
                     </span>
                     <span className="w-40 text-sm text-[#3c3c3b] truncate shrink-0">{p.cliente_nombre}</span>
-                    <span className="w-32 text-xs text-gray-400 shrink-0">
+                    <span className="flex-1 text-xs text-gray-400 truncate">
                       {p.medio_elegido === 'mercado_pago' ? 'Mercado Pago' : 'Retiro + efectivo'}
                     </span>
                     <span className="w-36 shrink-0">
@@ -307,7 +307,7 @@ export default function PedidosWebPage() {
                         </button>
                       )}
                     </span>
-                    <span className="flex-1 flex justify-end gap-2 min-w-[140px]" onClick={e => e.stopPropagation()}>
+                    <span className="flex justify-end gap-2 min-w-[140px]" onClick={e => e.stopPropagation()}>
                       {p.estado === 'pendiente_retiro' && (
                         <button
                           onClick={() => cobrarEnCaja(p)}
