@@ -261,6 +261,9 @@ export default function PedidosWebPage() {
               const etiqueta = ETIQUETAS_ESTADO[p.estado] || { texto: p.estado, clase: 'bg-gray-50 text-gray-600 border-gray-200' }
               const comprobante = p.venta_id ? comprobantesPorVenta.get(p.venta_id) : undefined
               const facturada = comprobante?.estado_fiscal_id === ESTADO_FISCAL_CAE_RECIBIDO
+              const chipFacturacion = !p.venta_id ? null : facturada
+                ? <span className="px-2 py-0.5 rounded-full text-[11px] bg-green-100 text-green-700">Facturada</span>
+                : <span className="px-2 py-0.5 rounded-full text-[11px] bg-gray-100 text-gray-500">Sin facturar</span>
 
               return (
                 <div key={p.id}>
@@ -291,8 +294,18 @@ export default function PedidosWebPage() {
                         <span className="text-[11px] text-gray-400">Sin retirar</span>
                       )}
                     </span>
+                    <span className="w-28 shrink-0">{chipFacturacion}</span>
                     <span className="flex-1 min-w-[100px] text-right font-bold text-[#3c3c3b] text-sm">{fmt(p.total)}</span>
-                    <span className="w-40 flex justify-end gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                    <span className="w-44 flex justify-end gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                      {facturada && p.venta_id && (
+                        <button
+                          onClick={() => descargarPDF(p.venta_id!)}
+                          className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200 border border-gray-300 transition-colors"
+                          title="Descargar PDF de la factura"
+                        >
+                          PDF
+                        </button>
+                      )}
                       {p.estado === 'pendiente_retiro' && (
                         <button
                           onClick={() => cobrarEnCaja(p)}
@@ -377,7 +390,7 @@ export default function PedidosWebPage() {
                               <button
                                 type="button"
                                 onClick={() => descargarPDF(p.venta_id!)}
-                                className="inline-flex items-center gap-1 text-[11px] text-gray-600 hover:text-[#00a19a] underline"
+                                className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200 border border-gray-300 transition-colors inline-flex items-center gap-1"
                               >
                                 <FileText className="w-3 h-3" /> PDF
                               </button>
