@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Globe, Package, CheckCircle2, ShoppingCart, AlertTriangle, MessageCircle } from 'lucide-react'
+import { Globe, Package, CheckCircle2, ShoppingCart, AlertTriangle, MessageCircle, FileText } from 'lucide-react'
 
 interface ItemPedido {
   articulo_id: number
@@ -14,6 +14,16 @@ interface ItemPedido {
   cantidad: number
   precio_unitario: number
   subtotal: number
+}
+
+// Mismo valor que en fiscalizar.ts / pantalla de Fiscalización
+const ESTADO_FISCAL_CAE_RECIBIDO = 3
+
+interface Comprobante {
+  venta_id: number
+  numero: number
+  punto_venta_id: number
+  estado_fiscal_id: number
 }
 
 interface PedidoWeb {
@@ -60,6 +70,7 @@ export default function PedidosWebPage() {
   const [cargando, setCargando] = useState(true)
   const [pedidos, setPedidos] = useState<PedidoWeb[]>([])
   const [numerosVenta, setNumerosVenta] = useState<Map<number, number>>(new Map())
+  const [comprobantesPorVenta, setComprobantesPorVenta] = useState<Map<number, Comprobante>>(new Map())
   const [filtro, setFiltro] = useState<'pendientes' | 'todos'>('pendientes')
   const [procesando, setProcesando] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -82,6 +93,12 @@ export default function PedidosWebPage() {
     if (ventaIds.length > 0) {
       const { data: ventasData } = await supabase.from('ventas').select('id, numero_venta').in('id', ventaIds)
       setNumerosVenta(new Map((ventasData || []).map(v => [v.id, v.numero_venta])))
+
+      const { data: comprobantesData } = await supabase
+        .from('comprobantes')
+        .select('venta_id, numero, punto_venta_id, estado_fiscal_id')
+        .in('venta_id', ventaIds)
+      setComprobantesPorVenta(new Map((comprobantesData || []).map(c => [c.venta_id, c])))
     }
     setCargando(false)
   }
@@ -156,6 +173,24 @@ export default function PedidosWebPage() {
     setProcesando(null)
     if (error) { setError('Error al marcar como retirado: ' + error.message); return }
     cargarPedidos()
+  }
+
+  async function descargarPDF(ventaId: number) {
+    try {
+      const res = await fetch('/api/comprobantes/regenerar-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venta_id: ventaId }),
+      })
+      const data = await res.json()
+      if (data.ok && data.pdf_url) {
+        window.open(data.pdf_url, '_blank')
+      } else {
+        alert('Error al obtener el PDF: ' + (data.mensaje || 'Desconocido'))
+      }
+    } catch (err: any) {
+      alert('Error al descargar PDF: ' + err.message)
+    }
   }
 
   if (cargando) {
@@ -240,7 +275,29 @@ export default function PedidosWebPage() {
                   )}
                   <p className="text-xs text-gray-400 mt-0.5">{fmtFecha(p.creado_en)}</p>
                   {p.venta_id && (
-                    <p className="text-xs text-gray-400 mt-0.5">Venta #{numerosVenta.get(p.venta_id) ?? p.venta_id}</p>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <p className="text-xs text-gray-400">Venta #{numerosVenta.get(p.venta_id) ?? p.venta_id}</p>
+                      {(() => {
+                        const comprobante = comprobantesPorVenta.get(p.venta_id)
+                        if (comprobante?.estado_fiscal_id === ESTADO_FISCAL_CAE_RECIBIDO) {
+                          return (
+                            <>
+                              <span className="text-[11px] text-gray-400">
+                                Facturada — {String(comprobante.punto_venta_id).padStart(4, '0')}-{String(comprobante.numero).padStart(8, '0')}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => descargarPDF(p.venta_id!)}
+                                className="inline-flex items-center gap-1 text-[11px] text-gray-600 hover:text-[#00a19a] underline"
+                              >
+                                <FileText className="w-3 h-3" /> PDF
+                              </button>
+                            </>
+                          )
+                        }
+                        return <span className="text-[11px] text-gray-400">No facturada todavía</span>
+                      })()}
+                    </div>
                   )}
                 </div>
                 <div className="text-right shrink-0">
