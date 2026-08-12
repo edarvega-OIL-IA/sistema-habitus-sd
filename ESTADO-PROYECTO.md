@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 10/08/2026 — **Primer cliente real pidiendo factura**, resuelto con un botón nuevo "Descargar PDF" en Registro de Ventas/Fiscalización que llama al endpoint de regeneración de TusFacturasAPP (el PDF en sí lo sigue diseñando y generando TusFacturasAPP, no el sistema propio). En el camino se corrigió un bug de formato (número de punto de venta/tipo de comprobante reconstruidos desde tablas relacionadas en vez de usar las constantes ya probadas de `mapeo.ts`), y se confirmó funcionando en producción real descargando la factura real del cliente.
-**Estado general:** 🟢 En producción, con dominio propio, identidad visual completa, precios consistentes, y ahora también descarga de facturas sin salir del sistema.
-**Próxima acción concreta:** confirmar una compra real de punta a punta con Mercado Pago en el dominio nuevo (pendiente de un tercero), y seguir con fotos y pendientes menores de Vitrina. Ver Bloque 19, sección 25.
+**Última actualización:** 12/08/2026 — **Pedidos Web terminado** (WhatsApp, Observaciones en el checkout, estado de facturación con descarga de PDF, y rediseño completo a formato tabla expandible igual que Registro de Ventas, separando estado de pago y estado de entrega en columnas propias). En el camino: bug real de "1× null" en pedidos con artículos sin variante de sabor (corregido en checkout + 55 artículos históricos completados), fixes de ordenamiento en Historial de Artículos/Vitrina/Obligaciones, acreedor AFIP renombrado a ARCA con su plan de pago de 12 cuotas cargado, y una investigación de discrepancia de stock que no llegó a confirmar su causa raíz (logs de Vercel sin retención histórica) pero terminó con el stock real correcto igual al conteo físico.
+**Estado general:** 🟢 En producción. Pedidos Web es ahora una pantalla completa de uso diario, no solo un listado básico.
+**Próxima acción concreta:** definir con cuáles de las mejoras pendientes de Pedidos Web seguir (punto 5: cancelar orden / revertir pago manualmente) y retomar el resto de pendientes generales. Ver sección 26.
 
 ---
 
@@ -14,7 +14,7 @@ Documentos relacionados:
 - `HABITUS_SD_ANALISIS_SESION01.md` — análisis funcional completo (41 secciones)
 - `HABITUS_UI_REGLAS.md` — reglas de UI confirmadas
 - `CLAUDE_CODE_PROMPT.md` — contexto para Claude Code (campos BD verificados, rutas, reglas) — actualizado con lo de la sesión 23 (ver sección 23)
-- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto — actualizado con lo de la sesión 23 (ver sección 23)
+- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto — PENDIENTE actualizar con los archivos tocados en sesión 26 (`pedidos-web/page.tsx` reescrito, `tienda/checkout/page.tsx`, `api/tienda/checkout/route.ts`, `api/tienda/page.tsx`, `components/tienda/OrdenTienda.tsx`, `articulos/historial/page.tsx`, `obligaciones/page.tsx`)
 - `supabase/01_referencia.sql` ✅ al `supabase/08_cierre_turno.sql` ✅ — todos ejecutados
 - `supabase/agregar_origen_subtipo.sql` — ejecutado en producción, PENDIENTE en sandbox
 - `supabase/limpieza_arranque.sql` — ejecutado en producción (01/07)
@@ -883,7 +883,68 @@ Aplicado en `ProductoCard.tsx` (píldoras de sabor y botones de cantidad), `carr
 5. Mercado Pago POS (terminal física para pagos con tarjeta en el local) — auto-completar emisor + nro. de operación vía webhook (MVP v2, no confundir con el webhook de la Vitrina ya resuelto en el Bloque 12).
 6. Ítems P3 del audit de Impeccable, si hay tiempo (transiciones de estado, `prefers-reduced-motion`, formateo de precio centralizado en un helper).
 
+## 26. Sesión 12/08/2026 — Pedidos Web completo, fixes de ordenamiento, ARCA/plan de pago, investigación de stock
+
+### Bloque 1 — Botón de WhatsApp en Pedidos Web
+
+Primera de las 5 mejoras identificadas la sesión pasada comparando contra Empretienda (ver sección 25 y `ESTADO-PROYECTO.md` previo). Agregado en `pedidos-web/page.tsx`: link directo a `wa.me/<numero>` junto al teléfono del cliente, con función `linkWhatsApp()` que limpia el número y antepone el prefijo `549` (Argentina, celular) si no lo tiene. Probado con "Pagar y retirar en el local" (sin llegar a confirmar el cobro, para no generar stock/movimientos reales) — confirmado que abre WhatsApp con el número correcto. Ajustado a pedido de Ariel de un botón pill visible (fondo/borde verde) en vez de un ícono solo, que quedaba muy chico.
+
+### Bloque 2 — Bug real: "1× null" en pedidos con artículos sin variante de sabor
+
+Al probar el botón de WhatsApp con Beta Alanina (Star Nutrition, artículo sin sabor), la fila del pedido mostraba "1× null" en vez del nombre. Causa: `api/tienda/checkout/route.ts` arma el `items` (JSONB) de `pedidos_web` usando siempre `art.nombre_base` sin fallback — y `nombre_base` es NULL para cualquier artículo **sin variante de sabor** (no solo para rubros sin migrar), ya que nunca hubo necesidad de agruparlo. Afecta a cualquier producto de un solo SKU en cualquier rubro, migrado o no.
+
+**Fix en el checkout:** SELECT de artículos ahora trae también `nombre` (columna real, siempre presente), y se usa `art.nombre_base ?? art.nombre` en los tres lugares que lo necesitaban (mensajes de error de stock/disponibilidad, línea del pedido, título que ve Mercado Pago en el Preference). Cubre cualquier caso futuro sin volver a romper.
+
+**Backfill de datos históricos:** se encontraron 55 artículos activos (`disponible_web=true`) sin `nombre_base` cargado, todos productos de un solo sabor en rubros ya migrados (Aminoácidos, Colágenos, Energía, Glutamina, Multivitamínicos, Óxido Nítrico, Pro Hormonal, Quemadores, Sales, Salud y bienestar, Shakers). Se les cargó `nombre_base` con el mismo criterio que el resto del catálogo (nombre sin marca al final) — 7 casos especiales (ids 887, 888, 897, 1169, 1290, 1291, 1292) no tenían la marca en el `nombre` original; se decidió agregarla (ej. "Bcaa 2:1:1 - 90 Cápsulas") para que el trigger `fn_generar_nombre_articulo` la sume de forma consistente, aunque el nombre visible cambió levemente para esos 7. Verificado con muestra que el trigger reconstruyó bien el `nombre` en todos los casos.
+
+### Bloque 3 — Campo "Observaciones" en el checkout de la Vitrina
+
+Columna nueva `pedidos_web.observaciones` (text, nullable). Agregado textarea opcional en `tienda/checkout/page.tsx` (máx 300 caracteres, con nota de qué usarla — horario de retiro, preferencias), guardado en `api/tienda/checkout/route.ts` (sanitizado y truncado server-side también), y mostrado en `pedidos-web/page.tsx` con fondo destacado cuando el pedido tiene contenido.
+
+### Bloque 4 — Estado de facturación + descarga de PDF en Pedidos Web
+
+Reutiliza el mismo endpoint ya existente del Bloque 19 (`api/comprobantes/regenerar-pdf`) — sin duplicar lógica. Se agregó consulta a `comprobantes` por `venta_id` (misma query separada + Map, patrón del proyecto) y un chip "Fiscalizada" (verde) / "Sin fiscalizar" (gris) junto con el botón "PDF" cuando `estado_fiscal_id = 3`. Terminología unificada con Registro de Ventas ("Fiscalizada", no "Facturada") a pedido de Ariel tras comparar ambas pantallas lado a lado.
+
+### Bloque 5 — Rediseño completo de Pedidos Web a formato tabla expandible
+
+A pedido de Ariel, tras ver que toda la info amontonada a la izquierda quedaba difícil de leer: se rehízo `pedidos-web/page.tsx` siguiendo el mismo patrón visual que `ventas/registro/page.tsx` — fila resumen en columnas fijas con clic para expandir (chevron), detalle abajo con tabla de ítems, WhatsApp, Observaciones, y el bloque de facturación.
+
+**Separación explícita de dos conceptos que antes estaban mezclados en un solo chip:** columna **Estado** (estado del pago: Esperando pago / A cobrar / Pagado / Rechazado / Sin stock) y columna **Entrega** (Retirado + fecha / Sin retirar) — son dos campos independientes en la base (`estado` vs `entregado_en`) y ahora se ven independientes en pantalla también.
+
+El bloque Fiscalizada/Total/PDF se agrupó y alineó igual que en Ventas (columna Medio con `flex-1` empuja todo el resto al borde derecho, mismo mecanismo que la columna Medios en Registro de Ventas) — llevó dos iteraciones de ajuste visual hasta calzar exactamente igual.
+
+**Pendiente de la lista original de mejoras:** punto 5 (menú de acciones más completo — cancelar orden, revertir pago manualmente) sigue sin construir, es el más delicado porque toca stock y estado fiscal a la vez.
+
+### Bloque 6 — Fixes menores de ordenamiento (3 pantallas)
+
+- **Historial de Artículos:** el combo de Rubro no tenía `.order('nombre')` en el SELECT de Supabase (a diferencia del resto de pantallas de Artículos) — quedaba en orden de inserción en vez de alfabético. Agregado.
+- **Vitrina (`/tienda`):** agregadas dos opciones nuevas al combo "Ordenar por" — Alfabético A-Z y Z-A — en `OrdenTienda.tsx` y la lógica de sort de dos niveles en `tienda/page.tsx` (los productos sin stock siempre quedan al final, sin importar el criterio elegido).
+- **Obligaciones:** el detalle expandible de cada acreedor mostraba los movimientos en orden ascendente (más viejo arriba), obligando a scrollear hasta el final para ver lo más reciente. El saldo corrido se calcula en orden cronológico ascendente (obligatorio para que sea correcto) y **recién después** se invierte el array solo para el renderizado — así el saldo de cada fila sigue siendo exacto pero en pantalla aparece primero lo más reciente.
+
+### Bloque 7 — Acreedor AFIP renombrado a ARCA + plan de pago de 12 cuotas
+
+Acreedor `id=4` renombrado de "AFIP" a "ARCA" (nombre real vigente del organismo). Se identificaron 2 cargos F931 viejos ($584.352,50 y $400.847,03, sin pagos aplicados) reemplazados por un plan de pago real de 12 cuotas — borrados y reemplazados por un concepto nuevo `Plan de pago` (`conceptos_gasto.id=53`, habilitado para ARCA vía `acreedor_conceptos`) con las 12 cuotas cargadas como Cargos individuales (`fecha_vencimiento` = fecha real de cada cuota, `observaciones` = "Cuota 01/12" ... "Cuota 12/12"), total $1.515.239,75, verificado coincidiendo con el total de la tabla del plan de pago real. En el camino se confirmaron dos columnas obligatorias de `obligaciones` que no estaban documentadas (`categoria_gasto_id`, `usuario_id`).
+
+### Bloque 8 — Investigación de discrepancia de stock: Hydromax Sport Drink 33 gr Naranja (artículo 979)
+
+Surgió al probar el flujo de "Cobrar en caja" desde un pedido de prueba. Conteo físico real: 49 unidades. Stock del sistema en ese momento: 47.
+
+**Se revisó el código del webhook de Mercado Pago (`api/tienda/webhook-mp/route.ts`) y está bien escrito** — usa el circuito correcto (`movimientos_stock` + `movimiento_stock_items`, dejando que el trigger `fn_aplicar_item_stock` aplique el descuento real), sin ningún `UPDATE` directo a `articulo_stock` como el bug que ya se había encontrado y corregido una vez en Compras. GRANTs de `service_role` sobre `movimiento_stock_items` verificados correctos también.
+
+**Se confirmó**, sin embargo, que dos ventas reales de MP para este artículo (ventas #196 y #197, del 08 y 09/08) generaron la cabecera en `movimientos_stock` pero **sin sus filas correspondientes en `movimiento_stock_items`** — movimientos huérfanos, invisibles para Historial de Artículos (que cruza ambas tablas). **La causa exacta no se pudo confirmar**: el plan de Vercel no retiene logs históricos más allá de un rato (confirmado intentando buscar en Logs — solo mostraba desde las 11:16 del día actual), así que el mensaje de error real que hubiera quedado logueado en el momento ya no está disponible. Queda como alerta a vigilar, no como bug confirmado y resuelto — si vuelve a pasar con una venta nueva, revisar Logs de Vercel en modo Live inmediatamente después.
+
+**Corrección de datos aplicada:** se probó agregar un movimiento de "Corrección de stock" (+2) para llevar el registro a 49, pero esto hizo que **Stock Calculado** (la reconstrucción del historial) subiera a 51 en vez de quedar en 49 — porque la base sobre la que se aplicó la corrección (49) ya estaba mal desde antes (le faltaban los 2 egresos nunca registrados). Se revirtió esa corrección (Stock real de por sí ya coincidía con el conteo físico, 49, sin necesidad de ajuste) dejando Ingreso: 49 / Egreso: 0 / Stock Calculado: 49 / Stock real: 49 — todo alineado, sin necesidad de intervención adicional.
+
+**Gap de diseño encontrado en el camino:** `MovimientoStockForm.tsx` excluye a propósito el tipo "Ingreso" de la carga manual (línea con `filter(t => t.id !== ID_INGRESO...)`), asumiendo que todo ingreso real viene de Compras o del Saldo inicial de la migración — esto bloqueó la corrección manual desde la pantalla, se resolvió por SQL directo. Pendiente evaluar si conviene habilitar Ingreso para el motivo puntual "Corrección de stock" sin abrir la puerta a compras cargadas por ese camino.
+
+### Bloque 9 — Limpieza de datos de prueba de la sesión
+
+Pedidos web de prueba sin venta real (ids 1, 3, 4, 5, 6, 10, 11) y sus `ventas_borrador` asociados, eliminados. Venta de prueba #193 (pedido #2, Hydromax Naranja, nunca fiscalizada) revertida completa siguiendo la checklist habitual: `movimiento_stock_items`, `movimientos_stock`, `movimientos`, `venta_pagos`, `venta_items`, `ventas`. Los 3 pedidos reales con CAE confirmado (#7, #8, #9 — ventas #1496/1497/1498) **no se tocaron**, son facturas fiscales reales.
+
 ### Pendiente general para la próxima sesión
-1. Confirmar en la práctica que el aviso de borradores al cerrar turno funciona bien.
-2. Investigar (si vale la pena) por qué la Orden 4 se salteó el paso de stock para 6 artículos puntuales.
-3. Seguir con los pendientes de sesiones previas (Correcciones, sandbox, NC real, permisos de Agustín).
+1. Definir con cuáles mejoras seguir de Pedidos Web — queda solo el punto 5 (cancelar orden / revertir pago manualmente) de la lista original de 5.
+2. Envíos a domicilio en la Vitrina (fase posterior a "solo retiro en local") — decisión de negocio, no solo técnica: afecta checkout, Pedidos Web, cálculo de costos de envío. Referencia de UX vista: pantalla "Métodos de envío" de Empretienda.
+3. Vigilar si vuelve a pasar el patrón de movimiento de stock huérfano (Bloque 8) en alguna venta nueva de Mercado Pago — si pasa, revisar Logs de Vercel en modo Live de inmediato.
+4. Evaluar si habilitar tipo "Ingreso" en `MovimientoStockForm.tsx` para el motivo "Corrección de stock" (Bloque 8).
+5. Confirmar en la práctica que el aviso de "1 pedido web pendiente de acción" del Dashboard se actualiza correctamente al resolver el pedido (quedó sin confirmar del todo si depende de un refresh o se actualiza solo).
+6. Seguir con los pendientes de sesiones previas (Correcciones, sandbox, NC real, permisos de Agustín, pantalla "Actualizar fotos").
