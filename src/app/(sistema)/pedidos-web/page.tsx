@@ -49,6 +49,7 @@ const ETIQUETAS_ESTADO: Record<string, { texto: string; clase: string }> = {
   confirmado: { texto: 'Pagado', clase: 'bg-green-50 text-green-700 border-green-200' },
   pago_rechazado: { texto: 'Pago rechazado', clase: 'bg-red-50 text-red-700 border-red-200' },
   pago_sin_stock: { texto: 'Pagado sin stock — revisar', clase: 'bg-red-50 text-red-700 border-red-200 font-medium' },
+  cancelado: { texto: 'Cancelado', clase: 'bg-gray-100 text-gray-500 border-gray-200' },
 }
 
 function fmtFecha(iso: string): string {
@@ -88,8 +89,19 @@ export default function PedidosWebPage() {
   const [expandido, setExpandido] = useState<number | null>(null)
   const [procesando, setProcesando] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [mediosPago, setMediosPago] = useState<{ id: number; nombre: string }[]>([])
+  const [cancelandoId, setCancelandoId] = useState<number | null>(null)
+  const [hayDevolucion, setHayDevolucion] = useState(false)
+  const [montoDevuelto, setMontoDevuelto] = useState('')
+  const [medioDevolucion, setMedioDevolucion] = useState<number | null>(null)
 
-  useEffect(() => { cargarPedidos() }, [])
+  useEffect(() => { cargarPedidos(); cargarMediosPago() }, [])
+
+  async function cargarMediosPago() {
+    const supabase = createClient()
+    const { data } = await supabase.from('medios_pago').select('id, nombre').eq('activo', true).order('id')
+    setMediosPago(data || [])
+  }
 
   async function cargarPedidos() {
     setCargando(true)
@@ -187,6 +199,108 @@ export default function PedidosWebPage() {
     setProcesando(null)
     if (error) { setError('Error al marcar como retirado: ' + error.message); return }
     cargarPedidos()
+  }
+
+  // Caso simple: pedido sin venta asociada — no hay stock ni plata que revertir.
+  async function cancelarPedidoSimple(pedido: PedidoWeb) {
+    setError(null)
+    setProcesando(pedido.id)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('pedidos_web')
+      .update({ estado: 'cancelado' })
+      .eq('id', pedido.id)
+    setProcesando(null)
+    if (error) { setError('Error al cancelar el pedido: ' + error.message); return }
+    cargarPedidos()
+  }
+
+  // Caso intermedio: pedido con venta ya creada pero sin fiscalizar todavía.
+  // Revierte stock (mismo patrón que "Anular" en Registro de Ventas — movimiento
+  // de Ingreso compensatorio vía movimiento_stock_items, nunca UPDATE directo),
+  // anula la venta, cancela el pedido, y si hubo devolución real de dinero
+  // genera el movimiento financiero de Egreso correspondiente.
+  async function cancelarYAnularVenta(pedido: PedidoWeb) {
+    if (!pedido.venta_id) return
+    setError(null)
+    setProcesando(pedido.id)
+    const supabase = createClient()
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('No autenticado')
+
+      const { data: items } = await supabase
+        .from('venta_items')
+        .select('articulo_id, cantidad')
+        .eq('venta_id', pedido.venta_id)
+
+      if (items && items.length > 0) {
+        const { data: movStock, error: movStockError } = await supabase
+          .from('movimientos_stock')
+          .insert({
+            sucursal_id: pedido.sucursal_id,
+            tipo_movimiento_stock_id: 1, // Ingreso (reversión)
+            estado_movimiento_stock_id: 2, // Confirmado
+            origen_tipo: 'venta',
+            origen_id: pedido.venta_id,
+            observaciones: `Reversión por cancelación de pedido web #${pedido.id}`,
+            fecha_utc: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }),
+          })
+          .select('id')
+          .single()
+
+        if (movStockError) throw new Error('Error al revertir stock: ' + movStockError.message)
+
+        const { error: stockItemsError } = await supabase
+          .from('movimiento_stock_items')
+          .insert(items.map(it => ({ movimiento_stock_id: movStock.id, articulo_id: it.articulo_id, cantidad: it.cantidad })))
+
+        if (stockItemsError) throw new Error('Error al revertir stock: ' + stockItemsError.message)
+      }
+
+      const { error: ventaError } = await supabase
+        .from('ventas')
+        .update({ estado_venta_id: 3 }) // Anulada
+        .eq('id', pedido.venta_id)
+      if (ventaError) throw new Error('Error al anular la venta: ' + ventaError.message)
+
+      const { error: pedidoError } = await supabase
+        .from('pedidos_web')
+        .update({ estado: 'cancelado' })
+        .eq('id', pedido.id)
+      if (pedidoError) throw new Error('Error al cancelar el pedido: ' + pedidoError.message)
+
+      if (hayDevolucion && montoDevuelto) {
+        const monto = Number(montoDevuelto)
+        if (monto > 0) {
+          const fechaHoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+          const { error: movError } = await supabase.from('movimientos').insert({
+            sucursal_id: pedido.sucursal_id,
+            tipo: 'Egreso',
+            categoria_gasto_id: 14, // Devoluciones
+            concepto_gasto_id: 45, // Devolución a cliente
+            medio_pago_id: medioDevolucion,
+            monto,
+            fecha_utc: fechaHoy,
+            mes_contable: fechaHoy.slice(0, 7) + '-01',
+            origen_tipo: 'venta',
+            origen_id: pedido.venta_id,
+            usuario_id: user.id,
+          })
+          if (movError) throw new Error('La venta se anuló pero falló el registro de la devolución: ' + movError.message)
+        }
+      }
+
+      setCancelandoId(null)
+      setHayDevolucion(false)
+      setMontoDevuelto('')
+      setMedioDevolucion(null)
+      cargarPedidos()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setProcesando(null)
+    }
   }
 
   async function descargarPDF(ventaId: number) {
@@ -403,6 +517,87 @@ export default function PedidosWebPage() {
                         </div>
                       ) : (
                         <p className="text-xs text-gray-400 border-t border-gray-200 pt-3">Todavía no generó una venta.</p>
+                      )}
+
+                      {/* Cancelar — 3 casos según si hay venta y si está fiscalizada */}
+                      {p.estado !== 'cancelado' && (
+                        <div className="border-t border-gray-200 pt-3 mt-3">
+                          {!p.venta_id ? (
+                            // Caso simple: sin venta, nada que revertir
+                            <button
+                              type="button"
+                              onClick={() => cancelarPedidoSimple(p)}
+                              disabled={procesando === p.id}
+                              className="text-xs text-red-600 hover:text-red-700 underline disabled:opacity-50"
+                            >
+                              {procesando === p.id ? 'Cancelando...' : 'Cancelar pedido'}
+                            </button>
+                          ) : facturada ? (
+                            // Caso delicado: ya fiscalizada, requiere Nota de Crédito (no desarrollado)
+                            <p className="text-xs text-gray-400">
+                              Ya está fiscalizada — cancelarla requiere una Nota de Crédito (pendiente de desarrollar).
+                            </p>
+                          ) : cancelandoId === p.id ? (
+                            // Caso intermedio: formulario de confirmación + devolución opcional
+                            <div className="bg-red-50 border border-red-200 rounded p-3 space-y-2 max-w-md">
+                              <p className="text-xs text-red-700 font-medium">
+                                Esto va a anular la venta #{numerosVenta.get(p.venta_id) ?? p.venta_id} y revertir el stock.
+                              </p>
+                              <label className="flex items-center gap-2 text-xs text-gray-600">
+                                <input
+                                  type="checkbox"
+                                  checked={hayDevolucion}
+                                  onChange={e => setHayDevolucion(e.target.checked)}
+                                />
+                                Hubo devolución de dinero al cliente
+                              </label>
+                              {hayDevolucion && (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    placeholder="Monto devuelto"
+                                    value={montoDevuelto}
+                                    onChange={e => setMontoDevuelto(e.target.value)}
+                                    className="w-32 border border-gray-300 rounded px-2 py-1 text-xs"
+                                  />
+                                  <select
+                                    value={medioDevolucion ?? ''}
+                                    onChange={e => setMedioDevolucion(e.target.value ? Number(e.target.value) : null)}
+                                    className="border border-gray-300 rounded px-2 py-1 text-xs"
+                                  >
+                                    <option value="">Medio de pago</option>
+                                    {mediosPago.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                                  </select>
+                                </div>
+                              )}
+                              <div className="flex gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => cancelarYAnularVenta(p)}
+                                  disabled={procesando === p.id}
+                                  className="text-xs bg-red-600 text-white px-3 py-1.5 rounded hover:bg-red-700 disabled:opacity-50"
+                                >
+                                  {procesando === p.id ? 'Procesando...' : 'Confirmar cancelación'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setCancelandoId(null); setHayDevolucion(false); setMontoDevuelto(''); setMedioDevolucion(null) }}
+                                  className="text-xs text-gray-500 hover:text-gray-700 px-2"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setCancelandoId(p.id)}
+                              className="text-xs text-red-600 hover:text-red-700 underline"
+                            >
+                              Cancelar y anular venta
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
