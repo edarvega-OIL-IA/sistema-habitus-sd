@@ -262,8 +262,8 @@ export default function PedidosWebPage() {
               const comprobante = p.venta_id ? comprobantesPorVenta.get(p.venta_id) : undefined
               const facturada = comprobante?.estado_fiscal_id === ESTADO_FISCAL_CAE_RECIBIDO
               const chipFacturacion = !p.venta_id ? null : facturada
-                ? <span className="px-2 py-0.5 rounded-full text-[11px] bg-green-100 text-green-700">Facturada</span>
-                : <span className="px-2 py-0.5 rounded-full text-[11px] bg-gray-100 text-gray-500">Sin facturar</span>
+                ? <span className="px-2 py-0.5 rounded-full text-[11px] bg-green-100 text-green-700">Fiscalizada</span>
+                : <span className="px-2 py-0.5 rounded-full text-[11px] bg-gray-100 text-gray-500">Sin fiscalizar</span>
 
               return (
                 <div key={p.id}>
@@ -294,9 +294,9 @@ export default function PedidosWebPage() {
                         <span className="text-[11px] text-gray-400">Sin retirar</span>
                       )}
                     </span>
-                    <span className="w-28 shrink-0">{chipFacturacion}</span>
-                    <span className="flex-1 min-w-[100px] text-right font-bold text-[#3c3c3b] text-sm">{fmt(p.total)}</span>
-                    <span className="w-44 flex justify-end gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                    <span className="w-32 flex justify-start shrink-0">{chipFacturacion}</span>
+                    <span className="w-28 text-right font-bold text-[#3c3c3b] text-sm shrink-0">{fmt(p.total)}</span>
+                    <span className="w-16 flex justify-end shrink-0" onClick={e => e.stopPropagation()}>
                       {facturada && p.venta_id && (
                         <button
                           onClick={() => descargarPDF(p.venta_id!)}
@@ -306,6 +306,8 @@ export default function PedidosWebPage() {
                           PDF
                         </button>
                       )}
+                    </span>
+                    <span className="flex-1 flex justify-end gap-2 min-w-[140px]" onClick={e => e.stopPropagation()}>
                       {p.estado === 'pendiente_retiro' && (
                         <button
                           onClick={() => cobrarEnCaja(p)}
@@ -385,7 +387,7 @@ export default function PedidosWebPage() {
                           {facturada && comprobante ? (
                             <>
                               <span className="text-[11px] text-gray-400">
-                                Facturada — {String(comprobante.punto_venta_id).padStart(4, '0')}-{String(comprobante.numero).padStart(8, '0')}
+                                Fiscalizada — {String(comprobante.punto_venta_id).padStart(4, '0')}-{String(comprobante.numero).padStart(8, '0')}
                               </span>
                               <button
                                 type="button"
@@ -396,7 +398,7 @@ export default function PedidosWebPage() {
                               </button>
                             </>
                           ) : (
-                            <span className="text-[11px] text-gray-400">No facturada todavía</span>
+                            <span className="text-[11px] text-gray-400">Sin fiscalizar todavía</span>
                           )}
                         </div>
                       ) : (
