@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Globe, Package, CheckCircle2, ShoppingCart, AlertTriangle, MessageCircle, FileText } from 'lucide-react'
+import { Globe, Package, CheckCircle2, ShoppingCart, AlertTriangle, MessageCircle, FileText, ChevronDown, ChevronRight } from 'lucide-react'
 
 interface ItemPedido {
   articulo_id: number
@@ -42,6 +42,7 @@ interface PedidoWeb {
   creado_en: string
 }
 
+// Estado de PAGO — separado del estado de ENTREGA (entregado_en, aparte).
 const ETIQUETAS_ESTADO: Record<string, { texto: string; clase: string }> = {
   pendiente_pago: { texto: 'Esperando pago', clase: 'bg-amber-50 text-amber-700 border-amber-200' },
   pendiente_retiro: { texto: 'A cobrar en el local', clase: 'bg-blue-50 text-blue-700 border-blue-200' },
@@ -54,6 +55,18 @@ function fmtFecha(iso: string): string {
   return new Date(iso).toLocaleString('es-AR', {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
     timeZone: 'America/Argentina/Buenos_Aires',
+  })
+}
+
+function fmtFechaCorta(iso: string): string {
+  return new Date(iso).toLocaleDateString('es-AR', {
+    day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires',
+  })
+}
+
+function fmtHora(iso: string): string {
+  return new Date(iso).toLocaleTimeString('es-AR', {
+    hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires',
   })
 }
 
@@ -72,6 +85,7 @@ export default function PedidosWebPage() {
   const [numerosVenta, setNumerosVenta] = useState<Map<number, number>>(new Map())
   const [comprobantesPorVenta, setComprobantesPorVenta] = useState<Map<number, Comprobante>>(new Map())
   const [filtro, setFiltro] = useState<'pendientes' | 'todos'>('pendientes')
+  const [expandido, setExpandido] = useState<number | null>(null)
   const [procesando, setProcesando] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -237,50 +251,125 @@ export default function PedidosWebPage() {
           {filtro === 'pendientes' ? 'No hay pedidos pendientes de acción.' : 'Todavía no hay pedidos web.'}
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
-          {pedidosVisibles.map(p => {
-            const etiqueta = ETIQUETAS_ESTADO[p.estado] || { texto: p.estado, clase: 'bg-gray-50 text-gray-600 border-gray-200' }
-            const resumenItems = p.items.map(it => `${it.cantidad}× ${it.nombre_base}${it.sabor ? ' - ' + it.sabor : ''}`).join(', ')
-            return (
-              <div key={p.id} className="p-4 flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-semibold text-[#3c3c3b]">Pedido #{p.id}</span>
-                    <span className={`text-[11px] px-2 py-0.5 rounded-full border ${etiqueta.clase}`}>{etiqueta.texto}</span>
-                    <span className="text-[11px] text-gray-400">
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+            <span className="text-xs text-gray-500">{pedidosVisibles.length} {pedidosVisibles.length === 1 ? 'pedido' : 'pedidos'}</span>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {pedidosVisibles.map(p => {
+              const abierto = expandido === p.id
+              const etiqueta = ETIQUETAS_ESTADO[p.estado] || { texto: p.estado, clase: 'bg-gray-50 text-gray-600 border-gray-200' }
+              const comprobante = p.venta_id ? comprobantesPorVenta.get(p.venta_id) : undefined
+              const facturada = comprobante?.estado_fiscal_id === ESTADO_FISCAL_CAE_RECIBIDO
+
+              return (
+                <div key={p.id}>
+                  <div
+                    onClick={() => setExpandido(abierto ? null : p.id)}
+                    className="w-full flex items-center px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer flex-wrap gap-y-1"
+                  >
+                    <span className="w-6 text-gray-300 shrink-0">
+                      {abierto ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    </span>
+                    <span className="w-16 font-medium text-[#3c3c3b] text-sm shrink-0">#{p.id}</span>
+                    <span className="w-24 text-xs text-gray-400 shrink-0">
+                      {fmtFechaCorta(p.creado_en)} {fmtHora(p.creado_en)}
+                    </span>
+                    <span className="w-40 text-sm text-[#3c3c3b] truncate shrink-0">{p.cliente_nombre}</span>
+                    <span className="w-32 text-xs text-gray-400 shrink-0">
                       {p.medio_elegido === 'mercado_pago' ? 'Mercado Pago' : 'Retiro + efectivo'}
                     </span>
-                    {p.entregado_en && (
-                      <span className="text-[11px] text-gray-400 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Retirado {fmtFecha(p.entregado_en)}
-                      </span>
-                    )}
+                    <span className="w-36 shrink-0">
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full border ${etiqueta.clase}`}>{etiqueta.texto}</span>
+                    </span>
+                    <span className="w-32 shrink-0">
+                      {p.entregado_en ? (
+                        <span className="text-[11px] text-gray-400 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-[#00a19a]" /> Retirado {fmtFecha(p.entregado_en)}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-gray-400">Sin retirar</span>
+                      )}
+                    </span>
+                    <span className="flex-1 min-w-[100px] text-right font-bold text-[#3c3c3b] text-sm">{fmt(p.total)}</span>
+                    <span className="w-40 flex justify-end gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                      {p.estado === 'pendiente_retiro' && (
+                        <button
+                          onClick={() => cobrarEnCaja(p)}
+                          disabled={procesando === p.id}
+                          className="text-xs bg-[#00a19a] text-white px-3 py-1.5 rounded hover:bg-[#008f89] disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5" />
+                          {procesando === p.id ? 'Preparando...' : 'Cobrar en caja'}
+                        </button>
+                      )}
+                      {p.estado === 'confirmado' && !p.entregado_en && (
+                        <button
+                          onClick={() => marcarRetirado(p)}
+                          disabled={procesando === p.id}
+                          className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          <Package className="w-3.5 h-3.5" />
+                          {procesando === p.id ? '...' : 'Marcar retirado'}
+                        </button>
+                      )}
+                      {p.estado === 'pago_sin_stock' && (
+                        <p className="text-[11px] text-red-600 flex items-center gap-1 justify-end">
+                          <AlertTriangle className="w-3 h-3" /> Reembolsar MP
+                        </p>
+                      )}
+                    </span>
                   </div>
-                  <p className="text-sm text-[#3c3c3b] mt-1 flex items-center gap-2 flex-wrap">
-                    <span>{p.cliente_nombre} · {p.cliente_telefono}</span>
-                    <a
-                      href={linkWhatsApp(p.cliente_telefono)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] font-medium bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full hover:bg-green-100 transition-colors shrink-0"
-                    >
-                      <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-                    </a>
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1 truncate">{resumenItems}</p>
-                  {p.observaciones && (
-                    <p className="text-xs text-[#3c3c3b] mt-1 bg-amber-50 border border-amber-200 rounded px-2 py-1 inline-block">
-                      📝 {p.observaciones}
-                    </p>
-                  )}
-                  <p className="text-xs text-gray-400 mt-0.5">{fmtFecha(p.creado_en)}</p>
-                  {p.venta_id && (
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <p className="text-xs text-gray-400">Venta #{numerosVenta.get(p.venta_id) ?? p.venta_id}</p>
-                      {(() => {
-                        const comprobante = comprobantesPorVenta.get(p.venta_id)
-                        if (comprobante?.estado_fiscal_id === ESTADO_FISCAL_CAE_RECIBIDO) {
-                          return (
+
+                  {abierto && (
+                    <div className="bg-gray-50 border-t-2 border-[#00a19a]/10 px-6 py-4 pl-11">
+                      {/* Cliente + WhatsApp */}
+                      <div className="flex items-center gap-2 mb-3 flex-wrap">
+                        <span className="text-sm text-[#3c3c3b]">{p.cliente_nombre} · {p.cliente_telefono}</span>
+                        <a
+                          href={linkWhatsApp(p.cliente_telefono)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] font-medium bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full hover:bg-green-100 transition-colors shrink-0"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                        </a>
+                        {p.cliente_email && <span className="text-xs text-gray-400">· {p.cliente_email}</span>}
+                      </div>
+
+                      {p.observaciones && (
+                        <p className="text-xs text-[#3c3c3b] mb-3 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 inline-block">
+                          📝 {p.observaciones}
+                        </p>
+                      )}
+
+                      {/* Ítems del pedido — mismo estilo de tabla que Registro de Ventas */}
+                      <table className="w-full text-xs mb-4">
+                        <thead>
+                          <tr className="border-b border-gray-200">
+                            <th className="text-left pb-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px]">Artículo</th>
+                            <th className="text-center pb-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px] w-16">Cant.</th>
+                            <th className="text-right pb-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px] w-28">Precio unit.</th>
+                            <th className="text-right pb-2 text-gray-400 font-semibold uppercase tracking-wide text-[10px] w-28">Subtotal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {p.items.map((it, i) => (
+                            <tr key={i} className="border-b border-gray-100 last:border-0">
+                              <td className="py-2 text-gray-700">{it.nombre_base}{it.sabor ? ` - ${it.sabor}` : ''}</td>
+                              <td className="py-2 text-center text-gray-500">{it.cantidad}</td>
+                              <td className="py-2 text-right text-gray-500">{fmt(it.precio_unitario)}</td>
+                              <td className="py-2 text-right font-medium text-gray-700">{fmt(it.subtotal)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      {/* Venta / Facturación */}
+                      {p.venta_id ? (
+                        <div className="flex items-center gap-2 flex-wrap border-t border-gray-200 pt-3">
+                          <span className="text-xs text-gray-500">Venta #{numerosVenta.get(p.venta_id) ?? p.venta_id}</span>
+                          {facturada && comprobante ? (
                             <>
                               <span className="text-[11px] text-gray-400">
                                 Facturada — {String(comprobante.punto_venta_id).padStart(4, '0')}-{String(comprobante.numero).padStart(8, '0')}
@@ -293,44 +382,19 @@ export default function PedidosWebPage() {
                                 <FileText className="w-3 h-3" /> PDF
                               </button>
                             </>
-                          )
-                        }
-                        return <span className="text-[11px] text-gray-400">No facturada todavía</span>
-                      })()}
+                          ) : (
+                            <span className="text-[11px] text-gray-400">No facturada todavía</span>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400 border-t border-gray-200 pt-3">Todavía no generó una venta.</p>
+                      )}
                     </div>
                   )}
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="text-sm font-bold text-[#3c3c3b] mb-2">{fmt(p.total)}</p>
-                  {p.estado === 'pendiente_retiro' && (
-                    <button
-                      onClick={() => cobrarEnCaja(p)}
-                      disabled={procesando === p.id}
-                      className="text-xs bg-[#00a19a] text-white px-3 py-1.5 rounded hover:bg-[#008f89] disabled:opacity-50 flex items-center gap-1.5"
-                    >
-                      <ShoppingCart className="w-3.5 h-3.5" />
-                      {procesando === p.id ? 'Preparando...' : 'Cobrar en caja'}
-                    </button>
-                  )}
-                  {p.estado === 'confirmado' && !p.entregado_en && (
-                    <button
-                      onClick={() => marcarRetirado(p)}
-                      disabled={procesando === p.id}
-                      className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1.5"
-                    >
-                      <Package className="w-3.5 h-3.5" />
-                      {procesando === p.id ? '...' : 'Marcar como retirado'}
-                    </button>
-                  )}
-                  {p.estado === 'pago_sin_stock' && (
-                    <p className="text-[11px] text-red-600 flex items-center gap-1 justify-end">
-                      <AlertTriangle className="w-3 h-3" /> Reembolsar en MP
-                    </p>
-                  )}
-                </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
       )}
     </div>
