@@ -223,6 +223,23 @@ export default function PedidosWebPage() {
   async function cancelarYAnularVenta(pedido: PedidoWeb) {
     if (!pedido.venta_id) return
     setError(null)
+
+    // Validar ANTES de tocar nada — si quedó tildado "hubo devolución" sin
+    // completar monto/medio, cortamos acá. Nunca seguir de largo en silencio
+    // (bug real 12/08/2026: quedó tildado el checkbox sin monto cargado y
+    // la cancelación se confirmó igual, sin devolución registrada ni aviso).
+    if (hayDevolucion) {
+      const montoNum = Number(montoDevuelto)
+      if (!montoDevuelto || montoNum <= 0) {
+        setError('Tildaste que hubo devolución de dinero — cargá el monto antes de confirmar.')
+        return
+      }
+      if (!medioDevolucion) {
+        setError('Elegí el medio de pago de la devolución antes de confirmar.')
+        return
+      }
+    }
+
     setProcesando(pedido.id)
     const supabase = createClient()
     try {
@@ -270,25 +287,22 @@ export default function PedidosWebPage() {
         .eq('id', pedido.id)
       if (pedidoError) throw new Error('Error al cancelar el pedido: ' + pedidoError.message)
 
-      if (hayDevolucion && montoDevuelto) {
-        const monto = Number(montoDevuelto)
-        if (monto > 0) {
-          const fechaHoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
-          const { error: movError } = await supabase.from('movimientos').insert({
-            sucursal_id: pedido.sucursal_id,
-            tipo: 'Egreso',
-            categoria_gasto_id: 14, // Devoluciones
-            concepto_gasto_id: 45, // Devolución a cliente
-            medio_pago_id: medioDevolucion,
-            monto,
-            fecha_utc: fechaHoy,
-            mes_contable: fechaHoy.slice(0, 7) + '-01',
-            origen_tipo: 'venta',
-            origen_id: pedido.venta_id,
-            usuario_id: user.id,
-          })
-          if (movError) throw new Error('La venta se anuló pero falló el registro de la devolución: ' + movError.message)
-        }
+      if (hayDevolucion) {
+        const fechaHoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+        const { error: movError } = await supabase.from('movimientos').insert({
+          sucursal_id: pedido.sucursal_id,
+          tipo: 'Egreso',
+          categoria_gasto_id: 14, // Devoluciones
+          concepto_gasto_id: 45, // Devolución a cliente
+          medio_pago_id: medioDevolucion,
+          monto: Number(montoDevuelto),
+          fecha_utc: fechaHoy,
+          mes_contable: fechaHoy.slice(0, 7) + '-01',
+          origen_tipo: 'venta',
+          origen_id: pedido.venta_id,
+          usuario_id: user.id,
+        })
+        if (movError) throw new Error('La venta se anuló pero falló el registro de la devolución: ' + movError.message)
       }
 
       setCancelandoId(null)
