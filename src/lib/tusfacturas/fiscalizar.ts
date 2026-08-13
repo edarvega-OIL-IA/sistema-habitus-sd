@@ -78,11 +78,17 @@ export async function fiscalizarVenta(
     .in('id', articuloIds)
   const articulosMap = new Map<number, any>((articulosData || []).map((a: any) => [a.id, a]))
 
-  // ¿Ya existe un comprobante para esta venta? (reintento tras rechazo)
+  // ¿Ya existe un comprobante FACTURA para esta venta? (reintento tras
+  // rechazo). Filtrado explícito por tipo_comprobante_id=Factura: desde que
+  // se habilitó el circuito de Nota de Crédito, una venta puede tener más
+  // de un comprobante (Factura + NC) bajo el mismo venta_id — sin este
+  // filtro, esta consulta podría traer por error la fila de la NC en vez
+  // de la Factura.
   const { data: comprobanteExistente } = await supabase
     .from('comprobantes')
     .select('id, numero, fiscalizacion_intentos')
     .eq('venta_id', ventaId)
+    .eq('tipo_comprobante_id', TIPO_COMPROBANTE_ID_FACTURA)
     .maybeSingle()
 
   let comprobanteId: number

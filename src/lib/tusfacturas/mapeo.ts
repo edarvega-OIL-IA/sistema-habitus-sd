@@ -5,9 +5,15 @@ import { TusFacturasComprobante, TusFacturasDetalleItem, TusFacturasRequestBody,
 const PUNTO_VENTA = '0004'
 const RUBRO = 'Suplementos deportivos'
 
-// IDs en producción — puntos_venta.id=3 (PV 0004), tipos_comprobante.id=1 (Factura)
+// IDs en producción — puntos_venta.id=3 (PV 0004), tipos_comprobante.id=1 (Factura), id=3 (Nota Crédito)
 export const PUNTO_VENTA_ID = 3
 export const TIPO_COMPROBANTE_ID_FACTURA = 1
+export const TIPO_COMPROBANTE_ID_NOTA_CREDITO = 3
+
+// CUIT propio (monotributista) — el mismo bajo el que se emite toda factura
+// real. Requerido por TusFacturasAPP en comprobantes_asociados de una NC:
+// "debe coincidir con el CUIT desde donde estás emitiendo la NC".
+export const CUIT_EMISOR = '23238900719'
 
 // Tabla de referencia oficial TusFacturasAPP — "Condición de Venta" (código a
 // enviar en condicion_pago), verificada en developers.tusfacturas.app el 27/07/2026.
@@ -62,7 +68,14 @@ export interface OpcionesFacturacion {
   esContado: boolean
 }
 
-function formatearFechaDDMMYYYY(fechaUtc: string): string {
+// Datos mínimos del comprobante original que se está anulando — lo que
+// exige TusFacturasAPP en el bloque "comprobantes_asociados" de una NC.
+export interface ComprobanteOriginalParaNC {
+  numero: number // sin formatear — el bloque comprobantes_asociados usa entero plano, ej. 31, no "00000031"
+  fecha_utc: string // 'YYYY-MM-DD', tal como está en comprobantes.fecha_emision_utc o ventas.fecha_utc
+}
+
+export function formatearFechaDDMMYYYY(fechaUtc: string): string {
   // fechaUtc viene como 'YYYY-MM-DD' (DATE) — nunca usar new Date() para esto (regla del proyecto)
   const [anio, mes, dia] = fechaUtc.split('-')
   return `${dia}/${mes}/${anio}`
@@ -183,6 +196,87 @@ export function mapearVentaAFacturaC(
     leyenda_gral: ' ',
     total: venta.total.toFixed(2),
     external_reference: `venta-${venta.venta_id}`,
+  }
+
+  return {
+    usertoken: process.env.TUSFACTURAS_USERTOKEN as string,
+    apikey: process.env.TUSFACTURAS_APIKEY as string,
+    apitoken: process.env.TUSFACTURAS_APITOKEN as string,
+    cliente: resolverCliente(venta.cliente, condicionIva, condicionPagoCodigo),
+    comprobante,
+  }
+}
+
+/**
+ * Nota de Crédito C — SIEMPRE por el total completo del comprobante original
+ * (decisión de diseño: "anular y refacturar", no NC parcial). Un único
+ * renglón de detalle describiendo la anulación, en vez de repetir los ítems
+ * originales — para AFIP no importa (solo mira el total), y para el cliente
+ * que abre el PDF es más claro que dice "anula tal factura" en una línea.
+ *
+ * El bloque comprobantes_asociados es lo que ARCA exige para vincular esta
+ * NC con la Factura que cancela — sin esto, ARCA la rechaza directamente.
+ */
+export function mapearVentaANotaCreditoC(
+  venta: VentaParaFacturar,
+  comprobanteOriginal: ComprobanteOriginalParaNC,
+  numeroComprobante: string, // NC — numeración propia, ya formateada con ceros a la izquierda
+  opciones: OpcionesFacturacion = { esContado: true },
+): TusFacturasRequestBody {
+  const fechaComprobante = formatearFechaDDMMYYYY(venta.fecha_utc)
+  const condicionIva = resolverCondicionIva(venta.cliente.condicionIva)
+  const { codigo: condicionPagoCodigo } = resolverCondicionPago(opciones.esContado, venta.cliente.plazoDiasCtaCte)
+
+  const numeroOriginalFormateado = String(comprobanteOriginal.numero).padStart(8, '0')
+
+  const detalle: TusFacturasDetalleItem[] = [
+    {
+      cantidad: '1',
+      afecta_stock: 'N',
+      producto: {
+        descripcion: `Anulación total de Factura C ${PUNTO_VENTA}-${numeroOriginalFormateado}`.slice(0, 200),
+        codigo: 'NC-ANULACION',
+        unidad_bulto: '1',
+        unidad_medida: '7',
+        precio_unitario_sin_iva: venta.total.toFixed(2),
+        alicuota: '0',
+        lista_precios: 'standard',
+        actualiza_precio: 'N',
+        rg5329: 'N',
+      },
+      bonificacion_porcentaje: 0,
+      leyenda: '',
+    },
+  ]
+
+  const comprobante: TusFacturasComprobante = {
+    fecha: fechaComprobante,
+    vencimiento: fechaComprobante,
+    idioma: '1',
+    periodo_facturado_desde: fechaComprobante,
+    periodo_facturado_hasta: fechaComprobante,
+    tipo: 'NOTA DE CREDITO C',
+    operacion: 'V',
+    punto_venta: PUNTO_VENTA,
+    numero: numeroComprobante,
+    moneda: 'PES',
+    cotizacion: 1,
+    rubro: RUBRO,
+    rubro_grupo_contable: RUBRO,
+    detalle,
+    bonificacion: '0.00',
+    leyenda_gral: ' ',
+    total: venta.total.toFixed(2),
+    external_reference: `venta-${venta.venta_id}-nc`,
+    comprobantes_asociados: [
+      {
+        tipo_comprobante: 'FACTURA C',
+        punto_venta: PUNTO_VENTA,
+        numero: comprobanteOriginal.numero,
+        comprobante_fecha: formatearFechaDDMMYYYY(comprobanteOriginal.fecha_utc),
+        cuit: CUIT_EMISOR,
+      },
+    ],
   }
 
   return {

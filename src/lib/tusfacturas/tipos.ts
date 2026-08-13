@@ -40,13 +40,27 @@ export interface TusFacturasDetalleItem {
   leyenda: string
 }
 
+// Requerido por ARCA para vincular una Nota de Crédito/Débito con el
+// comprobante que anula. Estructura y nombres de campo exactos según
+// documentación oficial TusFacturasAPP (developers.tusfacturas.app,
+// verificado 13/08/2026): "numero" va como entero plano (sin ceros a la
+// izquierda), "cuit" es siempre el propio CUIT emisor (mismo con el que se
+// está facturando), no el del cliente.
+export interface TusFacturasComprobanteAsociado {
+  tipo_comprobante: string // ej. "FACTURA C" — misma nomenclatura que TusFacturasComprobante.tipo
+  punto_venta: string // "0004"
+  numero: number
+  comprobante_fecha: string // dd/mm/yyyy
+  cuit: string // CUIT del emisor (nuestro), sin puntos ni guiones
+}
+
 export interface TusFacturasComprobante {
   fecha: string // dd/mm/yyyy
   vencimiento: string // dd/mm/yyyy — obligatorio (changelog TusFacturasAPP 01/10/2023). Igual a "fecha" porque condicion_pago=Contado (0 días).
   idioma: '1' // 1=Español, 2=Inglés — REQUERIDO
   periodo_facturado_desde: string // dd/mm/yyyy — REQUERIDO. Venta de mostrador: mismo día que "fecha"
   periodo_facturado_hasta: string // dd/mm/yyyy — REQUERIDO. Venta de mostrador: mismo día que "fecha"
-  tipo: 'FACTURA C'
+  tipo: 'FACTURA C' | 'NOTA DE CREDITO C'
   operacion: 'V'
   punto_venta: string // "0004"
   numero: string // con ceros a la izquierda, ej "00000002"
@@ -59,6 +73,9 @@ export interface TusFacturasComprobante {
   leyenda_gral: string
   total: string
   external_reference: string // usamos ventas.id para poder rastrear
+  // Solo presente al emitir una Nota de Crédito/Débito — ARCA la rechaza
+  // sin esto si el tipo es NC/ND.
+  comprobantes_asociados?: TusFacturasComprobanteAsociado[]
 }
 
 export interface TusFacturasRequestBody {
