@@ -120,18 +120,20 @@ export default function ConfiguracionPage() {
         <div className="border border-gray-200 rounded-lg p-4 mb-4">
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-medium text-gray-700">Aclaraciones sobre envíos</label>
-            <button
+            <div
+              role="switch"
+              aria-checked={config.aclaraciones_activo}
               onClick={() => setConfig({ ...config, aclaraciones_activo: !config.aclaraciones_activo })}
-              className={`relative inline-flex flex-shrink-0 h-6 w-11 items-center rounded-full transition-colors ${
+              className={`relative inline-flex flex-shrink-0 h-6 w-11 items-center rounded-full cursor-pointer transition-colors ${
                 config.aclaraciones_activo ? 'bg-[#00a19a]' : 'bg-gray-300'
               }`}
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
                   config.aclaraciones_activo ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
-            </button>
+            </div>
           </div>
           <p className="text-xs text-gray-400 mb-2">
             Texto visible para el cliente en el checkout de la Vitrina, cuando está activo.
@@ -158,19 +160,21 @@ export default function ConfiguracionPage() {
         <div className="border border-gray-200 rounded-lg p-4 mb-4">
           <div className="flex items-center justify-between mb-1">
             <p className="text-sm font-medium text-gray-700">Envío en Cinco Saltos</p>
-            <button
+            <div
+              role="switch"
+              aria-checked={config.envio_cinco_saltos_activo}
               onClick={() => setConfig({ ...config, envio_cinco_saltos_activo: !config.envio_cinco_saltos_activo })}
-              className={`relative inline-flex flex-shrink-0 h-6 w-11 items-center rounded-full transition-colors ${
+              className={`relative inline-flex flex-shrink-0 h-6 w-11 items-center rounded-full cursor-pointer transition-colors ${
                 config.envio_cinco_saltos_activo ? 'bg-[#00a19a]' : 'bg-gray-300'
               }`}
               title={config.envio_cinco_saltos_activo ? 'Método habilitado en el checkout' : 'Método deshabilitado (no se muestra al cliente)'}
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
                   config.envio_cinco_saltos_activo ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
-            </button>
+            </div>
           </div>
           <p className="text-xs text-gray-400 mb-3">
             Tarifa fija que ve el cliente al elegir este método en el checkout de la Vitrina.
