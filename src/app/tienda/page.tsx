@@ -155,8 +155,10 @@ export default async function TiendaPage({
       <header className="bg-charcoal text-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex items-center justify-between">
           <div>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-habitus.png" alt="Hábitus SD — Suplementos Deportivos" className="h-20 w-auto" />
+            <Link href="/tienda">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-habitus.png" alt="Hábitus SD — Suplementos Deportivos" className="h-20 w-auto" />
+            </Link>
             <p className="text-sm text-white/60 mt-1">Avenida Roca 54 — Cinco Saltos — Río Negro</p>
           </div>
           <CarritoBoton />
