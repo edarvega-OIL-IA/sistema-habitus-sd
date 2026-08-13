@@ -15,6 +15,7 @@ import ProductoCard from '@/components/tienda/ProductoCard'
 import CarritoBoton from '@/components/tienda/CarritoBoton'
 import FiltrosTienda from '@/components/tienda/FiltrosTienda'
 import OrdenTienda from '@/components/tienda/OrdenTienda'
+import { Mail, Phone, MapPin } from 'lucide-react'
 
 interface ArticuloCatalogo {
   id: number
@@ -159,7 +160,6 @@ export default async function TiendaPage({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/logo-habitus.png" alt="Hábitus SD — Suplementos Deportivos" className="h-20 w-auto" />
             </Link>
-            <p className="text-sm text-white/60 mt-1">Avenida Roca 54 — Cinco Saltos — Río Negro</p>
           </div>
           <CarritoBoton />
         </div>
@@ -234,8 +234,21 @@ export default async function TiendaPage({
         </main>
       </div>
 
-      <footer className="border-t border-border-gray py-6 text-center text-xs text-medium-gray">
-        Av. Roca 54, Cinco Saltos, Río Negro — Hábitus SD
+      <footer className="bg-charcoal text-white mt-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 text-sm">
+          <a href="mailto:habitus.sd@gmail.com" className="flex items-center gap-2 hover:text-offer-teal transition-colors">
+            <Mail className="w-4 h-4 text-offer-teal shrink-0" />
+            habitus.sd@gmail.com
+          </a>
+          <a href="tel:+5492993244332" className="flex items-center gap-2 hover:text-offer-teal transition-colors">
+            <Phone className="w-4 h-4 text-offer-teal shrink-0" />
+            +54 9 299 324-4332
+          </a>
+          <p className="flex items-center gap-2">
+            <MapPin className="w-4 h-4 text-offer-teal shrink-0" />
+            Avenida Roca 54 — Cinco Saltos — Río Negro — Patagonia
+          </p>
+        </div>
       </footer>
     </div>
   )
