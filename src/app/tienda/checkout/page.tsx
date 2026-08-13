@@ -51,6 +51,13 @@ export default function CheckoutPage() {
       })
   }, [])
 
+  function elegirMetodoEnvio(metodo: MetodoEnvio) {
+    setMetodoEnvio(metodo)
+    // El envío a domicilio siempre se paga por adelantado — el pago en
+    // efectivo al retirar solo tiene sentido cuando el cliente viene al local.
+    if (metodo === 'envio_cinco_saltos') setMedioElegido('mercado_pago')
+  }
+
   const costoEnvio = metodoEnvio === 'envio_cinco_saltos' && configEnvios ? configEnvios.tarifaCincoSaltos : 0
   const totalConEnvio = totalPrecio + costoEnvio
 
@@ -77,6 +84,11 @@ export default function CheckoutPage() {
 
     if (metodoEnvio === 'envio_cinco_saltos' && (!direccionCalle.trim() || !direccionNumero.trim())) {
       setError('Completá la dirección de entrega en Cinco Saltos')
+      return
+    }
+
+    if (metodoEnvio === 'envio_cinco_saltos' && medioElegido !== 'mercado_pago') {
+      setError('El envío a domicilio se paga por adelantado con Mercado Pago')
       return
     }
 
@@ -223,7 +235,7 @@ export default function CheckoutPage() {
                   type="radio"
                   name="metodoEnvio"
                   checked={metodoEnvio === 'retiro_local'}
-                  onChange={() => setMetodoEnvio('retiro_local')}
+                  onChange={() => elegirMetodoEnvio('retiro_local')}
                 />
                 <Store className="w-4 h-4 text-gray-400 shrink-0" />
                 <span>Retiro en local <span className="text-gray-400">— sin costo</span></span>
@@ -235,7 +247,7 @@ export default function CheckoutPage() {
                     type="radio"
                     name="metodoEnvio"
                     checked={metodoEnvio === 'envio_cinco_saltos'}
-                    onChange={() => setMetodoEnvio('envio_cinco_saltos')}
+                    onChange={() => elegirMetodoEnvio('envio_cinco_saltos')}
                   />
                   <Truck className="w-4 h-4 text-gray-400 shrink-0" />
                   <span>Envío en Cinco Saltos <span className="text-gray-400">— {fmt(configEnvios.tarifaCincoSaltos)}</span></span>
@@ -284,16 +296,21 @@ export default function CheckoutPage() {
                 />
                 Pagar ahora con Mercado Pago
               </label>
-              <label className={`flex items-center gap-2 border rounded-lg px-3 py-2 cursor-pointer text-sm ${medioElegido === 'retiro_efectivo' ? 'border-[#00a19a] bg-[#00a19a]/5' : 'border-gray-300'}`}>
-                <input
-                  type="radio"
-                  name="medio"
-                  checked={medioElegido === 'retiro_efectivo'}
-                  onChange={() => setMedioElegido('retiro_efectivo')}
-                />
-                {metodoEnvio === 'retiro_local' ? 'Retirar y pagar en el local' : 'Pagar en efectivo al recibir'}
-              </label>
+              {metodoEnvio === 'retiro_local' && (
+                <label className={`flex items-center gap-2 border rounded-lg px-3 py-2 cursor-pointer text-sm ${medioElegido === 'retiro_efectivo' ? 'border-[#00a19a] bg-[#00a19a]/5' : 'border-gray-300'}`}>
+                  <input
+                    type="radio"
+                    name="medio"
+                    checked={medioElegido === 'retiro_efectivo'}
+                    onChange={() => setMedioElegido('retiro_efectivo')}
+                  />
+                  Retirar y pagar en el local
+                </label>
+              )}
             </div>
+            {metodoEnvio === 'envio_cinco_saltos' && (
+              <p className="text-xs text-gray-400 mt-2">El envío a domicilio se abona por adelantado.</p>
+            )}
           </div>
 
           <div>

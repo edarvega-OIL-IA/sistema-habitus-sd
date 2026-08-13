@@ -59,6 +59,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Método de envío inválido' }, { status: 400 })
   if (metodoEnvio === 'envio_cinco_saltos' && (!direccion?.calle?.trim() || !direccion?.numero?.trim()))
     return NextResponse.json({ error: 'Falta la dirección de entrega' }, { status: 400 })
+  if (metodoEnvio === 'envio_cinco_saltos' && medioElegido !== 'mercado_pago')
+    return NextResponse.json({ error: 'El envío a domicilio se paga por adelantado con Mercado Pago' }, { status: 400 })
 
   const admin = createAdminClient()
 
