@@ -20,7 +20,13 @@ export async function GET() {
     .single()
 
   if (error || !data) {
-    return NextResponse.json({ error: 'No se pudo obtener la configuración de envíos' }, { status: 500 })
+    // TEMPORAL — solo para diagnosticar el 500 en producción. Revertir a la
+    // respuesta genérica una vez identificada la causa.
+    console.error('Error configuracion_envios:', error)
+    return NextResponse.json(
+      { error: 'No se pudo obtener la configuración de envíos', debug: error?.message || 'sin data' },
+      { status: 500 }
+    )
   }
 
   return NextResponse.json({
