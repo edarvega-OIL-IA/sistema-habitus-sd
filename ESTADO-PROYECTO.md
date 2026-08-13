@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 12/08/2026 — **Pedidos Web terminado** (WhatsApp, Observaciones en el checkout, estado de facturación con descarga de PDF, y rediseño completo a formato tabla expandible igual que Registro de Ventas, separando estado de pago y estado de entrega en columnas propias). En el camino: bug real de "1× null" en pedidos con artículos sin variante de sabor (corregido en checkout + 55 artículos históricos completados), fixes de ordenamiento en Historial de Artículos/Vitrina/Obligaciones, acreedor AFIP renombrado a ARCA con su plan de pago de 12 cuotas cargado, y una investigación de discrepancia de stock que no llegó a confirmar su causa raíz (logs de Vercel sin retención histórica) pero terminó con el stock real correcto igual al conteo físico.
-**Estado general:** 🟢 En producción. Pedidos Web es ahora una pantalla completa de uso diario, no solo un listado básico.
-**Próxima acción concreta:** definir con cuáles de las mejoras pendientes de Pedidos Web seguir (punto 5: cancelar orden / revertir pago manualmente) y retomar el resto de pendientes generales. Ver sección 26.
+**Última actualización:** 12/08/2026 — **Sesión larga y muy productiva.** Se cerró por completo la lista de mejoras de Pedidos Web (WhatsApp, Observaciones, facturación con PDF, rediseño a tabla, y cancelación/anulación de pedidos con sus 3 casos), y se hizo una mejora visual integral de la Vitrina: botón flotante de WhatsApp, logo real (extraído del brandguide) con link al home y centrado, ícono de Instagram, banners de categoría clickeables, y footer rediseñado con toda la info de contacto. En el camino: varios fixes de ordenamiento (Historial de Artículos, Vitrina, Obligaciones), acreedor AFIP renombrado a ARCA con plan de pago de 12 cuotas cargado, y una investigación de discrepancia de stock sin causa raíz confirmada (ver Bloque 8).
+**Estado general:** 🟢 En producción. Pedidos Web es una pantalla completa de uso diario. La Vitrina ya tiene identidad visual real (no placeholder) — logo, banners, contacto, redes — lista para mostrar a clientes sin quedar "a medio hacer".
+**Próxima acción concreta:** definir con qué seguir de la lista general de pendientes (ver el final de la sección 26) — no queda ninguna mejora de Pedidos Web ni de la Vitrina pendiente de esta ronda, salvo los banners de marca/institucionales que se dejaron para después. Ver sección 26.
 
 ---
 
@@ -941,10 +941,60 @@ Surgió al probar el flujo de "Cobrar en caja" desde un pedido de prueba. Conteo
 
 Pedidos web de prueba sin venta real (ids 1, 3, 4, 5, 6, 10, 11) y sus `ventas_borrador` asociados, eliminados. Venta de prueba #193 (pedido #2, Hydromax Naranja, nunca fiscalizada) revertida completa siguiendo la checklist habitual: `movimiento_stock_items`, `movimientos_stock`, `movimientos`, `venta_pagos`, `venta_items`, `ventas`. Los 3 pedidos reales con CAE confirmado (#7, #8, #9 — ventas #1496/1497/1498) **no se tocaron**, son facturas fiscales reales.
 
+### Bloque 10 — Pedidos Web: cancelación con los 3 casos posibles
+
+Cierre del punto 5 (el último de la lista original de mejoras). Antes de programar se acordó el diseño con Ariel según en qué momento del ciclo de vida está el pedido:
+
+- **Caso simple** (sin venta asociada — `pendiente_pago`, `pendiente_retiro`, `pago_rechazado`, `pago_sin_stock`): botón "Cancelar pedido", solo marca `estado = 'cancelado'`. Nada que revertir.
+- **Caso intermedio** (con venta creada pero sin CAE confirmado — el sistema fiscaliza automáticamente al pagar, así que este caso solo se da si la fiscalización falló): botón "Cancelar y anular venta" con confirmación. Revierte stock con un movimiento de Ingreso compensatorio (mismo patrón que "Anular" en Registro de Ventas — vía `movimiento_stock_items`, nunca `UPDATE` directo), anula la venta (`estado_venta_id = 3`), cancela el pedido, y si hubo devolución real de dinero (checkbox + monto + medio de pago), genera el movimiento de Egreso correspondiente (`categoria_gasto_id=14`, `concepto_gasto_id=45`, "Devolución a cliente").
+- **Caso delicado** (venta con CAE confirmado): sin botón — solo un texto indicando que requiere Nota de Crédito, circuito todavía no desarrollado (queda documentado acá: **el desarrollo de este caso queda pendiente hasta después de resolver el circuito de Nota de Crédito real**, bloqueado hoy por el constraint `comprobantes.venta_id` UNIQUE).
+
+Sin `CHECK constraint` en `pedidos_web.estado` (confirmado contra producción antes de programar) — el valor `'cancelado'` no necesitó ningún `ALTER TABLE`. Se agregó su etiqueta correspondiente (chip gris "Cancelado") a `ETIQUETAS_ESTADO`, y el filtro "Pendientes de acción" ya lo excluye automáticamente sin tocar nada (por construcción, un pedido cancelado nunca matchea `pendiente_retiro` ni `confirmado sin entregar`).
+
+### Bloque 11 — Compra a DisFit: cálculo de totales (sin cambios de código)
+
+A pedido de Ariel, se analizó un PDF de cuenta corriente completa de DisFit (74 facturas, 11/09/2024 a 30/07/2026) para calcular el total comprado histórico. Resultado: **$44.270.374,16 neto** (descontando 2 Notas de Crédito), promedio mensual **~$1.961.558**, promedio anual **~$23.536.760**, sobre un período real de ~22.6 meses. Sin impacto en el sistema — fue una consulta puntual de análisis de datos del PDF, no una carga a la base.
+
+### Bloque 12 — Vitrina: botón flotante de WhatsApp
+
+Primera pieza de la mejora visual solicitada ("¿quién puede ayudarnos a mejorar visualmente la vitrina?"). Se construyó en el propio código (no se derivó a un tercero) — se ofreció también `Claude Design` como opción para explorar variantes visuales a futuro, sin usarlo esta vez.
+
+Componente nuevo `RedesSocialesFlotantes.tsx` (ver Bloque 14, terminó absorbiendo también Instagram) agregado al `layout.tsx` de `/tienda` — no a cada página suelta — para que aparezca en toda la sección de la Vitrina de una sola vez. Número usado: `5492993244332` (mismo de contacto real del negocio, confirmado contra el sitio de Empretienda vigente).
+
+### Bloque 13 — Vitrina: logo real extraído del brandguide
+
+El PDF del proyecto (`HABITUS_BRANDGUIDE_2025.pdf`) resultó ser internamente un archivo ZIP con las páginas ya rasterizadas en JPEG (no un PDF real navegable con `pdfimages`) — se extrajo con `unzip` en vez del flujo estándar de lectura de PDF. Se usó la página 8 del brandguide ("Versión monocromática"), que tiene el logo completo (símbolo + "HÁBITUS SUPLEMENTOS DEPORTIVOS") en Persian Green sobre fondo oscuro — recortado y con el fondo removido a transparencia por distancia de color (Python/PIL), quedando un PNG limpio de 437×365px, `public/logo-habitus.png`.
+
+**Aviso dejado para el futuro:** esta resolución alcanza para uso chico (header), pero si se necesita más grande (banner grande, impresión) convendría pedirle a VLSQZ (la agencia que hizo el brandguide) el archivo vectorial original.
+
+**Incidente de deploy, 2 veces en la sesión:** el primer `git push` del logo falló por corte de conexión (`Could not resolve host: github.com`) — el commit quedó armado localmente pero nunca llegó a GitHub/Vercel, así que el sitio siguió mostrando la versión vieja hasta el reintento de `git push`. Más adelante en la sesión pasó algo parecido pero distinto: el `push` sí funcionó, pero **un archivo de código nunca se movió de Descargas a su carpeta real** (`tienda_page_con_banners.tsx` se quedó en Descargas mientras solo se movían las imágenes) — el commit correspondiente nunca se generó. Ambos casos se detectaron pidiendo el resultado de `git log --oneline` y comparando contra lo que debería haber quedado commiteado.
+
+### Bloque 14 — Vitrina: Instagram, agrupado con WhatsApp como íconos flotantes
+
+Se agregó inicialmente como link en el footer, pero a pedido de Ariel se movió a un ícono flotante — más visible. Se creó `RedesSocialesFlotantes.tsx` (reemplazando el `BotonWhatsAppFlotante.tsx` original, que quedó huérfano sin uso, no se borró del repo) con los dos íconos apilados: Instagram arriba (con su degradado de marca oficial) y WhatsApp abajo, ambos como SVG dibujados a mano (glifos oficiales reconocibles, no requieren archivo de imagen). Link: `https://www.instagram.com/habitussd/`.
+
+### Bloque 15 — Vitrina: banners de categoría clickeables
+
+Ariel pasó 16 imágenes ya diseñadas (7 de categoría, 5 de marca, 4 institucionales) de una sesión de diseño previa fuera del sistema. Se acordó:
+- Arrancar solo con las **6 de categoría con nombre no ambiguo** (Proteínas, Creatinas, Pre-entrenamiento, Colágenos, Quemadores, Bebidas Isotónicas) — se dejó afuera "Cafeínas" porque el rubro real en la base es "Energía", generaría confusión de nombre.
+- Las 2 imágenes "Envíos a toda Argentina" **no se usan por ahora** — contradicen la decisión de negocio vigente (solo retiro en local); quedan guardadas para cuando se implemente la fase de envíos (ver pendiente).
+- Marcas e institucionales quedan para una segunda pasada, a definir.
+
+**Bug real cometido y corregido en la misma sesión:** al mapear los archivos numerados (`1.png`...`16.png`) subidos por Ariel a las categorías, se calculó mal la correspondencia — el análisis inicial había numerado las imágenes según el orden de aparición en el mensaje ("Imagen 4", "Imagen 5"...), pero `uploaded_files` había llegado con un orden distinto al numérico (arrancaba en `14.png, 15.png, 16.png` y seguía con `1.png`...`13.png`), así que "Imagen 4" en realidad era el archivo `1.png`, no `4.png`. Resultado: `quemadores.png` tenía el contenido de Quemadores real pero bajo el nombre correcto por casualidad en algunos, mal en otros — Ariel lo detectó (banner de "Proteínas" mostraba Quemadores, "Creatinas" mostraba Colágenos, "Pre entreno" mostraba un banner de marca ONE FIT que ni siquiera era de categoría). Se corrigió revisando cada imagen una por una con `view` antes de reasignar, sin necesidad de que Ariel volviera a subir nada — mapeo final correcto: `1.png`→Proteínas, `2.png`→Creatinas, `4.png`→Quemadores, `5.png`→Colágenos, `6.png`→Isotónicas, `7.png`→Pre entreno. **Lección: nunca asumir el orden de archivos subidos coincide con el orden numérico de sus nombres — verificar contenido real antes de nombrar/asignar.**
+
+Implementación: sección `CATEGORIAS_BANNER` en `tienda/page.tsx`, visible solo en la vista "landing" (sin filtro ni búsqueda activa) para no saturar cuando el cliente ya está navegando filtrado — cada banner enlaza a `/tienda?rubro=<Categoría>`, reutilizando el mecanismo de filtro ya existente sin tocar `FiltrosTienda.tsx`. Imágenes pesadas (350-570 KB cada una, PNG sin comprimir) — con `loading="lazy"` por ahora, pendiente comprimir/convertir a WebP si se nota lento en el celular.
+
+### Bloque 16 — Vitrina: rediseño del header y footer
+
+Cierre de la mejora visual. Header: se sacó la glosa de dirección (quedó solo el logo, ahora con link a `/tienda` y centrado respecto al ancho completo usando el carrito posicionado con `absolute` aparte, para que no lo empuje del centro). Footer: reemplazado el texto chico de una línea por un bloque negro (`bg-charcoal`, mismo estilo que el header) con email, teléfono (mismo número que WhatsApp, clickeable para llamar) y dirección completa, cada uno con su ícono — **decisión de criterio tomada y confirmada con Ariel: íconos monocromáticos en Persian Green**, no multicolor, para no romper la paleta estricta de 3 colores del `DESIGN.md` ("Efficient Workshop", utilitario y plano).
+
 ### Pendiente general para la próxima sesión
-1. Definir con cuáles mejoras seguir de Pedidos Web — queda solo el punto 5 (cancelar orden / revertir pago manualmente) de la lista original de 5.
-2. Envíos a domicilio en la Vitrina (fase posterior a "solo retiro en local") — decisión de negocio, no solo técnica: afecta checkout, Pedidos Web, cálculo de costos de envío. Referencia de UX vista: pantalla "Métodos de envío" de Empretienda.
-3. Vigilar si vuelve a pasar el patrón de movimiento de stock huérfano (Bloque 8) en alguna venta nueva de Mercado Pago — si pasa, revisar Logs de Vercel en modo Live de inmediato.
-4. Evaluar si habilitar tipo "Ingreso" en `MovimientoStockForm.tsx` para el motivo "Corrección de stock" (Bloque 8).
-5. Confirmar en la práctica que el aviso de "1 pedido web pendiente de acción" del Dashboard se actualiza correctamente al resolver el pedido (quedó sin confirmar del todo si depende de un refresh o se actualiza solo).
-6. Seguir con los pendientes de sesiones previas (Correcciones, sandbox, NC real, permisos de Agustín, pantalla "Actualizar fotos").
+1. Envíos a domicilio en la Vitrina (fase posterior a "solo retiro en local") — decisión de negocio, afecta checkout, Pedidos Web y cálculo de costos. Ya hay 2 banners "Envíos a toda Argentina" guardados (sin usar) para cuando se retome.
+2. Banners de marca e institucionales (medios de pago) — segunda pasada de la mejora visual de la Vitrina, alcance a definir.
+3. Vigilar si vuelve a pasar el patrón de movimiento de stock huérfano (Bloque 8, sesión anterior) en alguna venta nueva de Mercado Pago — si pasa, revisar Logs de Vercel en modo Live de inmediato.
+4. Evaluar si habilitar tipo "Ingreso" en `MovimientoStockForm.tsx` para el motivo "Corrección de stock".
+5. Confirmar en la práctica que el aviso de "1 pedido web pendiente de acción" del Dashboard se actualiza correctamente al resolver el pedido.
+6. Circuito de Nota de Crédito real (bloqueado por constraint `comprobantes.venta_id` UNIQUE) — desbloquea, entre otras cosas, el caso "delicado" de cancelación de Pedidos Web (Bloque 10).
+7. Pantalla "Correcciones" para Admin, resync de sandbox, permisos granulares de Agustín (pendientes de sesiones previas, sin tocar todavía).
+8. Comprimir las 6 imágenes de banners de categoría (350-570 KB cada una) si se nota lenta la carga inicial de `/tienda` en el celular.
+9. Actualizar `MAPA-ARCHIVOS.md` con todos los archivos nuevos/tocados de esta sesión (quedó pendiente de la sesión anterior también, se fue acumulando).
