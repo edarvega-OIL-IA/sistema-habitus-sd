@@ -1,13 +1,22 @@
 // Ruta destino: C:\Users\Usuario\Documents\sistema-habitus-sd\src\app\tienda\checkout\page.tsx
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Package, AlertTriangle, Loader2 } from 'lucide-react'
+import { ArrowLeft, Package, AlertTriangle, Loader2, Truck, Store } from 'lucide-react'
 import { useCarrito } from '@/components/tienda/CarritoContext'
 
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
+
+type MetodoEnvio = 'retiro_local' | 'envio_cinco_saltos'
+
+interface ConfigEnvios {
+  tarifaCincoSaltos: number
+  cincoSaltosActivo: boolean
+  aclaracionesTexto: string | null
+  aclaracionesActivo: boolean
+}
 
 export default function CheckoutPage() {
   const router = useRouter()
@@ -23,6 +32,27 @@ export default function CheckoutPage() {
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [detalles, setDetalles] = useState<string[]>([])
+
+  // Envíos
+  const [configEnvios, setConfigEnvios] = useState<ConfigEnvios | null>(null)
+  const [metodoEnvio, setMetodoEnvio] = useState<MetodoEnvio>('retiro_local')
+  const [direccionCalle, setDireccionCalle] = useState('')
+  const [direccionNumero, setDireccionNumero] = useState('')
+
+  useEffect(() => {
+    fetch('/api/tienda/configuracion-envios')
+      .then(res => res.json())
+      .then(data => {
+        if (!data.error) setConfigEnvios(data)
+      })
+      .catch(() => {
+        // Si falla, el checkout sigue funcionando solo con "Retiro en local"
+        // (comportamiento previo a esta fase, sin bloquear la compra)
+      })
+  }, [])
+
+  const costoEnvio = metodoEnvio === 'envio_cinco_saltos' && configEnvios ? configEnvios.tarifaCincoSaltos : 0
+  const totalConEnvio = totalPrecio + costoEnvio
 
   if (cargado && items.length === 0) {
     return (
@@ -45,6 +75,11 @@ export default function CheckoutPage() {
       return
     }
 
+    if (metodoEnvio === 'envio_cinco_saltos' && (!direccionCalle.trim() || !direccionNumero.trim())) {
+      setError('Completá la dirección de entrega en Cinco Saltos')
+      return
+    }
+
     setEnviando(true)
     try {
       const res = await fetch('/api/tienda/checkout', {
@@ -61,6 +96,16 @@ export default function CheckoutPage() {
             cuit: cuit.trim() || undefined,
           },
           observaciones: observaciones.trim() || undefined,
+          metodoEnvio,
+          ...(metodoEnvio === 'envio_cinco_saltos' && {
+            direccion: {
+              calle: direccionCalle.trim(),
+              numero: direccionNumero.trim(),
+              localidad: 'Cinco Saltos',
+              provincia: 'Río Negro',
+              cp: '8303',
+            },
+          }),
         }),
       })
       const data = await res.json()
@@ -117,7 +162,11 @@ export default function CheckoutPage() {
 
           <div>
             <label className="text-xs font-medium text-gray-500">Nombre y apellido *</label>
-            <p className="text-xs text-gray-400 mt-0.5">Nombre de quien retira el pedido en el local — te vamos a pedir el DNI al momento de la entrega.</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {metodoEnvio === 'retiro_local'
+                ? 'Nombre de quien retira el pedido en el local — te vamos a pedir el DNI al momento de la entrega.'
+                : 'Nombre de quien recibe el pedido en el domicilio.'}
+            </p>
             <input
               value={nombre}
               onChange={e => setNombre(e.target.value)}
@@ -165,6 +214,64 @@ export default function CheckoutPage() {
             </div>
           </div>
 
+          {/* Método de envío */}
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2">Cómo querés recibirlo</p>
+            <div className="space-y-2">
+              <label className={`flex items-center gap-2 border rounded-lg px-3 py-2 cursor-pointer text-sm ${metodoEnvio === 'retiro_local' ? 'border-[#00a19a] bg-[#00a19a]/5' : 'border-gray-300'}`}>
+                <input
+                  type="radio"
+                  name="metodoEnvio"
+                  checked={metodoEnvio === 'retiro_local'}
+                  onChange={() => setMetodoEnvio('retiro_local')}
+                />
+                <Store className="w-4 h-4 text-gray-400 shrink-0" />
+                <span>Retiro en local <span className="text-gray-400">— sin costo</span></span>
+              </label>
+
+              {configEnvios?.cincoSaltosActivo && (
+                <label className={`flex items-center gap-2 border rounded-lg px-3 py-2 cursor-pointer text-sm ${metodoEnvio === 'envio_cinco_saltos' ? 'border-[#00a19a] bg-[#00a19a]/5' : 'border-gray-300'}`}>
+                  <input
+                    type="radio"
+                    name="metodoEnvio"
+                    checked={metodoEnvio === 'envio_cinco_saltos'}
+                    onChange={() => setMetodoEnvio('envio_cinco_saltos')}
+                  />
+                  <Truck className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span>Envío en Cinco Saltos <span className="text-gray-400">— {fmt(configEnvios.tarifaCincoSaltos)}</span></span>
+                </label>
+              )}
+            </div>
+
+            {configEnvios?.aclaracionesActivo && configEnvios.aclaracionesTexto && (
+              <p className="text-xs text-gray-400 mt-2">{configEnvios.aclaracionesTexto}</p>
+            )}
+          </div>
+
+          {/* Dirección — solo si eligió envío */}
+          {metodoEnvio === 'envio_cinco_saltos' && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2">
+                <label className="text-xs font-medium text-gray-500">Calle *</label>
+                <input
+                  value={direccionCalle}
+                  onChange={e => setDireccionCalle(e.target.value)}
+                  className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Número *</label>
+                <input
+                  value={direccionNumero}
+                  onChange={e => setDireccionNumero(e.target.value)}
+                  className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
+                  required
+                />
+              </div>
+            </div>
+          )}
+
           <div>
             <p className="text-xs font-medium text-gray-500 mb-2">Cómo querés pagar</p>
             <div className="space-y-2">
@@ -184,7 +291,7 @@ export default function CheckoutPage() {
                   checked={medioElegido === 'retiro_efectivo'}
                   onChange={() => setMedioElegido('retiro_efectivo')}
                 />
-                Retirar y pagar en el local
+                {metodoEnvio === 'retiro_local' ? 'Retirar y pagar en el local' : 'Pagar en efectivo al recibir'}
               </label>
             </div>
           </div>
@@ -231,9 +338,19 @@ export default function CheckoutPage() {
               </div>
             ))}
           </div>
-          <div className="border-t border-gray-100 mt-3 pt-3 flex justify-between text-sm font-bold text-[#3c3c3b]">
-            <span>Total</span>
-            <span>{fmt(totalPrecio)}</span>
+          <div className="border-t border-gray-100 mt-3 pt-3 space-y-1">
+            <div className="flex justify-between text-xs text-gray-400">
+              <span>Subtotal</span>
+              <span>{fmt(totalPrecio)}</span>
+            </div>
+            <div className="flex justify-between text-xs text-gray-400">
+              <span>Envío</span>
+              <span>{costoEnvio > 0 ? fmt(costoEnvio) : 'Sin costo'}</span>
+            </div>
+            <div className="flex justify-between text-sm font-bold text-[#3c3c3b] pt-1">
+              <span>Total</span>
+              <span>{fmt(totalConEnvio)}</span>
+            </div>
           </div>
         </aside>
       </main>
