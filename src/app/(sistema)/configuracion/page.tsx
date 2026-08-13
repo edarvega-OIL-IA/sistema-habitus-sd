@@ -122,13 +122,13 @@ export default function ConfiguracionPage() {
             <label className="text-sm font-medium text-gray-700">Aclaraciones sobre envíos</label>
             <button
               onClick={() => setConfig({ ...config, aclaraciones_activo: !config.aclaraciones_activo })}
-              className={`flex-shrink-0 w-10 h-6 rounded-full transition-colors relative ${
+              className={`relative inline-flex flex-shrink-0 h-6 w-11 items-center rounded-full transition-colors ${
                 config.aclaraciones_activo ? 'bg-[#00a19a]' : 'bg-gray-300'
               }`}
             >
               <span
-                className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-                  config.aclaraciones_activo ? 'translate-x-4' : 'translate-x-0.5'
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  config.aclaraciones_activo ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
             </button>
@@ -160,14 +160,14 @@ export default function ConfiguracionPage() {
             <p className="text-sm font-medium text-gray-700">Envío en Cinco Saltos</p>
             <button
               onClick={() => setConfig({ ...config, envio_cinco_saltos_activo: !config.envio_cinco_saltos_activo })}
-              className={`flex-shrink-0 w-10 h-6 rounded-full transition-colors relative ${
+              className={`relative inline-flex flex-shrink-0 h-6 w-11 items-center rounded-full transition-colors ${
                 config.envio_cinco_saltos_activo ? 'bg-[#00a19a]' : 'bg-gray-300'
               }`}
               title={config.envio_cinco_saltos_activo ? 'Método habilitado en el checkout' : 'Método deshabilitado (no se muestra al cliente)'}
             >
               <span
-                className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-                  config.envio_cinco_saltos_activo ? 'translate-x-4' : 'translate-x-0.5'
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  config.envio_cinco_saltos_activo ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
             </button>
