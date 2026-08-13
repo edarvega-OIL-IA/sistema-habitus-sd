@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 12/08/2026 — **Sesión larga y muy productiva.** Se cerró por completo la lista de mejoras de Pedidos Web (WhatsApp, Observaciones, facturación con PDF, rediseño a tabla, y cancelación/anulación de pedidos con sus 3 casos), y se hizo una mejora visual integral de la Vitrina: botón flotante de WhatsApp, logo real (extraído del brandguide) con link al home y centrado, ícono de Instagram, banners de categoría clickeables, y footer rediseñado con toda la info de contacto. En el camino: varios fixes de ordenamiento (Historial de Artículos, Vitrina, Obligaciones), acreedor AFIP renombrado a ARCA con plan de pago de 12 cuotas cargado, y una investigación de discrepancia de stock sin causa raíz confirmada (ver Bloque 8).
-**Estado general:** 🟢 En producción. Pedidos Web es una pantalla completa de uso diario. La Vitrina ya tiene identidad visual real (no placeholder) — logo, banners, contacto, redes — lista para mostrar a clientes sin quedar "a medio hacer".
-**Próxima acción concreta:** definir con qué seguir de la lista general de pendientes (ver el final de la sección 26) — no queda ninguna mejora de Pedidos Web ni de la Vitrina pendiente de esta ronda, salvo los banners de marca/institucionales que se dejaron para después. Ver sección 26.
+**Última actualización:** 13/08/2026 (madrugada) — Cierre de la sesión larga del 12/08. Se sumó un fix de validación real en la cancelación de Pedidos Web (devolución sin monto cargado quedaba en silencio), y **se confirmó un tercer caso del bug de stock huérfano del webhook de Mercado Pago** (ventas #196, #197, y ahora #224) — con 3 casos ya no es "a vigilar", pasa a ser prioridad alta de investigación real para la próxima sesión.
+**Estado general:** 🟢 En producción, con datos corregidos a mano en los 2 casos puntuales detectados (financiero y de stock de la venta #224). El patrón de fondo del webhook sigue sin resolverse — necesita atraparse en el momento (Logs de Vercel en vivo) la próxima vez que ocurra.
+**Próxima acción concreta:** ver la lista de pendientes por prioridad al final de la sección 26 — el ítem 1 (investigar el bug del webhook) es el más importante y el más difícil de resolver sin un caso fresco para diagnosticar en el momento.
 
 ---
 
@@ -988,13 +988,37 @@ Implementación: sección `CATEGORIAS_BANNER` en `tienda/page.tsx`, visible solo
 
 Cierre de la mejora visual. Header: se sacó la glosa de dirección (quedó solo el logo, ahora con link a `/tienda` y centrado respecto al ancho completo usando el carrito posicionado con `absolute` aparte, para que no lo empuje del centro). Footer: reemplazado el texto chico de una línea por un bloque negro (`bg-charcoal`, mismo estilo que el header) con email, teléfono (mismo número que WhatsApp, clickeable para llamar) y dirección completa, cada uno con su ícono — **decisión de criterio tomada y confirmada con Ariel: íconos monocromáticos en Persian Green**, no multicolor, para no romper la paleta estricta de 3 colores del `DESIGN.md` ("Efficient Workshop", utilitario y plano).
 
-### Pendiente general para la próxima sesión
-1. Envíos a domicilio en la Vitrina (fase posterior a "solo retiro en local") — decisión de negocio, afecta checkout, Pedidos Web y cálculo de costos. Ya hay 2 banners "Envíos a toda Argentina" guardados (sin usar) para cuando se retome.
-2. Banners de marca e institucionales (medios de pago) — segunda pasada de la mejora visual de la Vitrina, alcance a definir.
-3. Vigilar si vuelve a pasar el patrón de movimiento de stock huérfano (Bloque 8, sesión anterior) en alguna venta nueva de Mercado Pago — si pasa, revisar Logs de Vercel en modo Live de inmediato.
-4. Evaluar si habilitar tipo "Ingreso" en `MovimientoStockForm.tsx` para el motivo "Corrección de stock".
-5. Confirmar en la práctica que el aviso de "1 pedido web pendiente de acción" del Dashboard se actualiza correctamente al resolver el pedido.
-6. Circuito de Nota de Crédito real (bloqueado por constraint `comprobantes.venta_id` UNIQUE) — desbloquea, entre otras cosas, el caso "delicado" de cancelación de Pedidos Web (Bloque 10).
-7. Pantalla "Correcciones" para Admin, resync de sandbox, permisos granulares de Agustín (pendientes de sesiones previas, sin tocar todavía).
-8. Comprimir las 6 imágenes de banners de categoría (350-570 KB cada una) si se nota lenta la carga inicial de `/tienda` en el celular.
-9. Actualizar `MAPA-ARCHIVOS.md` con todos los archivos nuevos/tocados de esta sesión (quedó pendiente de la sesión anterior también, se fue acumulando).
+### Bloque 17 — Fix menor de Vitrina + fix de validación en cancelación + TERCER caso confirmado del bug de stock huérfano
+
+**Glosa "Categorías" removida** de arriba de los banners en `/tienda` — redundante, los banners ya se explican solos.
+
+**Fix real de validación en `cancelarYAnularVenta` (Pedidos Web):** el formulario de cancelación con devolución permitía confirmar con el checkbox "Hubo devolución de dinero" tildado pero sin monto cargado — la función seguía de largo en silencio, sin crear el movimiento de Egreso ni avisar nada. Corregido con una validación temprana (antes de tocar cualquier tabla) que frena y muestra error si falta monto o medio de pago cuando el checkbox está tildado.
+
+**Caso real que disparó el hallazgo:** Enzo Vega hizo un pedido web (#12, venta #1525/id real 224) el 12/08 a la noche, Ariel lo canceló y le devolvió $1.000 por transferencia desde su MP personal — pero como no cargó el monto en el formulario, el Egreso nunca se registró. Se reconstruyó a mano:
+```sql
+INSERT INTO movimientos (sucursal_id, tipo, categoria_gasto_id, concepto_gasto_id, medio_pago_id, monto, fecha_utc, mes_contable, origen_tipo, origen_id, observaciones, usuario_id)
+VALUES (1, 'Egreso', 14, 45, 4, 1000, '2026-08-12', '2026-08-01', 'venta', 224, 'Devolución a Enzo Vega...', <usuario_id>);
+```
+**Nota importante de investigación:** en el camino se sospechó erróneamente que el Ingreso original de esa venta tampoco existía — resultó ser un error de consulta (se buscó por `numero_venta`=1525 en vez del `id` real=224, dos columnas distintas de `ventas`). El Ingreso original **sí estaba bien registrado desde el principio**. Lección: `numero_venta` (lo que ve el usuario) y `id` (lo que usan las FK como `origen_id`) no son lo mismo — nunca asumir que coinciden.
+
+**TERCER caso confirmado del bug de stock huérfano** (mismo patrón que Bloque 8, sesión anterior — ventas #196/#197): la venta #224 (pedido #12) tampoco descontó stock real al momento del pago. Se confirmó con:
+```sql
+SELECT id, origen_tipo, origen_id, creado_en, observaciones FROM movimientos_stock WHERE origen_tipo='venta' AND origen_id=224;
+-- id 395 (00:28, "Venta web #1525 — pedido 12") — SIN ítems en movimiento_stock_items
+-- id 396 (00:48, "Reversión por cancelación de pedido web #12") — CON su ítem (+1)
+```
+Como la reversión de la cancelación asumió que el descuento original sí se había aplicado, el stock real quedó con **1 unidad de más** de lo que correspondía (48 en sistema vs 47 real). Corregido manualmente vía `/stock/nuevo` (Egreso, motivo "Corrección de stock", cantidad 1 — esta vez sí posible desde la pantalla, es Egreso no Ingreso).
+
+**Con 3 casos confirmados (ventas #196, #197, #224), esto deja de ser "a vigilar" y pasa a ser un patrón real y recurrente.** El código del webhook se revisó 3 veces y está bien escrito — la sospecha es algo intermitente (timeout de función serverless en el plan actual de Vercel, condición de carrera, o un límite/hiccup puntual de Supabase en el segundo `INSERT` de la secuencia). No se puede resolver a ciegas sin atrapar el error real la próxima vez que ocurra — **sube a prioridad alta para la próxima sesión.**
+
+### Pendiente general para la próxima sesión (por prioridad)
+1. **🔴 ALTA — Investigar la causa raíz del bug de stock huérfano en el webhook de MP** (3 casos confirmados: ventas #196, #197, #224). Estrategia sugerida: apenas se detecte una venta nueva con este patrón, entrar a Logs de Vercel en modo Live de inmediato (la retención es corta) y buscar el mensaje de error real (`Error al descontar stock de venta web`). Mientras tanto, después de cualquier cancelación de pedido web con venta asociada, conviene verificar en Historial de Artículos que el stock cuadre — es el único parche disponible por ahora.
+2. Envíos a domicilio en la Vitrina (fase posterior a "solo retiro en local") — decisión de negocio. 2 banners "Envíos a toda Argentina" guardados sin usar para cuando se retome.
+3. Feature nueva: "Avisarme cuando haya stock" — botón en productos sin stock que abre un diálogo pidiendo email, guarda en tabla nueva (a diseñar), y al confirmar una Compra que reponga ese artículo, dispara un mail automático a los interesados. Requiere definir proveedor de envío de mails (hoy el sistema no tiene ninguno integrado).
+4. Banners de marca e institucionales (medios de pago) — segunda pasada de la mejora visual de la Vitrina.
+5. Evaluar si habilitar tipo "Ingreso" en `MovimientoStockForm.tsx` para el motivo "Corrección de stock".
+6. Confirmar en la práctica que el aviso de "1 pedido web pendiente de acción" del Dashboard se actualiza correctamente al resolver el pedido.
+7. Circuito de Nota de Crédito real (bloqueado por constraint `comprobantes.venta_id` UNIQUE) — desbloquea el caso "delicado" de cancelación de Pedidos Web.
+8. Pantalla "Correcciones" para Admin, resync de sandbox, permisos granulares de Agustín.
+9. Comprimir las 6 imágenes de banners de categoría si se nota lenta la carga inicial de `/tienda` en el celular.
+10. Actualizar `MAPA-ARCHIVOS.md` con todos los archivos nuevos/tocados de las últimas 2 sesiones.
