@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { emitirNotaCreditoVenta } from '@/lib/tusfacturas/notaCredito'
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
-  const ventaId = Number(params.id)
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const ventaId = Number(id)
   if (!ventaId || Number.isNaN(ventaId)) {
     return NextResponse.json({ error: 'ID de venta inválido' }, { status: 400 })
   }
