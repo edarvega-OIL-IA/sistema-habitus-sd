@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Truck, Save, CheckCircle2 } from 'lucide-react'
+import { Truck, Save, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react'
 
 interface ConfiguracionEnvios {
   id: number
@@ -37,14 +37,67 @@ function parsearMonto(v: string): number {
 const fmtMonto = (n: number) =>
   n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+// Toggle reutilizable — <div> en vez de <button> a propósito: los estilos
+// nativos del navegador sobre <button> distorsionaban el rounded-full.
+function Toggle({ activo, onToggle, title }: { activo: boolean; onToggle: () => void; title?: string }) {
+  return (
+    <div
+      role="switch"
+      aria-checked={activo}
+      onClick={onToggle}
+      title={title}
+      className={`relative inline-flex flex-shrink-0 h-6 w-11 items-center rounded-full cursor-pointer transition-colors ${
+        activo ? 'bg-[#00a19a]' : 'bg-gray-300'
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
+          activo ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </div>
+  )
+}
+
+// Tarjeta colapsable reutilizable — cada sección futura de Configuración
+// (Envíos, Datos del negocio, etc.) usa este mismo contenedor.
+function SeccionConfig({
+  icono,
+  titulo,
+  abiertaPorDefecto = true,
+  children,
+}: {
+  icono: React.ReactNode
+  titulo: string
+  abiertaPorDefecto?: boolean
+  children: React.ReactNode
+}) {
+  const [abierta, setAbierta] = useState(abiertaPorDefecto)
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 mb-4 overflow-hidden">
+      <button
+        onClick={() => setAbierta(!abierta)}
+        className="w-full flex items-center gap-2 p-4 hover:bg-gray-50 transition-colors text-left"
+      >
+        {abierta ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+        {icono}
+        <h2 className="text-sm font-semibold text-gray-700">{titulo}</h2>
+      </button>
+      {abierta && <div className="px-4 pb-4">{children}</div>}
+    </div>
+  )
+}
+
 export default function ConfiguracionPage() {
   const [config, setConfig] = useState<ConfiguracionEnvios | null>(null)
+  const [original, setOriginal] = useState<ConfiguracionEnvios | null>(null)
   const [loading, setLoading] = useState(true)
   const [guardando, setGuardando] = useState(false)
   const [guardadoOk, setGuardadoOk] = useState(false)
 
   // Buffer de texto para el input de monto (tarifa Cinco Saltos)
   const [tarifaTexto, setTarifaTexto] = useState('')
+  const [tarifaTextoOriginal, setTarifaTextoOriginal] = useState('')
 
   useEffect(() => {
     cargarConfig()
@@ -60,13 +113,26 @@ export default function ConfiguracionPage() {
       .single()
     if (data) {
       setConfig(data as ConfiguracionEnvios)
-      setTarifaTexto(fmtMonto(data.tarifa_cinco_saltos))
+      setOriginal(data as ConfiguracionEnvios)
+      const tarifaFmt = fmtMonto(data.tarifa_cinco_saltos)
+      setTarifaTexto(tarifaFmt)
+      setTarifaTextoOriginal(tarifaFmt)
     }
     setLoading(false)
   }
 
+  // Hay cambios reales si difiere cualquier campo editable contra lo cargado
+  // de la base, o si el monto de la tarifa (ya parseado) cambió.
+  const hayCambios =
+    !!config &&
+    !!original &&
+    (config.aclaraciones_texto !== original.aclaraciones_texto ||
+      config.aclaraciones_activo !== original.aclaraciones_activo ||
+      config.envio_cinco_saltos_activo !== original.envio_cinco_saltos_activo ||
+      parsearMonto(tarifaTexto) !== original.tarifa_cinco_saltos)
+
   async function guardar() {
-    if (!config) return
+    if (!config || !hayCambios) return
     setGuardando(true)
     setGuardadoOk(false)
     const supabase = createClient()
@@ -109,31 +175,15 @@ export default function ConfiguracionPage() {
         <h1 className="text-xl font-semibold text-[#3c3c3b]">Configuración</h1>
       </div>
 
-      {/* Envíos */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-        <div className="flex items-center gap-2 mb-4">
-          <Truck className="w-4 h-4 text-gray-500" />
-          <h2 className="text-sm font-semibold text-gray-700">Envíos</h2>
-        </div>
-
+      <SeccionConfig icono={<Truck className="w-4 h-4 text-gray-500" />} titulo="Envíos">
         {/* Aclaraciones sobre envíos */}
         <div className="border border-gray-200 rounded-lg p-4 mb-4">
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-medium text-gray-700">Aclaraciones sobre envíos</label>
-            <div
-              role="switch"
-              aria-checked={config.aclaraciones_activo}
-              onClick={() => setConfig({ ...config, aclaraciones_activo: !config.aclaraciones_activo })}
-              className={`relative inline-flex flex-shrink-0 h-6 w-11 items-center rounded-full cursor-pointer transition-colors ${
-                config.aclaraciones_activo ? 'bg-[#00a19a]' : 'bg-gray-300'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
-                  config.aclaraciones_activo ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </div>
+            <Toggle
+              activo={config.aclaraciones_activo}
+              onToggle={() => setConfig({ ...config, aclaraciones_activo: !config.aclaraciones_activo })}
+            />
           </div>
           <p className="text-xs text-gray-400 mb-2">
             Texto visible para el cliente en el checkout de la Vitrina, cuando está activo.
@@ -160,21 +210,11 @@ export default function ConfiguracionPage() {
         <div className="border border-gray-200 rounded-lg p-4 mb-4">
           <div className="flex items-center justify-between mb-1">
             <p className="text-sm font-medium text-gray-700">Envío en Cinco Saltos</p>
-            <div
-              role="switch"
-              aria-checked={config.envio_cinco_saltos_activo}
-              onClick={() => setConfig({ ...config, envio_cinco_saltos_activo: !config.envio_cinco_saltos_activo })}
-              className={`relative inline-flex flex-shrink-0 h-6 w-11 items-center rounded-full cursor-pointer transition-colors ${
-                config.envio_cinco_saltos_activo ? 'bg-[#00a19a]' : 'bg-gray-300'
-              }`}
+            <Toggle
+              activo={config.envio_cinco_saltos_activo}
+              onToggle={() => setConfig({ ...config, envio_cinco_saltos_activo: !config.envio_cinco_saltos_activo })}
               title={config.envio_cinco_saltos_activo ? 'Método habilitado en el checkout' : 'Método deshabilitado (no se muestra al cliente)'}
-            >
-              <span
-                className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
-                  config.envio_cinco_saltos_activo ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </div>
+            />
           </div>
           <p className="text-xs text-gray-400 mb-3">
             Tarifa fija que ve el cliente al elegir este método en el checkout de la Vitrina.
@@ -240,13 +280,13 @@ export default function ConfiguracionPage() {
             </div>
           </div>
         </div>
-      </div>
+      </SeccionConfig>
 
       <div className="flex items-center gap-3">
         <button
           onClick={guardar}
-          disabled={guardando}
-          className="flex items-center gap-2 px-4 py-2 bg-[#00a19a] text-white text-sm font-medium rounded hover:bg-[#008b85] transition-colors disabled:opacity-50"
+          disabled={guardando || !hayCambios}
+          className="flex items-center gap-2 px-4 py-2 bg-[#00a19a] text-white text-sm font-medium rounded hover:bg-[#008b85] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Save className="w-4 h-4" />
           {guardando ? 'Guardando...' : 'Guardar cambios'}
