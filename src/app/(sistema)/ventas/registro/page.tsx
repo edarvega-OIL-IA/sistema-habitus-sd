@@ -46,6 +46,7 @@ export default function RegistroVentasPage() {
   const [medioPago, setMedioPago] = useState('todos')
   const [estadoFiltro, setEstadoFiltro] = useState('todos')
   const [turnoFiltro, setTurnoFiltro] = useState('todos')
+  const [canalFiltro, setCanalFiltro] = useState<'todos' | 'local' | 'web'>('todos')
   const [cierreActivoId, setCierreActivoId] = useState<number | null>(null)
 
   useEffect(() => {
@@ -252,6 +253,13 @@ export default function RegistroVentasPage() {
     if (estadoFiltro !== 'todos' && v.estado_venta_id?.toString() !== estadoFiltro) return false
     // Turno
     if (turnoFiltro !== 'todos' && (v.cierres_turno as any)?.turno_id?.toString() !== turnoFiltro) return false
+    // Canal — las ventas web (webhook de Mercado Pago) no quedan asociadas a
+    // ningún cierre_turno_id, a diferencia de las ventas de mostrador.
+    if (canalFiltro !== 'todos') {
+      const esWeb = v.cierre_turno_id === null
+      if (canalFiltro === 'web' && !esWeb) return false
+      if (canalFiltro === 'local' && esWeb) return false
+    }
     // Medio de pago
     if (medioPago !== 'todos') {
       const medios = v.venta_pagos?.map(p => p.medios_pago?.nombre) || []
@@ -325,7 +333,7 @@ export default function RegistroVentasPage() {
         </div>
 
         {/* Filtros secundarios */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Turno</label>
             <select value={turnoFiltro} onChange={e => setTurnoFiltro(e.target.value)}
@@ -333,6 +341,15 @@ export default function RegistroVentasPage() {
               <option value="todos">Todos</option>
               <option value="1">Mañana</option>
               <option value="2">Tarde</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Canal</label>
+            <select value={canalFiltro} onChange={e => setCanalFiltro(e.target.value as 'todos' | 'local' | 'web')}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
+              <option value="todos">Todos</option>
+              <option value="local">Local</option>
+              <option value="web">Web</option>
             </select>
           </div>
           <div>
@@ -398,7 +415,7 @@ export default function RegistroVentasPage() {
           <div className="divide-y divide-gray-100">
             {ventasFiltradas.map(v => {
               const abierta = expandida === v.id
-              const turnoNombre = (v.cierres_turno as any)?.turnos?.nombre || '—'
+              const turnoNombre = (v.cierres_turno as any)?.turnos?.nombre || (v.cierre_turno_id === null ? 'Web' : '—')
               const medios = (v.venta_pagos || []).map(p => p.medios_pago?.nombre).filter(Boolean)
               const mediosUnicos = [...new Set(medios)].join(' + ')
               const comprobante = comprobantes.get(v.id)
