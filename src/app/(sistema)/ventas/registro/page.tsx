@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Filter, ChevronDown, ChevronRight, Trash2, Pencil } from 'lucide-react'
+import { Filter, ChevronDown, ChevronRight, Trash2, Pencil, Receipt } from 'lucide-react'
 import EditarItemsVentaModal from '@/components/ventas/EditarItemsVentaModal'
 
 interface Venta {
@@ -29,6 +29,9 @@ interface Comprobante {
   factura_cae: string | null
 }
 
+// tipos_comprobante.id — verificado contra producción
+const TIPO_COMPROBANTE_ID_FACTURA = 1
+
 export default function RegistroVentasPage() {
   const [ventas, setVentas] = useState<Venta[]>([])
   const [comprobantes, setComprobantes] = useState<Map<number, Comprobante>>(new Map())
@@ -37,6 +40,9 @@ export default function RegistroVentasPage() {
   const [anulando, setAnulando] = useState<number | null>(null)
   const [confirmando, setConfirmando] = useState<number | null>(null)
   const [editando, setEditando] = useState<{ id: number; numero_venta: number; descuento_pct: number } | null>(null)
+  const [generandoNC, setGenerandoNC] = useState<number | null>(null)
+  const [confirmandoNC, setConfirmandoNC] = useState<number | null>(null)
+  const [resultadoNC, setResultadoNC] = useState<{ ventaId: number; ok: boolean; mensaje: string } | null>(null)
 
   // Filtros
   const [modoPeriodo, setModoPeriodo] = useState<'dia' | 'mes' | 'anio' | 'libre' | 'todos'>('dia')
@@ -100,11 +106,36 @@ export default function RegistroVentasPage() {
         .from('comprobantes')
         .select('venta_id, estado_fiscal_id, factura_cae')
         .in('venta_id', ventaIds)
+        .eq('tipo_comprobante_id', TIPO_COMPROBANTE_ID_FACTURA)
 
       setComprobantes(new Map((comprobantesData || []).map(c => [c.venta_id, c])))
     }
 
     setLoading(false)
+  }
+
+  // Emite una Nota de Crédito C que anula por el total completo la venta —
+  // SIEMPRE real ante ARCA/TusFacturasAPP, irreversible, consume numeración
+  // real. Al confirmarse, la venta pasa a estado Anulada (mismo chip que el
+  // resto de anulaciones) y el botón deja de mostrarse solo.
+  async function generarNotaCredito(ventaId: number) {
+    setGenerandoNC(ventaId)
+    setResultadoNC(null)
+    try {
+      const res = await fetch(`/api/ventas/${ventaId}/nota-credito`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) {
+        setResultadoNC({ ventaId, ok: false, mensaje: data.error || 'Error desconocido' })
+      } else {
+        setResultadoNC({ ventaId, ok: true, mensaje: data.mensaje })
+        await cargarVentas()
+      }
+    } catch (err: any) {
+      setResultadoNC({ ventaId, ok: false, mensaje: 'Error de conexión: ' + err.message })
+    } finally {
+      setGenerandoNC(null)
+      setConfirmandoNC(null)
+    }
   }
 
   async function descargarPDF(ventaId: number) {
@@ -497,8 +528,40 @@ export default function RegistroVentasPage() {
                           )}
                         </>
                       )}
+                      {v.estado_venta_id === 4 && (
+                        confirmandoNC === v.id ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={e => { e.stopPropagation(); generarNotaCredito(v.id) }}
+                              disabled={generandoNC === v.id}
+                              className="text-xs bg-red-500 text-white px-2 py-0.5 rounded hover:bg-red-600 disabled:opacity-50"
+                            >
+                              {generandoNC === v.id ? '...' : 'Confirmar NC'}
+                            </button>
+                            <button
+                              onClick={e => { e.stopPropagation(); setConfirmandoNC(null) }}
+                              className="text-xs text-gray-400 hover:text-gray-600 px-1"
+                            >✕</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={e => { e.stopPropagation(); setConfirmandoNC(v.id) }}
+                            className="text-gray-300 hover:text-red-500 transition-colors"
+                            title="Emitir Nota de Crédito — anula esta venta ante ARCA (real, irreversible)"
+                          >
+                            <Receipt className="w-4 h-4" />
+                          </button>
+                        )
+                      )}
                     </span>
                   </div>
+
+                  {resultadoNC?.ventaId === v.id && (
+                    <div className={`px-4 py-2 text-xs border-t ${resultadoNC.ok ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                      {resultadoNC.mensaje}
+                      <button onClick={() => setResultadoNC(null)} className="ml-2 underline">cerrar</button>
+                    </div>
+                  )}
 
                   {abierta && (
                     <div className="bg-gray-50 border-t-2 border-[#00a19a]/10 px-6 py-4 pl-11">
