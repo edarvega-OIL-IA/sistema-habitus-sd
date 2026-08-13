@@ -173,7 +173,6 @@ export default async function TiendaPage({
       {/* Banners de categoría — solo en la vista "landing", sin filtro ni búsqueda activa */}
       {rubrosSeleccionados.length === 0 && marcasSeleccionadas.length === 0 && !busqueda && (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-6">
-          <h2 className="text-lg font-semibold text-charcoal mb-3">Categorías</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {CATEGORIAS_BANNER.map(c => (
               <Link
