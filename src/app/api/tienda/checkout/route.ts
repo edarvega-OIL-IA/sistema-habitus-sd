@@ -18,15 +18,35 @@ interface ClienteCheckout {
   cuit?: string
 }
 
+interface DireccionEnvio {
+  calle: string
+  numero: string
+  localidad: string
+  provincia: string
+  cp: string
+}
+
+const METODOS_ENVIO_VALIDOS = ['retiro_local', 'envio_cinco_saltos'] as const
+type MetodoEnvio = (typeof METODOS_ENVIO_VALIDOS)[number]
+
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
 
-  const { items, medioElegido, cliente, observaciones } = body as {
+  const {
+    items,
+    medioElegido,
+    cliente,
+    observaciones,
+    metodoEnvio = 'retiro_local',
+    direccion,
+  } = body as {
     items: ItemCarrito[]
     medioElegido: 'mercado_pago' | 'retiro_efectivo'
     cliente: ClienteCheckout
     observaciones?: string
+    metodoEnvio?: MetodoEnvio
+    direccion?: DireccionEnvio
   }
 
   if (!items || items.length === 0)
@@ -35,6 +55,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Medio de pago inválido' }, { status: 400 })
   if (!cliente?.nombre || !cliente?.telefono)
     return NextResponse.json({ error: 'Nombre y teléfono son obligatorios' }, { status: 400 })
+  if (!METODOS_ENVIO_VALIDOS.includes(metodoEnvio))
+    return NextResponse.json({ error: 'Método de envío inválido' }, { status: 400 })
+  if (metodoEnvio === 'envio_cinco_saltos' && (!direccion?.calle?.trim() || !direccion?.numero?.trim()))
+    return NextResponse.json({ error: 'Falta la dirección de entrega' }, { status: 400 })
 
   const admin = createAdminClient()
 
@@ -125,7 +149,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const total = lineas.reduce((sum, l) => sum + l.subtotal, 0)
+    const subtotalMercaderia = lineas.reduce((sum, l) => sum + l.subtotal, 0)
+
+    // ── Costo de envío — SIEMPRE recalculado server-side contra la config ──
+    // vigente en configuracion_envios. Nunca se confía en un monto que
+    // mande el navegador (podría estar desactualizado, o directamente
+    // manipulado).
+    let costoEnvio = 0
+    if (metodoEnvio === 'envio_cinco_saltos') {
+      const { data: config, error: configError } = await admin
+        .from('configuracion_envios')
+        .select('tarifa_cinco_saltos, envio_cinco_saltos_activo')
+        .eq('id', 1)
+        .single()
+
+      if (configError || !config) throw new Error('No se pudo leer la configuración de envíos')
+      if (!config.envio_cinco_saltos_activo)
+        return NextResponse.json(
+          { error: 'El envío en Cinco Saltos no está disponible en este momento. Elegí "Retiro en local".' },
+          { status: 409 }
+        )
+      costoEnvio = config.tarifa_cinco_saltos
+    }
+
+    const total = subtotalMercaderia + costoEnvio
 
     // ── Crear el pedido ──────────────────────────────────────────────────
     const { data: pedido, error: pedidoError } = await admin
@@ -142,6 +189,17 @@ export async function POST(request: NextRequest) {
         items: lineas,
         total,
         observaciones: observaciones?.trim() ? observaciones.trim().slice(0, 300) : null,
+        metodo_envio: metodoEnvio,
+        costo_envio: costoEnvio,
+        ...(metodoEnvio === 'envio_cinco_saltos' && direccion
+          ? {
+              direccion_calle: direccion.calle.trim(),
+              direccion_numero: direccion.numero.trim(),
+              direccion_localidad: direccion.localidad,
+              direccion_provincia: direccion.provincia,
+              direccion_cp: direccion.cp,
+            }
+          : {}),
       })
       .select('id')
       .single()
@@ -154,13 +212,23 @@ export async function POST(request: NextRequest) {
 
     // ── Mercado Pago: generar la Preference (Checkout Pro) ──────────────
     const origin = request.nextUrl.origin
-    const preferenceBody = {
-      items: lineas.map(l => ({
-        title: l.sabor ? `${l.nombre_base} - ${l.sabor}` : l.nombre_base,
-        quantity: l.cantidad,
-        unit_price: l.precio_unitario,
+    const itemsPreference: any[] = lineas.map(l => ({
+      title: l.sabor ? `${l.nombre_base} - ${l.sabor}` : l.nombre_base,
+      quantity: l.cantidad,
+      unit_price: l.precio_unitario,
+      currency_id: 'ARS',
+    }))
+    if (costoEnvio > 0) {
+      itemsPreference.push({
+        title: 'Envío a domicilio — Cinco Saltos',
+        quantity: 1,
+        unit_price: costoEnvio,
         currency_id: 'ARS',
-      })),
+      })
+    }
+
+    const preferenceBody = {
+      items: itemsPreference,
       external_reference: String(pedido.id),
       notification_url: `${origin}/api/tienda/webhook-mp`,
       back_urls: {

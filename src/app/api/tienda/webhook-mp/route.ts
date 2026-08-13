@@ -138,8 +138,10 @@ async function procesarNotificacion(request: NextRequest) {
         usuario_id: USUARIO_ID_VENTA_WEB,
         estado_venta_id: 1, // Fiscal — se fiscaliza a continuación
         descuento_pct: 0,
-        subtotal: pedido.total,
+        subtotal: pedido.total - (pedido.costo_envio || 0),
         total: pedido.total,
+        metodo_envio: pedido.metodo_envio || 'retiro_local',
+        costo_envio: pedido.costo_envio || 0,
         observaciones: `Pedido web #${pedido.id} — Mercado Pago`,
         fecha_utc: fechaHoy,
         cierre_turno_id: null, // no depende de una caja abierta
