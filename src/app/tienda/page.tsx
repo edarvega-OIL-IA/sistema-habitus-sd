@@ -10,6 +10,7 @@
 // catálogo (nombre_base = null) se sigue mostrando suelto, sin agrupar.
 
 import { createClient } from '@/lib/supabase/server'
+import Link from 'next/link'
 import ProductoCard from '@/components/tienda/ProductoCard'
 import CarritoBoton from '@/components/tienda/CarritoBoton'
 import FiltrosTienda from '@/components/tienda/FiltrosTienda'
@@ -74,6 +75,19 @@ function agrupar(articulos: ArticuloCatalogo[]): GrupoProducto[] {
 function precioMinimo(g: GrupoProducto): number {
   return Math.min(...g.variantes.map(v => v.precio))
 }
+
+// Banners de categoría — solo las 6 con imagen armada por ahora (las de
+// "Cafeínas" se dejaron afuera para no generar ambigüedad de nombre con el
+// rubro real "Energía"; las de "Envíos a toda Argentina" quedan pendientes
+// hasta que se implemente la fase de envíos a domicilio).
+const CATEGORIAS_BANNER = [
+  { rubro: 'Proteínas', imagen: '/categorias/proteinas.png' },
+  { rubro: 'Creatinas', imagen: '/categorias/creatinas.png' },
+  { rubro: 'Pre-entrenamiento', imagen: '/categorias/pre-entreno.png' },
+  { rubro: 'Colágenos', imagen: '/categorias/colagenos.png' },
+  { rubro: 'Quemadores', imagen: '/categorias/quemadores.png' },
+  { rubro: 'Bebidas Isotónicas', imagen: '/categorias/isotonicas.png' },
+]
 
 export default async function TiendaPage({
   searchParams,
@@ -153,6 +167,25 @@ export default async function TiendaPage({
       <a href="#productos" className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:bg-charcoal focus:text-white focus:px-4 focus:py-2 focus:rounded-lg">
         Saltar al catálogo
       </a>
+
+      {/* Banners de categoría — solo en la vista "landing", sin filtro ni búsqueda activa */}
+      {rubrosSeleccionados.length === 0 && marcasSeleccionadas.length === 0 && !busqueda && (
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-6">
+          <h2 className="text-lg font-semibold text-charcoal mb-3">Categorías</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {CATEGORIAS_BANNER.map(c => (
+              <Link
+                key={c.rubro}
+                href={`/tienda?rubro=${encodeURIComponent(c.rubro)}`}
+                className="block rounded-lg overflow-hidden border border-border-gray hover:opacity-90 transition-opacity"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={c.imagen} alt={c.rubro} className="w-full h-auto block" loading="lazy" />
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Sidebar de filtros + grid de productos */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col md:flex-row gap-6">
