@@ -9,6 +9,7 @@ interface ConfiguracionEnvios {
   tarifa_cinco_saltos: number
   aclaraciones_texto: string | null
   aclaraciones_activo: boolean
+  envio_cinco_saltos_activo: boolean
   correo_argentino_activo: boolean
   correo_argentino_cp_origen: string | null
   correo_argentino_recargo_pct: number
@@ -75,6 +76,7 @@ export default function ConfiguracionPage() {
         tarifa_cinco_saltos: parsearMonto(tarifaTexto),
         aclaraciones_texto: config.aclaraciones_texto,
         aclaraciones_activo: config.aclaraciones_activo,
+        envio_cinco_saltos_activo: config.envio_cinco_saltos_activo,
         correo_argentino_activo: config.correo_argentino_activo,
         correo_argentino_cp_origen: config.correo_argentino_cp_origen,
         correo_argentino_recargo_pct: config.correo_argentino_recargo_pct,
@@ -120,7 +122,7 @@ export default function ConfiguracionPage() {
             <label className="text-sm font-medium text-gray-700">Aclaraciones sobre envíos</label>
             <button
               onClick={() => setConfig({ ...config, aclaraciones_activo: !config.aclaraciones_activo })}
-              className={`w-10 h-6 rounded-full transition-colors relative ${
+              className={`flex-shrink-0 w-10 h-6 rounded-full transition-colors relative ${
                 config.aclaraciones_activo ? 'bg-[#00a19a]' : 'bg-gray-300'
               }`}
             >
@@ -154,9 +156,27 @@ export default function ConfiguracionPage() {
 
         {/* Envío en Cinco Saltos — tarifa fija */}
         <div className="border border-gray-200 rounded-lg p-4 mb-4">
-          <p className="text-sm font-medium text-gray-700 mb-1">Envío en Cinco Saltos</p>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-sm font-medium text-gray-700">Envío en Cinco Saltos</p>
+            <button
+              onClick={() => setConfig({ ...config, envio_cinco_saltos_activo: !config.envio_cinco_saltos_activo })}
+              className={`flex-shrink-0 w-10 h-6 rounded-full transition-colors relative ${
+                config.envio_cinco_saltos_activo ? 'bg-[#00a19a]' : 'bg-gray-300'
+              }`}
+              title={config.envio_cinco_saltos_activo ? 'Método habilitado en el checkout' : 'Método deshabilitado (no se muestra al cliente)'}
+            >
+              <span
+                className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                  config.envio_cinco_saltos_activo ? 'translate-x-4' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
           <p className="text-xs text-gray-400 mb-3">
             Tarifa fija que ve el cliente al elegir este método en el checkout de la Vitrina.
+            {!config.envio_cinco_saltos_activo && (
+              <span className="text-orange-600"> Desactivado: no aparece como opción hasta que lo vuelvas a activar.</span>
+            )}
           </p>
           <div className="max-w-xs">
             <label className="block text-xs font-medium text-gray-600 mb-1">Tarifa</label>
