@@ -239,8 +239,11 @@ export default function DashboardPage() {
   }
 
   // Ventas del mes en curso, agrupadas por día calendario — completa con
-  // $0 los días sin ventas para que el eje X muestre el mes entero parejo,
-  // no solo los días con actividad.
+  // $0 tanto los días sin ventas como los días futuros del mes, para que
+  // el gráfico siempre muestre las 30/31 barras del mes completo (evita
+  // que a principios de mes, con 1-2 días de datos, una sola barra se
+  // estire a todo el ancho del gráfico — mismo problema visual que tiene
+  // hoy "Ventas mensuales" en Reportes con pocos meses cargados).
   async function cargarVentasPorDia() {
     const { data, error } = await supabase
       .from('ventas')
@@ -257,9 +260,10 @@ export default function DashboardPage() {
       totalesPorDia.set(v.fecha_utc, (totalesPorDia.get(v.fecha_utc) || 0) + v.total)
     })
 
-    const diaHoy = Number(hoy.slice(8, 10))
+    const [anio, mes] = mesDesde.split('-').map(Number)
+    const diasDelMes = new Date(anio, mes, 0).getDate() // día 0 del mes siguiente = último día de este mes
     const resultado: { dia: string; total: number }[] = []
-    for (let d = 1; d <= diaHoy; d++) {
+    for (let d = 1; d <= diasDelMes; d++) {
       const fecha = `${mesDesde.slice(0, 8)}${String(d).padStart(2, '0')}`
       resultado.push({ dia: String(d), total: totalesPorDia.get(fecha) || 0 })
     }
