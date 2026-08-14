@@ -61,6 +61,7 @@ export default function RegistroVentasPage() {
     // para no forzar un Suspense boundary (mismo criterio que ArticuloForm.tsx).
     const params = new URLSearchParams(window.location.search)
     const turnoParam = params.get('turno')
+    const canalParam = params.get('canal')
 
     async function detectarTurno() {
       const supabase = createClient()
@@ -78,6 +79,7 @@ export default function RegistroVentasPage() {
     }
 
     if (turnoParam !== null) setTurnoFiltro(turnoParam)
+    if (canalParam === 'local' || canalParam === 'web') setCanalFiltro(canalParam)
     detectarTurno()
     cargarVentas()
   }, [])

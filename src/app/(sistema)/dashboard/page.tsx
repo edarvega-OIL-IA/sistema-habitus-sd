@@ -3,11 +3,17 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { ShoppingCart, TrendingUp, TrendingDown, Package, Clock, AlertTriangle, Target, Wallet, ChevronDown, ChevronUp, Percent, Activity } from 'lucide-react'
+import { ShoppingCart, TrendingUp, TrendingDown, Package, Clock, AlertTriangle, Target, Wallet, ChevronDown, ChevronUp, Percent, Activity, Globe } from 'lucide-react'
 
 interface VentasTurno {
   total: number
   cantidad: number
+}
+
+interface VentasWeb {
+  total: number
+  cantidad: number
+  acumuladoMensual: number
 }
 
 interface ResumenMes {
@@ -69,6 +75,7 @@ export default function DashboardPage() {
   const [ventasManana, setVentasManana] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasTarde, setVentasTarde] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasDia, setVentasDia] = useState<VentasTurno>({ total: 0, cantidad: 0 })
+  const [ventasWeb, setVentasWeb] = useState<VentasWeb>({ total: 0, cantidad: 0, acumuladoMensual: 0 })
   const [resumenMes, setResumenMes] = useState<ResumenMes>({ ventas: 0, ingresos: 0, egresos: 0, costoMercaderia: 0, margenPct: 0, costosFijos: 0 })
   const [stockMinimo, setStockMinimo] = useState<ArticuloStockMinimo[]>([])
   const [puntoEquilibrio, setPuntoEquilibrio] = useState<PuntoEquilibrio>({
@@ -217,10 +224,15 @@ export default function DashboardPage() {
 
     const manana = data.filter(v => v.cierre_turno_id && cierreTurnoMap.get(v.cierre_turno_id) === 1)
     const tarde = data.filter(v => v.cierre_turno_id && cierreTurnoMap.get(v.cierre_turno_id) === 2)
+    // Web — mismo criterio que el filtro Canal de Registro de Ventas: las
+    // ventas generadas por el webhook de Mercado Pago nunca quedan
+    // asociadas a un cierre_turno_id (no dependen de una caja abierta).
+    const web = data.filter(v => v.cierre_turno_id === null)
 
     setVentasManana({ total: manana.reduce((s, v) => s + v.total, 0), cantidad: manana.length })
     setVentasTarde({ total: tarde.reduce((s, v) => s + v.total, 0), cantidad: tarde.length })
     setVentasDia({ total: data.reduce((s, v) => s + v.total, 0), cantidad: data.length })
+    setVentasWeb(prev => ({ ...prev, total: web.reduce((s, v) => s + v.total, 0), cantidad: web.length }))
   }
 
   // Calcula ventas totales + costo real de mercadería vendida para un rango
@@ -357,8 +369,11 @@ export default function DashboardPage() {
       .reduce((s, v) => s + v.total, 0)
     const tarde = data.filter(v => v.cierre_turno_id && cierreTurnoMap.get(v.cierre_turno_id) === 2)
       .reduce((s, v) => s + v.total, 0)
+    const webMensual = data.filter(v => v.cierre_turno_id === null)
+      .reduce((s, v) => s + v.total, 0)
 
     setVentasPorTurnoMes({ manana, tarde })
+    setVentasWeb(prev => ({ ...prev, acumuladoMensual: webMensual }))
   }
 
   async function cargarUltimaDiferenciaCaja() {
@@ -578,7 +593,7 @@ export default function DashboardPage() {
             timeZone: 'America/Argentina/Buenos_Aires'
           })}
         </h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-4">
           <button
             onClick={() => router.push('/ventas/registro?turno=1')}
             className="text-left bg-white rounded-lg border border-gray-100 p-3 sm:p-4 min-w-0 hover:border-[#00a19a]/40 hover:bg-[#00a19a]/5 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)] hover:-translate-y-1.5 hover:shadow-[0_6px_14px_rgba(60,60,59,0.14),0_24px_40px_-10px_rgba(60,60,59,0.38)] active:translate-y-0 active:shadow-[0_2px_4px_rgba(60,60,59,0.08),0_6px_10px_-2px_rgba(60,60,59,0.20)] transition-all duration-150"
@@ -625,7 +640,25 @@ export default function DashboardPage() {
             </div>
           </button>
 
-          {/* Caja — 4ta tarjeta, mismas dos variantes que antes (abierta/cerrada), ahora toda clickeable */}
+          {/* Web — mismo estilo que Mañana/Tarde, distingue el canal (web vs
+              mostrador) en vez de la franja horaria */}
+          <button
+            onClick={() => router.push('/ventas/registro?canal=web')}
+            className="text-left bg-white rounded-lg border border-gray-100 p-3 sm:p-4 min-w-0 hover:border-[#00a19a]/40 hover:bg-[#00a19a]/5 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)] hover:-translate-y-1.5 hover:shadow-[0_6px_14px_rgba(60,60,59,0.14),0_24px_40px_-10px_rgba(60,60,59,0.38)] active:translate-y-0 active:shadow-[0_2px_4px_rgba(60,60,59,0.08),0_6px_10px_-2px_rgba(60,60,59,0.20)] transition-all duration-150"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Globe className="w-4 h-4 text-gray-400" />
+              <p className="text-xs text-gray-500 font-medium">Web</p>
+            </div>
+            <p className="text-sm sm:text-xl md:text-2xl font-bold text-[#3c3c3b] leading-tight break-words">{fmt(ventasWeb.total)}</p>
+            <p className="text-xs text-gray-400 mt-1">{ventasWeb.cantidad} {ventasWeb.cantidad === 1 ? 'venta' : 'ventas'}</p>
+            <div className="mt-2 pt-2 border-t border-gray-100">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wide">Acumulado mensual</p>
+              <p className="text-xs sm:text-sm font-semibold text-gray-600 break-words">{fmt(ventasWeb.acumuladoMensual)}</p>
+            </div>
+          </button>
+
+          {/* Caja — mismas dos variantes que antes (abierta/cerrada), ahora toda clickeable */}
           <button
             onClick={() => router.push('/cierre-turno')}
             className={`text-left rounded-lg border p-3 sm:p-4 min-w-0 flex flex-col justify-between transition-all duration-150 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)] hover:-translate-y-1.5 hover:shadow-[0_6px_14px_rgba(60,60,59,0.14),0_24px_40px_-10px_rgba(60,60,59,0.38)] active:translate-y-0 active:shadow-[0_2px_4px_rgba(60,60,59,0.08),0_6px_10px_-2px_rgba(60,60,59,0.20)] ${
