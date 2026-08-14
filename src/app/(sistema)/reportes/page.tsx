@@ -27,8 +27,8 @@ export default function ReportesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [datos, setDatos] = useState<MesData[]>([])
-  const [aniosDisponibles, setAniosDisponibles] = useState<string[]>([])
-  const [anioSeleccionado, setAnioSeleccionado] = useState<string>('todo')
+  const VENTANA_MESES = 13
+  const [ventanaInicio, setVentanaInicio] = useState(0)
 
   useEffect(() => { cargarReportes() }, [])
 
@@ -75,15 +75,10 @@ export default function ReportesPage() {
         return
       }
 
-      // Rango: desde el 1 de enero del año de la primera venta real hasta
-      // hoy — no desde el mes exacto de esa venta. Con eso "Todo el
-      // histórico" (y cada año del selector) siempre muestra los 12 meses
-      // completos de cada año, con los meses previos a la primera venta en
-      // $0, en vez de 1-2 barras reales estirándose a todo el ancho del
-      // gráfico (mismo criterio ya aplicado en el gráfico anual del
-      // Dashboard).
-      const primerAnio = primeraVenta.fecha_utc.slice(0, 4)
-      const meses = generarMeses(`${primerAnio}-01-01`, hoy)
+      // Rango real desde la primera venta — la ventana de 13 meses con
+      // navegación (más abajo) es la que evita mostrar meses vacíos, en
+      // vez de forzar el año calendario completo.
+      const meses = generarMeses(primeraVenta.fecha_utc, hoy)
       const mesInicio = meses[0].mes + '-01'
 
       // Ventas + venta_items del rango completo
@@ -159,7 +154,10 @@ export default function ReportesPage() {
       })
 
       setDatos(serie)
-      setAniosDisponibles([...new Set(serie.map(d => d.mes.slice(0, 4)))].sort())
+      // Por defecto, ventana anclada a los últimos 13 meses reales (o
+      // todos, si hay menos de 13) — con las flechas se puede navegar hacia
+      // atrás en el historial completo.
+      setVentanaInicio(Math.max(0, serie.length - VENTANA_MESES))
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : JSON.stringify(err))
     } finally {
@@ -168,9 +166,14 @@ export default function ReportesPage() {
   }
 
   const datosFiltrados = useMemo(() => {
-    if (anioSeleccionado === 'todo') return datos
-    return datos.filter(d => d.mes.startsWith(anioSeleccionado))
-  }, [datos, anioSeleccionado])
+    return datos.slice(ventanaInicio, ventanaInicio + VENTANA_MESES)
+  }, [datos, ventanaInicio])
+
+  const puedeRetroceder = ventanaInicio > 0
+  const puedeAvanzar = ventanaInicio + VENTANA_MESES < datos.length
+  const rangoLabel = datosFiltrados.length > 0
+    ? `${datosFiltrados[0].label} — ${datosFiltrados[datosFiltrados.length - 1].label}`
+    : ''
 
   const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
   const fmtEtiqueta = (n: any) => Math.round(Number(n ?? 0)).toLocaleString('es-AR')
@@ -198,17 +201,20 @@ export default function ReportesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-xl font-semibold text-[#3c3c3b]">Reportes</h1>
-        {aniosDisponibles.length > 0 && (
+        {datos.length > 0 && (
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-gray-400" />
-            <select
-              value={anioSeleccionado}
-              onChange={e => setAnioSeleccionado(e.target.value)}
-              className="border border-gray-200 rounded-md text-sm px-3 py-1.5 text-[#3c3c3b] bg-white focus:outline-none focus:ring-1 focus:ring-[#00a19a]"
-            >
-              <option value="todo">Todo el histórico</option>
-              {aniosDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
+            <button
+              onClick={() => setVentanaInicio(v => Math.max(0, v - 1))}
+              disabled={!puedeRetroceder}
+              className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:hover:bg-transparent"
+            >‹</button>
+            <span className="text-sm text-[#3c3c3b] font-medium min-w-[180px] text-center">{rangoLabel}</span>
+            <button
+              onClick={() => setVentanaInicio(v => Math.min(Math.max(0, datos.length - VENTANA_MESES), v + 1))}
+              disabled={!puedeAvanzar}
+              className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:hover:bg-transparent"
+            >›</button>
           </div>
         )}
       </div>
