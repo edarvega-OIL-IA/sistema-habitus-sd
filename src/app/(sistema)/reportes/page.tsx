@@ -45,6 +45,16 @@ export default function ReportesPage() {
     return out
   }
 
+  // Suma n meses a un 'YYYY-MM' — usado para generar los meses futuros
+  // (todavía sin ventas) que completan la ventana fija de 13.
+  function sumarMeses(mesYYYYMM: string, n: number): string {
+    const [y, m] = mesYYYYMM.split('-').map(Number)
+    const total = y * 12 + (m - 1) + n
+    const y2 = Math.floor(total / 12)
+    const m2 = (total % 12) + 1
+    return `${y2}-${String(m2).padStart(2, '0')}`
+  }
+
   function partirEnLotes<T>(arr: T[], tam: number): T[][] {
     const out: T[][] = []
     for (let i = 0; i < arr.length; i += tam) out.push(arr.slice(i, i + tam))
@@ -140,8 +150,13 @@ export default function ReportesPage() {
       })
 
       // Serie mensual completa (con ceros en los meses sin datos, para que no
-      // se corte el eje de tiempo)
-      const serie: MesData[] = meses.map(({ mes, label }) => {
+      // se corte el eje de tiempo). Se extiende más allá de "hoy" hasta
+      // cubrir siempre al menos 13 meses desde el primer mes real — así la
+      // ventana de abajo nunca queda con menos de 13 barras (los meses
+      // futuros simplemente no tienen ventas todavía, quedan en $0).
+      const mesFinDisplay = sumarMeses(hoy.slice(0, 7), 12) + '-01'
+      const mesesDisplay = generarMeses(mesInicio, mesFinDisplay)
+      const serie: MesData[] = mesesDisplay.map(({ mes, label }) => {
         const ventas = ventasPorMes.get(mes) || 0
         const costoMercaderia = costoPorMes.get(mes) || 0
         const costosFijos = costosFijosPorMes.get(mes) || 0
@@ -153,10 +168,11 @@ export default function ReportesPage() {
       })
 
       setDatos(serie)
-      // Por defecto, ventana anclada a los últimos 13 meses reales (o
-      // todos, si hay menos de 13) — con las flechas se puede navegar hacia
-      // atrás en el historial completo.
-      setVentanaInicio(Math.max(0, serie.length - VENTANA_MESES))
+      // Ventana siempre anclada al primer mes real (ej. Jul 2026), mostrando
+      // 13 meses hacia adelante — los que todavía no llegaron quedan en $0
+      // hasta que haya ventas reales. Con las flechas se navega más
+      // adelante en el tiempo a medida que se acumulan más meses.
+      setVentanaInicio(0)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : JSON.stringify(err))
     } finally {
