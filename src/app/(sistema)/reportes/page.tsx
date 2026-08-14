@@ -71,7 +71,6 @@ export default function ReportesPage() {
 
       if (!primeraVenta) {
         setDatos([])
-        setAniosDisponibles([])
         return
       }
 
