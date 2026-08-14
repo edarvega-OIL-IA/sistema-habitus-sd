@@ -75,7 +75,15 @@ export default function ReportesPage() {
         return
       }
 
-      const meses = generarMeses(primeraVenta.fecha_utc, hoy)
+      // Rango: desde el 1 de enero del año de la primera venta real hasta
+      // hoy — no desde el mes exacto de esa venta. Con eso "Todo el
+      // histórico" (y cada año del selector) siempre muestra los 12 meses
+      // completos de cada año, con los meses previos a la primera venta en
+      // $0, en vez de 1-2 barras reales estirándose a todo el ancho del
+      // gráfico (mismo criterio ya aplicado en el gráfico anual del
+      // Dashboard).
+      const primerAnio = primeraVenta.fecha_utc.slice(0, 4)
+      const meses = generarMeses(`${primerAnio}-01-01`, hoy)
       const mesInicio = meses[0].mes + '-01'
 
       // Ventas + venta_items del rango completo
