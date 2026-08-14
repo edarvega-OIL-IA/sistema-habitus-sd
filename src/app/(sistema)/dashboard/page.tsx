@@ -748,7 +748,7 @@ export default function DashboardPage() {
                 tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
               />
               <Tooltip
-                formatter={(value: number) => [fmt(value), 'Total']}
+                formatter={(value) => [fmt(Number(value) || 0), 'Total']}
                 labelFormatter={(dia: string) => `Día ${dia}`}
                 contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
               />
