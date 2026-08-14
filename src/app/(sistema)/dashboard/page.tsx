@@ -832,57 +832,70 @@ export default function DashboardPage() {
             timeZone: 'America/Argentina/Buenos_Aires'
           }).replace(/^\w/, c => c.toUpperCase())}
         </h2>
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-          <div className="bg-[#00a19a]/5 rounded-lg border border-[#00a19a]/20 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
-            <div className="flex items-center gap-2 mb-3">
-              <ShoppingCart className="w-4 h-4 text-[#00a19a]/70" />
-              <p className="text-xs text-[#00a19a]/80 font-medium">Ventas del mes</p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Grupo 1: familia devengado — Ventas → Utilidad Bruta → Utilidad Neta (embudo) */}
+          <div className="rounded-xl border border-[#00a19a]/25 bg-[#00a19a]/[0.03] p-3">
+            <p className="text-[10px] uppercase tracking-wide text-[#00a19a]/70 font-semibold mb-2 px-1">Ventas y rentabilidad</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-[#00a19a]/5 rounded-lg border border-[#00a19a]/20 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
+                <div className="flex items-center gap-2 mb-3">
+                  <ShoppingCart className="w-4 h-4 text-[#00a19a]/70" />
+                  <p className="text-xs text-[#00a19a]/80 font-medium">Ventas del mes</p>
+                </div>
+                <p className="text-base sm:text-xl font-bold text-[#3c3c3b] leading-tight break-words">{fmt(resumenMes.ventas)}</p>
+              </div>
+              <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
+                <div className="flex items-center gap-2 mb-3">
+                  <Wallet className="w-4 h-4 text-[#00a19a]" />
+                  <p className="text-xs text-[#00a19a] font-medium">Utilidad Bruta</p>
+                </div>
+                <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">{fmt(resumenMes.ventas - resumenMes.costoMercaderia)}</p>
+                <p className="text-xs text-[#00a19a]/80 mt-1">{fmtPct(resumenMes.margenPct)} de margen</p>
+              </div>
+              <div className="bg-[#00a19a]/20 rounded-lg border border-[#00a19a]/40 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
+                <div className="flex items-center gap-2 mb-3">
+                  <Wallet className="w-4 h-4 text-[#00786f]" />
+                  <p className="text-xs text-[#00786f] font-medium">Utilidad Neta</p>
+                </div>
+                <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">
+                  {fmt(resumenMes.ventas - resumenMes.costoMercaderia - resumenMes.costosFijos)}
+                </p>
+                <p className="text-xs text-[#00786f]/80 mt-1">tras gastos fijos ({fmt(resumenMes.costosFijos)})</p>
+              </div>
             </div>
-            <p className="text-base sm:text-xl font-bold text-[#3c3c3b] leading-tight break-words">{fmt(resumenMes.ventas)}</p>
           </div>
-          <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
-            <div className="flex items-center gap-2 mb-3">
-              <Wallet className="w-4 h-4 text-[#00a19a]" />
-              <p className="text-xs text-[#00a19a] font-medium">Utilidad Bruta</p>
+
+          {/* Grupo 2: familia caja — Ingresos / Egresos / Diferencia (semáforo) */}
+          <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3">
+            <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2 px-1">Movimientos de caja</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-green-50 rounded-lg border border-green-200 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
+                <div className="flex items-center gap-2 mb-3">
+                  <TrendingUp className="w-4 h-4 text-green-500" />
+                  <p className="text-xs text-green-600 font-medium">Ingresos</p>
+                </div>
+                <p className="text-base sm:text-xl font-bold text-green-700 leading-tight break-words">{fmt(resumenMes.ingresos)}</p>
+                <p className="text-xs text-green-600/70 mt-1">sin movimientos de caja</p>
+              </div>
+              <div className="bg-red-50 rounded-lg border border-red-200 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
+                <div className="flex items-center gap-2 mb-3">
+                  <TrendingDown className="w-4 h-4 text-red-500" />
+                  <p className="text-xs text-red-600 font-medium">Egresos</p>
+                </div>
+                <p className="text-base sm:text-xl font-bold text-red-700 leading-tight break-words">{fmt(resumenMes.egresos)}</p>
+                <p className="text-xs text-red-600/70 mt-1">sin movimientos de caja</p>
+              </div>
+              <div className={`rounded-lg border p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)] ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
+                <div className="flex items-center gap-2 mb-3">
+                  <TrendingUp className={`w-4 h-4 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-500' : 'text-orange-500'}`} />
+                  <p className={`text-xs font-medium ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>Diferencia</p>
+                </div>
+                <p className={`text-base sm:text-xl font-bold leading-tight break-words ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
+                  {(resumenMes.ingresos - resumenMes.egresos) >= 0 ? '+' : ''}{fmt(resumenMes.ingresos - resumenMes.egresos)}
+                </p>
+                <p className={`text-xs mt-1 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-600/70' : 'text-orange-600/70'}`}>sin movimientos de caja</p>
+              </div>
             </div>
-            <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">{fmt(resumenMes.ventas - resumenMes.costoMercaderia)}</p>
-            <p className="text-xs text-[#00a19a]/80 mt-1">{fmtPct(resumenMes.margenPct)} de margen</p>
-          </div>
-          <div className="bg-[#00a19a]/20 rounded-lg border border-[#00a19a]/40 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
-            <div className="flex items-center gap-2 mb-3">
-              <Wallet className="w-4 h-4 text-[#00786f]" />
-              <p className="text-xs text-[#00786f] font-medium">Utilidad Neta</p>
-            </div>
-            <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">
-              {fmt(resumenMes.ventas - resumenMes.costoMercaderia - resumenMes.costosFijos)}
-            </p>
-            <p className="text-xs text-[#00786f]/80 mt-1">tras gastos fijos ({fmt(resumenMes.costosFijos)})</p>
-          </div>
-          <div className="bg-green-50 rounded-lg border border-green-200 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingUp className="w-4 h-4 text-green-500" />
-              <p className="text-xs text-green-600 font-medium">Ingresos</p>
-            </div>
-            <p className="text-base sm:text-xl font-bold text-green-700 leading-tight break-words">{fmt(resumenMes.ingresos)}</p>
-            <p className="text-xs text-green-600/70 mt-1">sin movimientos de caja</p>
-          </div>
-          <div className="bg-red-50 rounded-lg border border-red-200 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingDown className="w-4 h-4 text-red-500" />
-              <p className="text-xs text-red-600 font-medium">Egresos</p>
-            </div>
-            <p className="text-base sm:text-xl font-bold text-red-700 leading-tight break-words">{fmt(resumenMes.egresos)}</p>
-            <p className="text-xs text-red-600/70 mt-1">sin movimientos de caja</p>
-          </div>
-          <div className={`rounded-lg border p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)] ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'}`}>
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingUp className={`w-4 h-4 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-500' : 'text-orange-500'}`} />
-              <p className={`text-xs font-medium ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>Diferencia</p>
-            </div>
-            <p className={`text-base sm:text-xl font-bold leading-tight break-words ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
-              {(resumenMes.ingresos - resumenMes.egresos) >= 0 ? '+' : ''}{fmt(resumenMes.ingresos - resumenMes.egresos)}
-            </p>
-            <p className={`text-xs mt-1 ${(resumenMes.ingresos - resumenMes.egresos) >= 0 ? 'text-blue-600/70' : 'text-orange-600/70'}`}>sin movimientos de caja</p>
           </div>
         </div>
       </div>
