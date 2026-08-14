@@ -79,12 +79,16 @@ export default function Sidebar() {
         />
       )}
 
+      {/* Fijo siempre (mobile y desktop) — antes en desktop era "static" y
+          hacía scroll junto con el contenido de la página. El layout
+          (SistemaLayout) compensa este cambio con un margen izquierdo en el
+          contenido (md:ml-56) para que no quede tapado. */}
       <aside
-        className={`w-56 min-h-screen bg-[#3c3c3b] flex flex-col fixed md:static inset-y-0 left-0 z-50 transition-transform duration-200 ease-in-out ${
+        className={`w-56 h-screen bg-[#3c3c3b] flex flex-col fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-in-out ${
           abierto ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
-        <div className="px-4 py-5 border-b border-white/10 flex items-center justify-between">
+        <div className="px-4 py-5 border-b border-white/10 flex items-center justify-between shrink-0">
           <span className="text-white font-bold text-lg tracking-widest">HÁBITUS SD</span>
           <button
             onClick={() => setAbierto(false)}
