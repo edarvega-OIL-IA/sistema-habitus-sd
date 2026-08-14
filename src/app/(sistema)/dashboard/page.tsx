@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { ShoppingCart, TrendingUp, TrendingDown, Package, Clock, AlertTriangle, Target, Wallet, ChevronDown, ChevronUp, Percent, Activity, Globe } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 interface VentasTurno {
   total: number
@@ -76,6 +77,7 @@ export default function DashboardPage() {
   const [ventasTarde, setVentasTarde] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasDia, setVentasDia] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasWeb, setVentasWeb] = useState<VentasWeb>({ total: 0, cantidad: 0, acumuladoMensual: 0 })
+  const [ventasPorDia, setVentasPorDia] = useState<{ dia: string; total: number }[]>([])
   const [resumenMes, setResumenMes] = useState<ResumenMes>({ ventas: 0, ingresos: 0, egresos: 0, costoMercaderia: 0, margenPct: 0, costosFijos: 0 })
   const [stockMinimo, setStockMinimo] = useState<ArticuloStockMinimo[]>([])
   const [puntoEquilibrio, setPuntoEquilibrio] = useState<PuntoEquilibrio>({
@@ -108,6 +110,7 @@ export default function DashboardPage() {
         cargarStockMinimo(),
         cargarPuntoEquilibrio(),
         cargarVentasPorTurnoMes(),
+        cargarVentasPorDia(),
         cargarUltimaDiferenciaCaja(),
         cargarRitmoVentas(),
         cargarPedidosPendientes(),
@@ -235,7 +238,35 @@ export default function DashboardPage() {
     setVentasWeb(prev => ({ ...prev, total: web.reduce((s, v) => s + v.total, 0), cantidad: web.length }))
   }
 
-  // Calcula ventas totales + costo real de mercadería vendida para un rango
+  // Ventas del mes en curso, agrupadas por día calendario — completa con
+  // $0 los días sin ventas para que el eje X muestre el mes entero parejo,
+  // no solo los días con actividad.
+  async function cargarVentasPorDia() {
+    const { data, error } = await supabase
+      .from('ventas')
+      .select('total, fecha_utc')
+      .eq('sucursal_id', 1)
+      .neq('estado_venta_id', 3)
+      .gte('fecha_utc', mesDesde)
+      .lte('fecha_utc', hoy)
+
+    if (error) throw error
+
+    const totalesPorDia = new Map<string, number>()
+    ;(data || []).forEach(v => {
+      totalesPorDia.set(v.fecha_utc, (totalesPorDia.get(v.fecha_utc) || 0) + v.total)
+    })
+
+    const diaHoy = Number(hoy.slice(8, 10))
+    const resultado: { dia: string; total: number }[] = []
+    for (let d = 1; d <= diaHoy; d++) {
+      const fecha = `${mesDesde.slice(0, 8)}${String(d).padStart(2, '0')}`
+      resultado.push({ dia: String(d), total: totalesPorDia.get(fecha) || 0 })
+    }
+    setVentasPorDia(resultado)
+  }
+
+
   // de fechas [desde, hasta] — reutilizado para mes actual y mes anterior.
   async function calcularVentasYCosto(desde: string, hasta: string) {
     const { data: ventasRes } = await supabase
@@ -696,6 +727,34 @@ export default function DashboardPage() {
               </div>
             </div>
           </button>
+        </div>
+      </div>
+
+      {/* Evolución diaria del mes en curso */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+          <Activity className="w-4 h-4 text-gray-400" />
+          Ventas por día — {new Date().toLocaleDateString('es-AR', { month: 'long', timeZone: 'America/Argentina/Buenos_Aires' })}
+        </h2>
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={ventasPorDia} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+              <XAxis dataKey="dia" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+              <YAxis
+                tick={{ fontSize: 11, fill: '#9ca3af' }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
+              />
+              <Tooltip
+                formatter={(value: number) => [fmt(value), 'Total']}
+                labelFormatter={(dia: string) => `Día ${dia}`}
+                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+              />
+              <Bar dataKey="total" fill="#00a19a" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
