@@ -749,7 +749,7 @@ export default function DashboardPage() {
               />
               <Tooltip
                 formatter={(value) => [fmt(Number(value) || 0), 'Total']}
-                labelFormatter={(dia: string) => `Día ${dia}`}
+                labelFormatter={(dia) => `Día ${dia}`}
                 contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
               />
               <Bar dataKey="total" fill="#00a19a" radius={[3, 3, 0, 0]} />
