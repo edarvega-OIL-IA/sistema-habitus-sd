@@ -78,6 +78,7 @@ export default function DashboardPage() {
   const [ventasDia, setVentasDia] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasWeb, setVentasWeb] = useState<VentasWeb>({ total: 0, cantidad: 0, acumuladoMensual: 0 })
   const [ventasPorDia, setVentasPorDia] = useState<{ dia: string; total: number }[]>([])
+  const [ventasPorMes, setVentasPorMes] = useState<{ mes: string; total: number }[]>([])
   const [resumenMes, setResumenMes] = useState<ResumenMes>({ ventas: 0, ingresos: 0, egresos: 0, costoMercaderia: 0, margenPct: 0, costosFijos: 0 })
   const [stockMinimo, setStockMinimo] = useState<ArticuloStockMinimo[]>([])
   const [puntoEquilibrio, setPuntoEquilibrio] = useState<PuntoEquilibrio>({
@@ -111,6 +112,7 @@ export default function DashboardPage() {
         cargarPuntoEquilibrio(),
         cargarVentasPorTurnoMes(),
         cargarVentasPorDia(),
+        cargarVentasPorMes(),
         cargarUltimaDiferenciaCaja(),
         cargarRitmoVentas(),
         cargarPedidosPendientes(),
@@ -269,6 +271,37 @@ export default function DashboardPage() {
     }
     setVentasPorDia(resultado)
   }
+
+  // Ventas del año en curso, agrupadas por mes calendario — siempre
+  // muestra los 12 meses (Ene-Dic), aunque el proyecto recién tenga datos
+  // reales desde junio/julio: mejor un gráfico con meses en $0 que uno con
+  // 2-3 barras estiradas a todo el ancho.
+  const MESES_ABREV = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+  async function cargarVentasPorMes() {
+    const anioActual = hoy.slice(0, 4)
+    const { data, error } = await supabase
+      .from('ventas')
+      .select('total, fecha_utc')
+      .eq('sucursal_id', 1)
+      .neq('estado_venta_id', 3)
+      .gte('fecha_utc', `${anioActual}-01-01`)
+      .lte('fecha_utc', `${anioActual}-12-31`)
+
+    if (error) throw error
+
+    const totalesPorMes = new Map<string, number>()
+    ;(data || []).forEach(v => {
+      const mesKey = v.fecha_utc.slice(0, 7) // 'YYYY-MM'
+      totalesPorMes.set(mesKey, (totalesPorMes.get(mesKey) || 0) + v.total)
+    })
+
+    const resultado = MESES_ABREV.map((nombre, idx) => {
+      const mesKey = `${anioActual}-${String(idx + 1).padStart(2, '0')}`
+      return { mes: nombre, total: totalesPorMes.get(mesKey) || 0 }
+    })
+    setVentasPorMes(resultado)
+  }
+
 
 
   // de fechas [desde, hasta] — reutilizado para mes actual y mes anterior.
@@ -734,31 +767,60 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Evolución diaria del mes en curso */}
-      <div>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-          <Activity className="w-4 h-4 text-gray-400" />
-          Ventas por día — {new Date().toLocaleDateString('es-AR', { month: 'long', timeZone: 'America/Argentina/Buenos_Aires' })}
-        </h2>
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={ventasPorDia} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-              <XAxis dataKey="dia" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-              <YAxis
-                tick={{ fontSize: 11, fill: '#9ca3af' }}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
-              />
-              <Tooltip
-                formatter={(value) => [fmt(Number(value) || 0), 'Total']}
-                labelFormatter={(dia) => `Día ${dia}`}
-                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
-              />
-              <Bar dataKey="total" fill="#00a19a" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+      {/* Evolución de ventas: diaria del mes en curso + anual por mes */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-gray-400" />
+            Ventas por día — {new Date().toLocaleDateString('es-AR', { month: 'long', timeZone: 'America/Argentina/Buenos_Aires' })}
+          </h2>
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={ventasPorDia} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                <XAxis dataKey="dia" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                <YAxis
+                  tick={{ fontSize: 11, fill: '#9ca3af' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
+                />
+                <Tooltip
+                  formatter={(value) => [fmt(Number(value) || 0), 'Total']}
+                  labelFormatter={(dia) => `Día ${dia}`}
+                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                />
+                <Bar dataKey="total" fill="#00a19a" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-gray-400" />
+            Ventas por mes — {hoy.slice(0, 4)}
+          </h2>
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={ventasPorMes} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                <YAxis
+                  tick={{ fontSize: 11, fill: '#9ca3af' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
+                />
+                <Tooltip
+                  formatter={(value) => [fmt(Number(value) || 0), 'Total']}
+                  labelFormatter={(mes) => String(mes)}
+                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                />
+                <Bar dataKey="total" fill="#00a19a" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
@@ -771,10 +833,10 @@ export default function DashboardPage() {
           }).replace(/^\w/, c => c.toUpperCase())}
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-          <div className="bg-white rounded-lg border border-gray-100 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
+          <div className="bg-[#00a19a]/5 rounded-lg border border-[#00a19a]/20 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
             <div className="flex items-center gap-2 mb-3">
-              <ShoppingCart className="w-4 h-4 text-gray-400" />
-              <p className="text-xs text-gray-500 font-medium">Ventas del mes</p>
+              <ShoppingCart className="w-4 h-4 text-[#00a19a]/70" />
+              <p className="text-xs text-[#00a19a]/80 font-medium">Ventas del mes</p>
             </div>
             <p className="text-base sm:text-xl font-bold text-[#3c3c3b] leading-tight break-words">{fmt(resumenMes.ventas)}</p>
           </div>
@@ -786,15 +848,15 @@ export default function DashboardPage() {
             <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">{fmt(resumenMes.ventas - resumenMes.costoMercaderia)}</p>
             <p className="text-xs text-[#00a19a]/80 mt-1">{fmtPct(resumenMes.margenPct)} de margen</p>
           </div>
-          <div className="bg-[#00a19a]/10 rounded-lg border border-[#00a19a]/30 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
+          <div className="bg-[#00a19a]/20 rounded-lg border border-[#00a19a]/40 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
             <div className="flex items-center gap-2 mb-3">
-              <Wallet className="w-4 h-4 text-[#00a19a]" />
-              <p className="text-xs text-[#00a19a] font-medium">Utilidad Neta</p>
+              <Wallet className="w-4 h-4 text-[#00786f]" />
+              <p className="text-xs text-[#00786f] font-medium">Utilidad Neta</p>
             </div>
             <p className="text-base sm:text-xl font-bold text-[#00786f] leading-tight break-words">
               {fmt(resumenMes.ventas - resumenMes.costoMercaderia - resumenMes.costosFijos)}
             </p>
-            <p className="text-xs text-[#00a19a]/80 mt-1">tras gastos fijos ({fmt(resumenMes.costosFijos)})</p>
+            <p className="text-xs text-[#00786f]/80 mt-1">tras gastos fijos ({fmt(resumenMes.costosFijos)})</p>
           </div>
           <div className="bg-green-50 rounded-lg border border-green-200 p-4 min-w-0 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)]">
             <div className="flex items-center gap-2 mb-3">
