@@ -8,6 +8,7 @@ import { Search, Trash2, AlertTriangle, Save, FileDown, ShoppingCart } from 'luc
 interface Cliente {
   id: number
   nombre: string
+  plazo_dias_cta_cte: number | null
 }
 
 interface Articulo {
@@ -94,7 +95,7 @@ export default function PresupuestoForm({
   useEffect(() => { cargarCatalogo() }, [])
 
   async function cargarCatalogo() {
-    const { data: clientesData } = await supabase.from('clientes').select('id, nombre').eq('activo', true).order('nombre')
+    const { data: clientesData } = await supabase.from('clientes').select('id, nombre, plazo_dias_cta_cte').eq('activo', true).order('nombre')
     setClientes(clientesData || [])
 
     const { data: articulosData } = await supabase.from('articulos').select('id, nombre, precio_local').eq('activo', true).order('nombre')
@@ -180,6 +181,14 @@ export default function PresupuestoForm({
     setItems(prev => prev.filter((_, i) => i !== index))
   }
 
+  function agregarCondicionesEstandar() {
+    const cliente = clientes.find(c => c.id === clienteId)
+    const plazo = cliente?.plazo_dias_cta_cte
+    const textoPlazo = plazo ? `A ${plazo} días F.F.` : 'A convenir'
+    const plantilla = `Condiciones de pago: ${textoPlazo} con entrega y recepción de conformidad.\nMantenimiento de la oferta: Siete (7) días.\nPlazo de entrega total: Inmediato.`
+    setObservaciones(prev => prev.trim() ? `${prev.trim()}\n${plantilla}` : plantilla)
+  }
+
   const subtotal = items.reduce((s, i) => s + i.cantidad * i.precio_unitario, 0)
 
   const faltantes = useMemo(() => {
@@ -263,7 +272,7 @@ export default function PresupuestoForm({
 
       if (itemsError) throw itemsError
 
-      router.push(`/presupuestos/${idPresupuesto}`)
+      router.push(estadoFinal === 'Borrador' ? '/presupuestos' : `/presupuestos/${idPresupuesto}`)
       router.refresh()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : JSON.stringify(err))
@@ -634,7 +643,18 @@ export default function PresupuestoForm({
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Observaciones (van en el PDF)</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-medium text-gray-600">Observaciones (van en el PDF)</label>
+            {editable && (
+              <button
+                type="button"
+                onClick={agregarCondicionesEstandar}
+                className="text-xs text-[#00a19a] hover:underline"
+              >
+                + Agregar condiciones estándar
+              </button>
+            )}
+          </div>
           <textarea
             value={observaciones}
             disabled={!editable}
