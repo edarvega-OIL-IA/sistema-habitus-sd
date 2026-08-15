@@ -95,15 +95,25 @@ export default function PanelPagos({
   const medioNombreSeleccionado = mediosPagoDisponibles.find(m => m.id === medioSeleccionado)?.nombre ?? ''
   const requiereEmisor = MEDIOS_CON_EMISOR.includes(medioNombreSeleccionado)
 
-  // Si el medio elegido deja de estar disponible (ej. se cambió a un
-  // cliente sin cta cte mientras "Cuenta Corriente" estaba seleccionado),
-  // volvemos al primero disponible para no dejar un id inválido cargado.
+  // Al elegir un cliente distinto, se limpian los pagos ya cargados (evita
+  // dejar un pago pensado para otro cliente colgado en el carrito).
+  useEffect(() => {
+    setPagos([])
+    setEditandoIndex(null)
+    setError(null)
+  }, [clienteId])
+
+  // Medio de pago preseleccionado según el cliente — Cuenta Corriente para
+  // clientes con cta cte habilitada, Efectivo para el resto (Consumidor
+  // Final). Sigue siendo editable a mano desde el combo, esto solo define
+  // el punto de partida más probable para no agregar un paso extra.
   useEffect(() => {
     if (mediosPagoDisponibles.length === 0) return
-    if (!mediosPagoDisponibles.some(m => m.id === medioSeleccionado)) {
-      setMedioSeleccionado(mediosPagoDisponibles[0].id)
-    }
-  }, [clienteTieneCtaCte, mediosPagoDisponibles])
+    const preferido = clienteTieneCtaCte
+      ? mediosPagoDisponibles.find(m => m.nombre === MEDIO_CUENTA_CORRIENTE)
+      : mediosPagoDisponibles.find(m => m.nombre === 'Efectivo')
+    setMedioSeleccionado(preferido ? preferido.id : mediosPagoDisponibles[0].id)
+  }, [clienteId, clienteTieneCtaCte, mediosPagoDisponibles])
 
   // Foco automático en botón correcto cuando pendiente llega a 0
   useEffect(() => {
