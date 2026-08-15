@@ -11,7 +11,14 @@ const nav = [
   { label: 'Ventas', href: '/ventas', icon: '🛒' },
   { label: 'Registro Ventas', href: '/ventas/registro', icon: '🧾' },
   { label: 'Pedidos Web', href: '/pedidos-web', icon: '🌐' },
-  { label: 'Clientes', href: '/clientes', icon: '👥' },
+  {
+    label: 'Clientes',
+    icon: '👥',
+    children: [
+      { label: 'Listado', href: '/clientes' },
+      { label: 'Cuenta Corriente', href: '/clientes/cuenta-corriente' },
+    ],
+  },
   { label: 'Fiscalización', href: '/fiscalizacion', icon: '⚠️' },
   { label: 'Movimientos', href: '/movimientos', icon: '💰' },
   { label: 'Obligaciones', href: '/obligaciones', icon: '📇' },
