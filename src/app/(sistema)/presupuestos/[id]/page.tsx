@@ -8,7 +8,7 @@ export default async function EditarPresupuestoPage({ params }: { params: Promis
 
   const { data: presupuesto, error } = await supabase
     .from('presupuestos')
-    .select('id, numero, estado, cliente_id, fecha, validez_hasta, forma_pago, observaciones')
+    .select('id, numero, estado, cliente_id, fecha, validez_hasta, forma_pago, observaciones, venta_borrador_id')
     .eq('id', id)
     .single()
 
@@ -44,6 +44,7 @@ export default async function EditarPresupuestoPage({ params }: { params: Promis
       formaPagoInicial={presupuesto.forma_pago || ''}
       observacionesInicial={presupuesto.observaciones || ''}
       itemsIniciales={items}
+      ventaBorradorIdInicial={presupuesto.venta_borrador_id}
     />
   )
 }

@@ -15,6 +15,7 @@ interface BorradorVenta {
   descuento_pct: number
   creado_en: string
   pedido_web_id: number | null
+  cliente_id: number | null
 }
 
 interface ClienteSelector {
@@ -94,7 +95,7 @@ export default function VentasPage() {
     const supabase = createClient()
     const { data } = await supabase
       .from('ventas_borrador')
-      .select('id, items, descuento_pct, pedido_web_id')
+      .select('id, items, descuento_pct, pedido_web_id, cliente_id')
       .eq('id', Number(borradorParam))
       .maybeSingle()
     if (!data) return
@@ -102,13 +103,14 @@ export default function VentasPage() {
     setDescuento_pct(data.descuento_pct)
     setBorradorActivoId(data.id)
     setPedidoWebId(data.pedido_web_id || null)
+    setClienteId(data.cliente_id || CLIENTE_ID_CONSUMIDOR_FINAL)
   }
 
   async function cargarBorradores(cierreId: number) {
     const supabase = createClient()
     const { data } = await supabase
       .from('ventas_borrador')
-      .select('id, etiqueta, items, descuento_pct, creado_en, pedido_web_id')
+      .select('id, etiqueta, items, descuento_pct, creado_en, pedido_web_id, cliente_id')
       .eq('cierre_turno_id', cierreId)
       .order('creado_en', { ascending: true })
     setBorradores(data || [])
@@ -212,6 +214,7 @@ export default function VentasPage() {
       items,
       descuento_pct,
       pedido_web_id: pedidoWebId,
+      cliente_id: clienteId,
     })
     if (!error && borradorActivoId) {
       // Si este carrito ya venía de un borrador, ese queda reemplazado por
@@ -225,6 +228,7 @@ export default function VentasPage() {
     setNotaInterna('')
     setBorradorActivoId(null)
     setPedidoWebId(null)
+    setClienteId(CLIENTE_ID_CONSUMIDOR_FINAL)
     cargarBorradores(cierreId)
   }
 
@@ -239,6 +243,7 @@ export default function VentasPage() {
     setDescuento_pct(borrador.descuento_pct)
     setBorradorActivoId(borrador.id)
     setPedidoWebId(borrador.pedido_web_id || null)
+    setClienteId(borrador.cliente_id || CLIENTE_ID_CONSUMIDOR_FINAL)
     setMostrarBorradores(false)
   }
 

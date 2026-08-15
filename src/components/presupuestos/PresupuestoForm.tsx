@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Search, Trash2, AlertTriangle, Save } from 'lucide-react'
+import { Search, Trash2, AlertTriangle, Save, FileDown, ShoppingCart } from 'lucide-react'
 
 interface Cliente {
   id: number
@@ -41,6 +41,7 @@ interface Props {
   formaPagoInicial?: string
   observacionesInicial?: string
   itemsIniciales?: ItemInicial[]
+  ventaBorradorIdInicial?: number | null
 }
 
 const ESTADOS_EDITABLES = ['Borrador', 'Enviado']
@@ -56,12 +57,15 @@ export default function PresupuestoForm({
   formaPagoInicial,
   observacionesInicial,
   itemsIniciales,
+  ventaBorradorIdInicial,
 }: Props) {
   const supabase = createClient()
   const router = useRouter()
 
   const [estado, setEstado] = useState(estadoInicial)
   const editable = ESTADOS_EDITABLES.includes(estado)
+  const [ventaBorradorId, setVentaBorradorId] = useState<number | null>(ventaBorradorIdInicial ?? null)
+  const [enviandoABorrador, setEnviandoABorrador] = useState(false)
 
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [clienteId, setClienteId] = useState<number | null>(clienteIdInicial ?? null)
@@ -260,6 +264,129 @@ export default function PresupuestoForm({
   }
 
   const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
+  const fmtFechaPdf = (f: string) => f ? f.split('-').reverse().join('/') : ''
+
+  async function generarPDF() {
+    if (!clienteId || items.length === 0) { setError('Elegí un cliente y agregá al menos un artículo antes de generar el PDF'); return }
+    setError(null)
+    try {
+      const { jsPDF } = await import('jspdf')
+      const autoTableModule = await import('jspdf-autotable')
+      const autoTable = autoTableModule.default
+
+      const doc = new jsPDF()
+
+      // Encabezado con color de marca
+      doc.setFillColor(0, 161, 154)
+      doc.rect(0, 0, 210, 24, 'F')
+      doc.setTextColor(255, 255, 255)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(18)
+      doc.text('HÁBITUS SD', 14, 14)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.text('Suplementos Deportivos', 14, 20)
+
+      doc.setTextColor(60, 60, 59)
+      doc.setFontSize(9)
+      doc.text('de Vega Eduardo Ariel — Roca 54, Cinco Saltos, Río Negro', 14, 32)
+      doc.text('CUIT 23-23890071-9  ·  Tel. +54 9 299 324-4332  ·  habitus.sd@gmail.com', 14, 37)
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(14)
+      doc.text(`Presupuesto${numero ? ` N° ${numero}` : ''}`, 14, 49)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      doc.text(`Fecha: ${fmtFechaPdf(fecha)}`, 14, 56)
+      doc.text(`Cliente: ${busquedaCliente}`, 14, 62)
+
+      autoTable(doc, {
+        startY: 70,
+        head: [['Descripción', 'Unidades', 'Prec. Unit.', 'Total']],
+        body: items.map(i => [i.nombre, i.cantidad.toLocaleString('es-AR'), fmt(i.precio_unitario), fmt(i.cantidad * i.precio_unitario)]),
+        headStyles: { fillColor: [0, 161, 154], textColor: [255, 255, 255] },
+        styles: { fontSize: 9, textColor: [60, 60, 59] },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+      })
+
+      const finalY = (doc as any).lastAutoTable.finalY + 12
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(12)
+      doc.text(`Presupuesto final: ${fmt(subtotal)}`, 14, finalY)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      let y = finalY + 8
+      if (formaPago) { doc.text(`Forma de pago: ${formaPago}`, 14, y); y += 6 }
+      if (validezHasta) { doc.text(`El presupuesto tiene validez hasta el ${fmtFechaPdf(validezHasta)} inclusive`, 14, y); y += 6 }
+      if (observaciones) {
+        const lineas = doc.splitTextToSize(observaciones, 180)
+        doc.text(lineas, 14, y + 2)
+      }
+
+      const nombreArchivo = `Presupuesto_${numero || 'borrador'}_${busquedaCliente.replace(/\s+/g, '_')}.pdf`
+      doc.save(nombreArchivo)
+    } catch (err: unknown) {
+      setError('Error al generar el PDF: ' + (err instanceof Error ? err.message : JSON.stringify(err)))
+    }
+  }
+
+  async function enviarABorradorVenta() {
+    if (!presupuestoId || !clienteId) return
+    setEnviandoABorrador(true)
+    setError(null)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('No autenticado')
+
+      const { data: cierreActivo } = await supabase
+        .from('cierres_turno')
+        .select('id')
+        .eq('sucursal_id', 1)
+        .eq('estado_cierre_turno_id', 1)
+        .maybeSingle()
+
+      if (!cierreActivo) throw new Error('No hay una caja abierta — abrí turno en Caja antes de enviar este presupuesto a la venta.')
+
+      const itemsCarrito = items.map(i => ({
+        articulo_id: i.articulo_id,
+        nombre: i.nombre,
+        precio_unitario: i.precio_unitario,
+        cantidad: i.cantidad,
+        descuento_pct: 0,
+      }))
+
+      const { data: borrador, error: borradorError } = await supabase
+        .from('ventas_borrador')
+        .insert({
+          sucursal_id: 1,
+          cierre_turno_id: cierreActivo.id,
+          usuario_id: user.id,
+          cliente_id: clienteId,
+          etiqueta: `Presupuesto #${numero}`,
+          items: itemsCarrito,
+          descuento_pct: 0,
+        })
+        .select('id')
+        .single()
+
+      if (borradorError) throw borradorError
+
+      const { error: updateError } = await supabase
+        .from('presupuestos')
+        .update({ venta_borrador_id: borrador.id })
+        .eq('id', presupuestoId)
+
+      if (updateError) throw updateError
+
+      setVentaBorradorId(borrador.id)
+      router.push(`/ventas?borrador=${borrador.id}`)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : JSON.stringify(err))
+    } finally {
+      setEnviandoABorrador(false)
+    }
+  }
 
   const ESTADOS_BADGE: Record<string, string> = {
     Borrador: 'bg-gray-100 text-gray-600',
@@ -492,52 +619,74 @@ export default function PresupuestoForm({
       </div>
 
       {/* Acciones */}
-      {editable && (
-        <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-3 flex-wrap">
+        {clienteId && items.length > 0 && (
           <button
-            onClick={() => guardar('Borrador')}
-            disabled={guardando}
+            onClick={generarPDF}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50"
+          >
+            <FileDown className="w-4 h-4" /> Generar PDF
+          </button>
+        )}
+
+        {editable && (
+          <>
+            <button
+              onClick={() => guardar('Borrador')}
+              disabled={guardando}
+              className="flex items-center gap-2 bg-[#00a19a] text-white px-4 py-2 rounded text-sm hover:bg-[#008f89] transition-colors disabled:opacity-50"
+            >
+              <Save className="w-4 h-4" /> {guardando ? 'Guardando...' : 'Guardar borrador'}
+            </button>
+            {presupuestoId && estado === 'Borrador' && (
+              <button
+                onClick={() => guardar('Enviado')}
+                disabled={guardando}
+                className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Marcar como Enviado
+              </button>
+            )}
+            {presupuestoId && estado === 'Enviado' && (
+              <>
+                <button
+                  onClick={() => guardar('Aprobado')}
+                  disabled={guardando}
+                  className="px-4 py-2 border border-green-300 bg-green-50 rounded text-sm text-green-700 hover:bg-green-100 disabled:opacity-50"
+                >
+                  Marcar como Aprobado
+                </button>
+                <button
+                  onClick={() => guardar('Rechazado')}
+                  disabled={guardando}
+                  className="px-4 py-2 border border-red-300 bg-red-50 rounded text-sm text-red-700 hover:bg-red-100 disabled:opacity-50"
+                >
+                  Marcar como Rechazado
+                </button>
+              </>
+            )}
+          </>
+        )}
+
+        {estado === 'Aprobado' && !ventaBorradorId && (
+          <button
+            onClick={enviarABorradorVenta}
+            disabled={enviandoABorrador}
             className="flex items-center gap-2 bg-[#00a19a] text-white px-4 py-2 rounded text-sm hover:bg-[#008f89] transition-colors disabled:opacity-50"
           >
-            <Save className="w-4 h-4" /> {guardando ? 'Guardando...' : 'Guardar borrador'}
+            <ShoppingCart className="w-4 h-4" /> {enviandoABorrador ? 'Enviando...' : 'Enviar a borrador de venta'}
           </button>
-          {presupuestoId && estado === 'Borrador' && (
-            <button
-              onClick={() => guardar('Enviado')}
-              disabled={guardando}
-              className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-            >
-              Marcar como Enviado
-            </button>
-          )}
-          {presupuestoId && estado === 'Enviado' && (
-            <>
-              <button
-                onClick={() => guardar('Aprobado')}
-                disabled={guardando}
-                className="px-4 py-2 border border-green-300 bg-green-50 rounded text-sm text-green-700 hover:bg-green-100 disabled:opacity-50"
-              >
-                Marcar como Aprobado
-              </button>
-              <button
-                onClick={() => guardar('Rechazado')}
-                disabled={guardando}
-                className="px-4 py-2 border border-red-300 bg-red-50 rounded text-sm text-red-700 hover:bg-red-100 disabled:opacity-50"
-              >
-                Marcar como Rechazado
-              </button>
-            </>
-          )}
-        </div>
-      )}
+        )}
 
-      {estado === 'Aprobado' && (
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">
-            Generar PDF y Enviar a borrador de venta se agregan en el próximo paso.
-          </p>
-        </div>
-      )}
+        {ventaBorradorId && (
+          <a
+            href={`/ventas?borrador=${ventaBorradorId}`}
+            className="flex items-center gap-2 px-4 py-2 border border-[#00a19a] text-[#00a19a] rounded text-sm hover:bg-[#00a19a]/10 transition-colors"
+          >
+            <ShoppingCart className="w-4 h-4" /> Ya enviado a borrador de venta — abrir en Ventas
+          </a>
+        )}
+      </div>
     </div>
   )
 }
