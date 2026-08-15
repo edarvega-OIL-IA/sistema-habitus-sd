@@ -77,6 +77,7 @@ export default function PresupuestoForm({
   const [pendienteOcMap, setPendienteOcMap] = useState<Map<number, number>>(new Map())
   const [busquedaArticulo, setBusquedaArticulo] = useState('')
   const [dropdownArticuloAbierto, setDropdownArticuloAbierto] = useState(false)
+  const [indiceResaltado, setIndiceResaltado] = useState(0)
 
   const [items, setItems] = useState<ItemForm[]>(
     (itemsIniciales || []).map(i => ({ articulo_id: i.articulo_id, nombre: i.nombre, cantidad: i.cantidad, precio_unitario: i.precio_unitario }))
@@ -142,10 +143,18 @@ export default function PresupuestoForm({
 
   const articulosFiltrados = useMemo(() => {
     if (!busquedaArticulo.trim()) return []
-    const q = busquedaArticulo.trim().toLowerCase()
+    const palabras = busquedaArticulo.trim().toLowerCase().split(/\s+/)
     const yaAgregados = new Set(items.map(i => i.articulo_id))
-    return articulos.filter(a => a.nombre.toLowerCase().includes(q) && !yaAgregados.has(a.id)).slice(0, 15)
+    return articulos
+      .filter(a => !yaAgregados.has(a.id))
+      .filter(a => {
+        const nombre = a.nombre.toLowerCase()
+        return palabras.every(p => nombre.includes(p))
+      })
+      .slice(0, 15)
   }, [articulos, busquedaArticulo, items])
+
+  useEffect(() => { setIndiceResaltado(0) }, [busquedaArticulo])
 
   function elegirCliente(c: Cliente) {
     setClienteId(c.id)
@@ -456,19 +465,37 @@ export default function PresupuestoForm({
               type="text"
               value={busquedaArticulo}
               onChange={e => { setBusquedaArticulo(e.target.value); setDropdownArticuloAbierto(true) }}
+              onKeyDown={e => {
+                if (!dropdownArticuloAbierto || articulosFiltrados.length === 0) return
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setIndiceResaltado(prev => (prev + 1) % articulosFiltrados.length)
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setIndiceResaltado(prev => (prev - 1 + articulosFiltrados.length) % articulosFiltrados.length)
+                } else if (e.key === 'Enter') {
+                  e.preventDefault()
+                  agregarArticulo(articulosFiltrados[indiceResaltado])
+                } else if (e.key === 'Escape') {
+                  setDropdownArticuloAbierto(false)
+                }
+              }}
               placeholder="Buscar artículo para agregar (sin filtrar por stock)..."
               className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
             />
             {dropdownArticuloAbierto && articulosFiltrados.length > 0 && (
               <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-y-auto">
-                {articulosFiltrados.map(a => {
+                {articulosFiltrados.map((a, i) => {
                   const stock = stockMap.get(a.id) || 0
                   return (
                     <button
                       type="button"
                       key={a.id}
                       onClick={() => agregarArticulo(a)}
-                      className="w-full flex items-center justify-between px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                      onMouseEnter={() => setIndiceResaltado(i)}
+                      className={`w-full flex items-center justify-between px-3 py-2 text-sm text-gray-700 ${
+                        i === indiceResaltado ? 'bg-[#00a19a]/10' : 'hover:bg-gray-50'
+                      }`}
                     >
                       <span>{a.nombre}</span>
                       <span className={`text-xs ${stock > 0 ? 'text-gray-400' : 'text-amber-600'}`}>
