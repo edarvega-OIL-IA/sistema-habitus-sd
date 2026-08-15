@@ -240,7 +240,14 @@ export default function SugerenciaCompraPage() {
       map.set(key, grupo)
     })
     const arr = Array.from(map.values())
-    arr.forEach(g => g.filas.sort((a, b) => a.diasCobertura - b.diasCobertura))
+    // Orden dentro de cada grupo: primero lo que más pesa en la próxima
+    // compra (Cant. sugerida desc), y a igualdad de cantidad, lo que más
+    // rota primero (Venta prom. mensual desc) — evita que un artículo con
+    // stock 0 pero venta casi nula tape a otros con más impacto real.
+    arr.forEach(g => g.filas.sort((a, b) => {
+      if (b.cantidadSugerida !== a.cantidadSugerida) return b.cantidadSugerida - a.cantidadSugerida
+      return b.promedioDiario - a.promedioDiario
+    }))
     arr.sort((a, b) => {
       if (a.id === SIN_PROVEEDOR) return 1
       if (b.id === SIN_PROVEEDOR) return -1
