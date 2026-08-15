@@ -1,20 +1,27 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Search, Calendar } from 'lucide-react'
+import { Search, Filter, ChevronDown } from 'lucide-react'
 
 interface ItemAgregado {
   id: number
   nombre: string
+  rubroId: number
   rubroNombre: string
   unidades: number
   monto: number
   costo: number
 }
 
+interface Rubro {
+  id: number
+  nombre: string
+}
+
 type Vista = 'rubro' | 'articulo'
 type CampoOrden = 'nombre' | 'unidades' | 'monto' | 'utilidad'
+type ModoPeriodo = 'dia' | 'mes' | 'anio' | 'libre' | 'todos'
 
 export default function ReporteVentasPage() {
   const supabase = createClient()
@@ -22,20 +29,99 @@ export default function ReporteVentasPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
-  const primerDiaMes = hoy.slice(0, 8) + '01'
+  // --- Filtro de fecha: mismo patrón que Movimientos ---
+  const [modoPeriodo, setModoPeriodo] = useState<ModoPeriodo>('mes')
+  const [fechaRef, setFechaRef] = useState<Date>(new Date())
+  const [fechaDesde, setFechaDesde] = useState<string>('')
+  const [fechaHasta, setFechaHasta] = useState<string>('')
 
-  const [fechaDesde, setFechaDesde] = useState(primerDiaMes)
-  const [fechaHasta, setFechaHasta] = useState(hoy)
+  function getDesdeHasta() {
+    if (modoPeriodo === 'todos' || modoPeriodo === 'libre') return { desde: fechaDesde, hasta: fechaHasta }
+    const y = fechaRef.getFullYear()
+    const m = fechaRef.getMonth()
+    const d = fechaRef.getDate()
+    if (modoPeriodo === 'dia') {
+      const s = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      return { desde: s, hasta: s }
+    }
+    if (modoPeriodo === 'mes') {
+      const desde = `${y}-${String(m + 1).padStart(2, '0')}-01`
+      const ultimo = new Date(y, m + 1, 0).getDate()
+      const hasta = `${y}-${String(m + 1).padStart(2, '0')}-${String(ultimo).padStart(2, '0')}`
+      return { desde, hasta }
+    }
+    if (modoPeriodo === 'anio') {
+      return { desde: `${y}-01-01`, hasta: `${y}-12-31` }
+    }
+    return { desde: '', hasta: '' }
+  }
+
+  function avanzar() {
+    const d = new Date(fechaRef)
+    if (modoPeriodo === 'dia') d.setDate(d.getDate() + 1)
+    else if (modoPeriodo === 'mes') d.setMonth(d.getMonth() + 1)
+    else if (modoPeriodo === 'anio') d.setFullYear(d.getFullYear() + 1)
+    setFechaRef(d)
+  }
+
+  function retroceder() {
+    const d = new Date(fechaRef)
+    if (modoPeriodo === 'dia') d.setDate(d.getDate() - 1)
+    else if (modoPeriodo === 'mes') d.setMonth(d.getMonth() - 1)
+    else if (modoPeriodo === 'anio') d.setFullYear(d.getFullYear() - 1)
+    setFechaRef(d)
+  }
+
+  function labelFechaRef() {
+    if (modoPeriodo === 'dia') return fechaRef.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'America/Argentina/Buenos_Aires' })
+    if (modoPeriodo === 'mes') return fechaRef.toLocaleDateString('es-AR', { month: 'long', year: 'numeric', timeZone: 'America/Argentina/Buenos_Aires' })
+    if (modoPeriodo === 'anio') return fechaRef.getFullYear().toString()
+    return ''
+  }
+
+  function limpiarTodo() {
+    setModoPeriodo('todos')
+    setFechaDesde('')
+    setFechaHasta('')
+    setFechaRef(new Date())
+  }
+
+  const { desde, hasta } = getDesdeHasta()
+
+  // --- Filtro Rubros (multi-select) ---
+  const [rubros, setRubros] = useState<Rubro[]>([])
+  const [rubrosSeleccionados, setRubrosSeleccionados] = useState<Set<number>>(new Set())
+  const [dropdownAbierto, setDropdownAbierto] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onClickFuera(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownAbierto(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickFuera)
+    return () => document.removeEventListener('mousedown', onClickFuera)
+  }, [])
+
+  function toggleRubro(id: number) {
+    setRubrosSeleccionados(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // --- Vista y orden ---
   const [vista, setVista] = useState<Vista>('rubro')
   const [busqueda, setBusqueda] = useState('')
   const [campoOrden, setCampoOrden] = useState<CampoOrden>('monto')
   const [ordenDesc, setOrdenDesc] = useState(true)
 
-  const [porRubro, setPorRubro] = useState<ItemAgregado[]>([])
-  const [porArticulo, setPorArticulo] = useState<ItemAgregado[]>([])
+  const [filasArticuloTodas, setFilasArticuloTodas] = useState<ItemAgregado[]>([])
 
-  useEffect(() => { cargar() }, [fechaDesde, fechaHasta])
+  useEffect(() => { cargar() }, [desde, hasta])
 
   function partirEnLotes<T>(arr: T[], tam: number): T[][] {
     const out: T[][] = []
@@ -43,30 +129,10 @@ export default function ReporteVentasPage() {
     return out
   }
 
-  function setPreset(valor: number | 'mes' | 'anio') {
-    const hoyLocal = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
-    if (valor === 'mes') {
-      setFechaDesde(hoyLocal.slice(0, 8) + '01')
-      setFechaHasta(hoyLocal)
-      return
-    }
-    if (valor === 'anio') {
-      setFechaDesde(hoyLocal.slice(0, 4) + '-01-01')
-      setFechaHasta(hoyLocal)
-      return
-    }
-    const d = new Date(hoyLocal + 'T00:00:00')
-    d.setDate(d.getDate() - (valor - 1))
-    setFechaDesde(d.toLocaleDateString('en-CA'))
-    setFechaHasta(hoyLocal)
-  }
-
   async function cargar() {
     setLoading(true)
     setError(null)
     try {
-      // Catálogo: artículos + rubros (para nombres y agrupación) — query
-      // separada + merge por Map, nunca join anidado (patrón del proyecto).
       const { data: articulosData, error: articulosError } = await supabase
         .from('articulos')
         .select('id, nombre, nombre_base, rubro_id')
@@ -76,8 +142,11 @@ export default function ReporteVentasPage() {
       const { data: rubrosData, error: rubrosError } = await supabase
         .from('rubros')
         .select('id, nombre')
+        .order('nombre')
 
       if (rubrosError) throw rubrosError
+
+      setRubros(rubrosData || [])
 
       const rubroNombreMap = new Map<number, string>()
       ;(rubrosData || []).forEach(r => rubroNombreMap.set(r.id, r.nombre))
@@ -87,15 +156,16 @@ export default function ReporteVentasPage() {
         articuloInfoMap.set(a.id, { nombre: a.nombre_base ?? a.nombre, rubroId: a.rubro_id })
       })
 
-      // Ventas del rango elegido (excluye Anuladas — estado_venta_id=3)
-      const { data: ventasData, error: ventasError } = await supabase
+      const query = supabase
         .from('ventas')
         .select('id')
         .eq('sucursal_id', 1)
         .neq('estado_venta_id', 3)
-        .gte('fecha_utc', fechaDesde)
-        .lte('fecha_utc', fechaHasta)
 
+      if (desde) query.gte('fecha_utc', desde)
+      if (hasta) query.lte('fecha_utc', hasta)
+
+      const { data: ventasData, error: ventasError } = await query
       if (ventasError) throw ventasError
 
       const ventaIds = (ventasData || []).map(v => v.id)
@@ -120,42 +190,16 @@ export default function ReporteVentasPage() {
         }
       }
 
-      const filasArticulo: ItemAgregado[] = []
-      const porRubroMap = new Map<number, { nombre: string; unidades: number; monto: number; costo: number }>()
-
+      const filas: ItemAgregado[] = []
       porArticuloMap.forEach((valores, articuloId) => {
         const info = articuloInfoMap.get(articuloId)
         const nombre = info?.nombre || `Artículo #${articuloId}`
         const rubroId = info?.rubroId ?? 0
         const rubroNombre = rubroId ? (rubroNombreMap.get(rubroId) || 'Sin rubro') : 'Sin rubro'
-
-        filasArticulo.push({
-          id: articuloId,
-          nombre,
-          rubroNombre,
-          unidades: valores.unidades,
-          monto: valores.monto,
-          costo: valores.costo,
-        })
-
-        const prevRubro = porRubroMap.get(rubroId) || { nombre: rubroNombre, unidades: 0, monto: 0, costo: 0 }
-        prevRubro.unidades += valores.unidades
-        prevRubro.monto += valores.monto
-        prevRubro.costo += valores.costo
-        porRubroMap.set(rubroId, prevRubro)
+        filas.push({ id: articuloId, nombre, rubroId, rubroNombre, unidades: valores.unidades, monto: valores.monto, costo: valores.costo })
       })
 
-      const filasRubro: ItemAgregado[] = Array.from(porRubroMap.entries()).map(([rubroId, v]) => ({
-        id: rubroId,
-        nombre: v.nombre,
-        rubroNombre: v.nombre,
-        unidades: v.unidades,
-        monto: v.monto,
-        costo: v.costo,
-      }))
-
-      setPorArticulo(filasArticulo)
-      setPorRubro(filasRubro)
+      setFilasArticuloTodas(filas)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : JSON.stringify(err))
     } finally {
@@ -163,7 +207,25 @@ export default function ReporteVentasPage() {
     }
   }
 
-  const filasBase = vista === 'rubro' ? porRubro : porArticulo
+  // Aplica filtro de rubros (vacío = todos) sobre las filas de artículo
+  const filasArticuloConRubro = useMemo(() => {
+    if (rubrosSeleccionados.size === 0) return filasArticuloTodas
+    return filasArticuloTodas.filter(f => rubrosSeleccionados.has(f.rubroId))
+  }, [filasArticuloTodas, rubrosSeleccionados])
+
+  const filasRubro = useMemo(() => {
+    const map = new Map<number, ItemAgregado>()
+    filasArticuloConRubro.forEach(f => {
+      const prev = map.get(f.rubroId) || { id: f.rubroId, nombre: f.rubroNombre, rubroId: f.rubroId, rubroNombre: f.rubroNombre, unidades: 0, monto: 0, costo: 0 }
+      prev.unidades += f.unidades
+      prev.monto += f.monto
+      prev.costo += f.costo
+      map.set(f.rubroId, prev)
+    })
+    return Array.from(map.values())
+  }, [filasArticuloConRubro])
+
+  const filasBase = vista === 'rubro' ? filasRubro : filasArticuloConRubro
 
   const filasFiltradas = useMemo(() => {
     let filas = filasBase
@@ -215,45 +277,120 @@ export default function ReporteVentasPage() {
       </div>
 
       {/* Filtros */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Calendar className="w-4 h-4 text-gray-400" />
-          <button onClick={() => setPreset(1)} className="px-3 py-1.5 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50">Hoy</button>
-          <button onClick={() => setPreset(7)} className="px-3 py-1.5 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50">Últimos 7 días</button>
-          <button onClick={() => setPreset(30)} className="px-3 py-1.5 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50">Últimos 30 días</button>
-          <button onClick={() => setPreset('mes')} className="px-3 py-1.5 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50">Este mes</button>
-          <button onClick={() => setPreset('anio')} className="px-3 py-1.5 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50">Este año</button>
-          <div className="flex items-center gap-2 ml-2">
-            <input
-              type="date"
-              value={fechaDesde}
-              onChange={e => setFechaDesde(e.target.value)}
-              className="text-xs border border-gray-200 rounded px-2 py-1.5 text-[#3c3c3b]"
-            />
-            <span className="text-xs text-gray-400">a</span>
-            <input
-              type="date"
-              value={fechaHasta}
-              onChange={e => setFechaHasta(e.target.value)}
-              className="text-xs border border-gray-200 rounded px-2 py-1.5 text-[#3c3c3b]"
-            />
-          </div>
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Filter className="w-4 h-4 text-gray-500" />
+          <h2 className="text-sm font-semibold text-gray-700">Filtros</h2>
         </div>
 
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={() => setVista('rubro')}
-              className={`px-3 py-1.5 text-xs rounded-md transition-colors ${vista === 'rubro' ? 'bg-white text-[#3c3c3b] shadow-sm' : 'text-gray-500'}`}
-            >
-              Por rubro
-            </button>
-            <button
-              onClick={() => setVista('articulo')}
-              className={`px-3 py-1.5 text-xs rounded-md transition-colors ${vista === 'articulo' ? 'bg-white text-[#3c3c3b] shadow-sm' : 'text-gray-500'}`}
-            >
-              Por artículo
-            </button>
+        {/* Fila 1: período (mismo patrón que Movimientos) */}
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {(['dia', 'mes', 'anio', 'libre'] as const).map(m => (
+            <div key={m} className="flex items-center">
+              {m !== 'libre' && modoPeriodo === m && (
+                <button onClick={retroceder}
+                  className="w-7 h-7 flex items-center justify-center rounded-l border border-r-0 border-gray-300 hover:bg-gray-100 text-gray-600 text-sm">
+                  ‹
+                </button>
+              )}
+              <button
+                onClick={() => setModoPeriodo(m)}
+                className={`px-3 py-1.5 text-sm font-medium border transition-colors ${
+                  modoPeriodo === m
+                    ? 'bg-[#00a19a] text-white border-[#00a19a]'
+                    : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                } ${m !== 'libre' && modoPeriodo === m ? '' : 'rounded'}`}
+              >
+                {modoPeriodo === m && m !== 'libre' ? labelFechaRef() : m === 'dia' ? 'Día' : m === 'mes' ? 'Mes' : m === 'anio' ? 'Año' : 'Libre'}
+              </button>
+              {m !== 'libre' && modoPeriodo === m && (
+                <button onClick={avanzar}
+                  className="w-7 h-7 flex items-center justify-center rounded-r border border-l-0 border-gray-300 hover:bg-gray-100 text-gray-600 text-sm">
+                  ›
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            onClick={limpiarTodo}
+            className={`px-3 py-1.5 text-sm font-medium border rounded transition-colors ${
+              modoPeriodo === 'todos'
+                ? 'bg-[#00a19a] text-white border-[#00a19a]'
+                : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Todos
+          </button>
+
+          {modoPeriodo !== 'todos' && (
+            <div className="flex items-center gap-2 ml-2">
+              <input type="date" value={desde}
+                onChange={e => { setModoPeriodo('libre'); setFechaDesde(e.target.value) }}
+                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+              <span className="text-gray-400 text-sm">—</span>
+              <input type="date" value={hasta}
+                onChange={e => { setModoPeriodo('libre'); setFechaHasta(e.target.value) }}
+                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+            </div>
+          )}
+        </div>
+
+        {/* Fila 2: rubros (multi-select), vista y buscador */}
+        <div className="flex items-center justify-between flex-wrap gap-3 pt-3 border-t border-gray-100">
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Dropdown Rubros */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setDropdownAbierto(prev => !prev)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm border rounded transition-colors ${
+                  rubrosSeleccionados.size > 0
+                    ? 'bg-[#00a19a]/10 border-[#00a19a] text-[#00a19a]'
+                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Rubros{rubrosSeleccionados.size > 0 ? ` (${rubrosSeleccionados.size})` : ''}
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${dropdownAbierto ? 'rotate-180' : ''}`} />
+              </button>
+              {dropdownAbierto && (
+                <div className="absolute z-10 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg max-h-80 overflow-y-auto">
+                  <div className="p-2 border-b border-gray-100 flex items-center justify-between">
+                    <span className="text-xs text-gray-500">{rubrosSeleccionados.size === 0 ? 'Mostrando todos' : `${rubrosSeleccionados.size} seleccionados`}</span>
+                    {rubrosSeleccionados.size > 0 && (
+                      <button onClick={() => setRubrosSeleccionados(new Set())} className="text-xs text-[#00a19a] hover:underline">
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                  {rubros.map(r => (
+                    <label key={r.id} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={rubrosSeleccionados.has(r.id)}
+                        onChange={() => toggleRubro(r.id)}
+                        className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                      />
+                      {r.nombre}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Toggle vista */}
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setVista('rubro')}
+                className={`px-3 py-1.5 text-xs rounded-md transition-colors ${vista === 'rubro' ? 'bg-white text-[#3c3c3b] shadow-sm' : 'text-gray-500'}`}
+              >
+                Por rubro
+              </button>
+              <button
+                onClick={() => setVista('articulo')}
+                className={`px-3 py-1.5 text-xs rounded-md transition-colors ${vista === 'articulo' ? 'bg-white text-[#3c3c3b] shadow-sm' : 'text-gray-500'}`}
+              >
+                Por artículo
+              </button>
+            </div>
           </div>
 
           {vista === 'articulo' && (
@@ -281,7 +418,7 @@ export default function ReporteVentasPage() {
         </div>
       ) : filasFiltradas.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-400">
-          No hay ventas registradas en el rango de fechas elegido.
+          No hay ventas registradas con los filtros elegidos.
         </div>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden overflow-x-auto">
