@@ -26,7 +26,15 @@ const nav = [
     ],
   },
   { label: 'Compras', href: '/compras', icon: '🚚' },
-  { label: 'Reportes', href: '/reportes', icon: '📊' },
+  {
+    label: 'Reportes',
+    icon: '📊',
+    children: [
+      { label: 'Gráficos', href: '/reportes' },
+      { label: 'Ventas', href: '/reportes/ventas' },
+      { label: 'Sugerencia de Compra', href: '/reportes/sugerencia-compra' },
+    ],
+  },
   { label: 'Configuración', href: '/configuracion', icon: '⚙️' },
 ]
 
@@ -34,9 +42,33 @@ export default function Sidebar() {
   const pathname = usePathname()
   const [abierto, setAbierto] = useState(false)
 
-  // Grupo "Artículos" arranca abierto si la ruta actual pertenece a él
-  const grupoArticulosActivo = ['/articulos', '/stock'].some(h => pathname.startsWith(h))
-  const [grupoArticulosAbierto, setGrupoArticulosAbierto] = useState(grupoArticulosActivo)
+  // Todos los grupos con children del nav (hoy: Artículos y Reportes)
+  const grupos = nav.filter(item => item.children)
+
+  // ¿La ruta actual pertenece a este grupo? (usado para resaltarlo y para
+  // decidir con qué grupos arranca abierto el acordeón)
+  function grupoActivo(item: typeof nav[number]) {
+    if (!item.children) return false
+    return item.children.some(c => pathname === c.href || pathname.startsWith(c.href + '/'))
+  }
+
+  // Set de labels de grupos abiertos — arranca con los grupos cuya ruta
+  // actual está activa (puede haber más de uno abierto a la vez).
+  const [gruposAbiertos, setGruposAbiertos] = useState<Set<string>>(
+    () => new Set(grupos.filter(grupoActivo).map(g => g.label))
+  )
+
+  function toggleGrupo(label: string) {
+    setGruposAbiertos(prev => {
+      const next = new Set(prev)
+      if (next.has(label)) {
+        next.delete(label)
+      } else {
+        next.add(label)
+      }
+      return next
+    })
+  }
 
   // Cierra el menú mobile automáticamente al navegar a otra pantalla
   useEffect(() => {
@@ -101,20 +133,21 @@ export default function Sidebar() {
         <nav className="flex-1 py-4 overflow-y-auto">
           {nav.map(item => {
             if (item.children) {
-              const activo = grupoArticulosActivo
+              const activo = grupoActivo(item)
+              const grupoAbierto = gruposAbiertos.has(item.label)
               return (
                 <div key={item.label}>
                   <button
-                    onClick={() => setGrupoArticulosAbierto(prev => !prev)}
+                    onClick={() => toggleGrupo(item.label)}
                     className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
                       activo ? 'text-white' : 'text-white/70 hover:text-white hover:bg-white/5'
                     }`}
                   >
                     <span>{item.icon}</span>
                     <span className="flex-1 text-left">{item.label}</span>
-                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${grupoArticulosAbierto ? 'rotate-180' : ''}`} />
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${grupoAbierto ? 'rotate-180' : ''}`} />
                   </button>
-                  {grupoArticulosAbierto && (
+                  {grupoAbierto && (
                     <div className="pb-1">
                       {item.children.map(child => (
                         <Link
