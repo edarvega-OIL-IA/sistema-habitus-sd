@@ -153,7 +153,11 @@ export default function ReporteVentasPage() {
 
       const articuloInfoMap = new Map<number, { nombre: string; rubroId: number | null }>()
       ;(articulosData || []).forEach(a => {
-        articuloInfoMap.set(a.id, { nombre: a.nombre_base ?? a.nombre, rubroId: a.rubro_id })
+        // IMPORTANTE: usar nombre (armado por el trigger fn_generar_nombre_articulo
+        // con base+sabor+marca), NUNCA nombre_base — nombre_base no distingue
+        // sabores y hacía que artículos distintos se mostraran repetidos con
+        // el mismo texto (ej. varios "Classic Whey Protein - 2 lb").
+        articuloInfoMap.set(a.id, { nombre: a.nombre, rubroId: a.rubro_id })
       })
 
       const query = supabase
