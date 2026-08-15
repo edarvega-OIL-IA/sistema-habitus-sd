@@ -85,7 +85,13 @@ export default function PresupuestoForm({
   )
 
   const [fecha, setFecha] = useState(fechaInicial || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }))
-  const [validezHasta, setValidezHasta] = useState(validezInicial || '')
+  const [validezHasta, setValidezHasta] = useState(() => {
+    if (validezInicial) return validezInicial
+    const base = fechaInicial || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+    const d = new Date(base + 'T00:00:00')
+    d.setDate(d.getDate() + 7)
+    return d.toLocaleDateString('en-CA')
+  })
   const [formaPago, setFormaPago] = useState(formaPagoInicial || 'Efectivo o transferencia')
   const [observaciones, setObservaciones] = useState(observacionesInicial || '')
 
@@ -182,10 +188,11 @@ export default function PresupuestoForm({
   }
 
   function agregarCondicionesEstandar() {
+    if (observaciones.includes('Condiciones de pago:')) return
     const cliente = clientes.find(c => c.id === clienteId)
     const plazo = cliente?.plazo_dias_cta_cte
     const textoPlazo = plazo ? `A ${plazo} días F.F.` : 'A convenir'
-    const plantilla = `Condiciones de pago: ${textoPlazo} con entrega y recepción de conformidad.\nMantenimiento de la oferta: Siete (7) días.\nPlazo de entrega total: Inmediato.`
+    const plantilla = `Condiciones de pago: ${textoPlazo} con entrega y recepción de conformidad.\nPlazo de entrega total: Inmediato.`
     setObservaciones(prev => prev.trim() ? `${prev.trim()}\n${plantilla}` : plantilla)
   }
 
@@ -463,6 +470,64 @@ export default function PresupuestoForm({
         )}
       </div>
 
+      {/* Datos adicionales */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
+            <input
+              type="date"
+              value={fecha}
+              disabled={!editable}
+              onChange={e => setFecha(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Validez hasta</label>
+            <input
+              type="date"
+              value={validezHasta}
+              disabled={!editable}
+              onChange={e => setValidezHasta(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Forma de pago</label>
+            <input
+              type="text"
+              value={formaPago}
+              disabled={!editable}
+              onChange={e => setFormaPago(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50"
+            />
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-medium text-gray-600">Observaciones (van en el PDF)</label>
+            {editable && (
+              <button
+                type="button"
+                onClick={agregarCondicionesEstandar}
+                disabled={observaciones.includes('Condiciones de pago:')}
+                className="text-xs text-[#00a19a] hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-default"
+              >
+                {observaciones.includes('Condiciones de pago:') ? 'Condiciones ya agregadas' : '+ Agregar condiciones estándar'}
+              </button>
+            )}
+          </div>
+          <textarea
+            value={observaciones}
+            disabled={!editable}
+            onChange={e => setObservaciones(e.target.value)}
+            rows={2}
+            className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50"
+          />
+        </div>
+      </div>
+
       {/* Ítems */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Artículos</h2>
@@ -608,62 +673,6 @@ export default function PresupuestoForm({
         </div>
       )}
 
-      {/* Datos adicionales */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
-            <input
-              type="date"
-              value={fecha}
-              disabled={!editable}
-              onChange={e => setFecha(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Validez hasta</label>
-            <input
-              type="date"
-              value={validezHasta}
-              disabled={!editable}
-              onChange={e => setValidezHasta(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Forma de pago</label>
-            <input
-              type="text"
-              value={formaPago}
-              disabled={!editable}
-              onChange={e => setFormaPago(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50"
-            />
-          </div>
-        </div>
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-medium text-gray-600">Observaciones (van en el PDF)</label>
-            {editable && (
-              <button
-                type="button"
-                onClick={agregarCondicionesEstandar}
-                className="text-xs text-[#00a19a] hover:underline"
-              >
-                + Agregar condiciones estándar
-              </button>
-            )}
-          </div>
-          <textarea
-            value={observaciones}
-            disabled={!editable}
-            onChange={e => setObservaciones(e.target.value)}
-            rows={2}
-            className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50"
-          />
-        </div>
-      </div>
 
       {/* Acciones */}
       <div className="flex items-center gap-3 flex-wrap">
