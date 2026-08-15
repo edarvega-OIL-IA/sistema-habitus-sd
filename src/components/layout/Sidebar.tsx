@@ -11,6 +11,7 @@ const nav = [
   { label: 'Ventas', href: '/ventas', icon: '🛒' },
   { label: 'Registro Ventas', href: '/ventas/registro', icon: '🧾' },
   { label: 'Pedidos Web', href: '/pedidos-web', icon: '🌐' },
+  { label: 'Presupuestos', href: '/presupuestos', icon: '📋' },
   {
     label: 'Clientes',
     icon: '👥',
