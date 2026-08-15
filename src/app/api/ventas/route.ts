@@ -2,9 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { fiscalizarVenta } from '@/lib/tusfacturas/fiscalizar'
 
-// Cliente por defecto del POS de mostrador — id=1, Consumidor Final.
-// Si algún día el POS permite elegir cliente real en el momento de la
-// venta, esto deja de ser fijo; por ahora toda venta automática es CF.
+// Cliente por defecto del POS de mostrador cuando no se selecciona uno
+// puntual (venta común) — id=1, Consumidor Final.
 const CLIENTE_ID_CONSUMIDOR_FINAL = 1
 
 export async function POST(request: NextRequest) {
@@ -22,7 +21,9 @@ export async function POST(request: NextRequest) {
   if (!usuarioSistema) return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 403 })
 
   const body = await request.json()
-  const { items, pagos, descuento_pct, observaciones, fiscalizar } = body
+  const { items, pagos, descuento_pct, observaciones, fiscalizar, cliente_id } = body
+  // Si el POS no manda cliente (venta normal de mostrador), Consumidor Final.
+  const clienteIdVenta = cliente_id || CLIENTE_ID_CONSUMIDOR_FINAL
 
   if (!items || items.length === 0)
     return NextResponse.json({ error: 'La venta debe tener al menos un artículo' }, { status: 400 })
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
       .from('ventas')
       .insert({
         numero_venta: numeracion,
-        cliente_id: 1,
+        cliente_id: clienteIdVenta,
         sucursal_id: usuarioSistema.sucursal_id || 1,
         usuario_id: user.id,
         estado_venta_id: fiscalizar ? 1 : 2,
@@ -217,7 +218,7 @@ export async function POST(request: NextRequest) {
     let mensajeFiscal: string | null = null
 
     if (fiscalizar) {
-      const resultado = await fiscalizarVenta(venta.id, CLIENTE_ID_CONSUMIDOR_FINAL, true)
+      const resultado = await fiscalizarVenta(venta.id, clienteIdVenta, true)
       mensajeFiscal = resultado.ok
         ? resultado.mensaje
         : 'La venta se guardó pero la fiscalización no se completó — revisar en Fiscalización'

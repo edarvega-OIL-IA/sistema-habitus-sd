@@ -17,6 +17,14 @@ interface BorradorVenta {
   pedido_web_id: number | null
 }
 
+interface ClienteSelector {
+  id: number
+  nombre: string
+  tiene_cuenta_corriente: boolean
+}
+
+const CLIENTE_ID_CONSUMIDOR_FINAL = 1
+
 export default function VentasPage() {
   const [items, setItems] = useState<ItemCarrito[]>([])
   const [descuento_pct, setDescuento_pct] = useState(0)
@@ -27,6 +35,12 @@ export default function VentasPage() {
   const [usuarioId, setUsuarioId] = useState<string | null>(null)
   const [borradores, setBorradores] = useState<BorradorVenta[]>([])
   const [borradorActivoId, setBorradorActivoId] = useState<number | null>(null)
+  // Cliente de la venta actual — arranca en Consumidor Final. Solo aparecen
+  // acá Consumidor Final + clientes con cuenta corriente habilitada (no es
+  // un buscador de los 73 clientes, es un selector chico para el caso
+  // puntual de venta a crédito).
+  const [clientesSelector, setClientesSelector] = useState<ClienteSelector[]>([])
+  const [clienteId, setClienteId] = useState<number>(CLIENTE_ID_CONSUMIDOR_FINAL)
   // Si el carrito vino de un pedido de la vitrina web (a pagar en el
   // local), guardamos su id acá — al confirmar la venta, se actualiza
   // pedidos_web para cerrar el círculo automáticamente (ver ventaConfirmada).
@@ -53,10 +67,22 @@ export default function VentasPage() {
         cargarVentasRecientes(data.id)
         cargarBorradores(data.id)
         cargarBorradorDesdeQuery()
+        cargarClientesSelector()
       }
     }
     verificarCaja()
   }, [])
+
+  async function cargarClientesSelector() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('clientes')
+      .select('id, nombre, tiene_cuenta_corriente')
+      .eq('activo', true)
+      .or(`id.eq.${CLIENTE_ID_CONSUMIDOR_FINAL},tiene_cuenta_corriente.eq.true`)
+      .order('nombre')
+    setClientesSelector(data || [])
+  }
 
   // Auto-carga el borrador si se llegó desde /pedidos-web con
   // ?borrador=<id> — sin useSearchParams para no forzar un Suspense
@@ -166,6 +192,7 @@ export default function VentasPage() {
     setItems([])
     setDescuento_pct(0)
     setNotaInterna('')
+    setClienteId(CLIENTE_ID_CONSUMIDOR_FINAL)
     if (cierreId) {
       cargarVentasRecientes(cierreId)
       cargarBorradores(cierreId)
@@ -271,6 +298,20 @@ export default function VentasPage() {
 
         {/* Buscador siempre arriba, con las acciones del carrito al lado */}
         <div className="p-4 border-b border-gray-200 bg-white flex items-center gap-3">
+          {clientesSelector.length > 1 && (
+            <select
+              value={clienteId}
+              onChange={e => setClienteId(Number(e.target.value))}
+              title="Cliente de esta venta"
+              className={`shrink-0 h-9 max-w-[180px] border rounded text-sm px-2 focus:outline-none focus:border-[#00a19a] ${
+                clienteId !== CLIENTE_ID_CONSUMIDOR_FINAL ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-gray-300'
+              }`}
+            >
+              {clientesSelector.map(c => (
+                <option key={c.id} value={c.id}>{c.nombre}</option>
+              ))}
+            </select>
+          )}
           <div className="flex-1">
             <BuscadorProductos onAgregarItem={agregarItem} />
           </div>
@@ -285,7 +326,7 @@ export default function VentasPage() {
                 <Bookmark className="w-5 h-5" />
               </button>
               <button
-                onClick={() => { setItems([]); setBorradorActivoId(null); setPedidoWebId(null); setNotaInterna('') }}
+                onClick={() => { setItems([]); setBorradorActivoId(null); setPedidoWebId(null); setNotaInterna(''); setClienteId(CLIENTE_ID_CONSUMIDOR_FINAL) }}
                 title="Cancelar venta (Ctrl+X)"
                 className="shrink-0 p-2 rounded border border-red-300 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-400 transition-colors"
               >
@@ -375,6 +416,8 @@ export default function VentasPage() {
         onDescuentoChange={setDescuento_pct}
         onVentaConfirmada={ventaConfirmada}
         notaInterna={notaInterna}
+        clienteId={clienteId}
+        clienteTieneCtaCte={clientesSelector.find(c => c.id === clienteId)?.tiene_cuenta_corriente ?? false}
       />
 
       {mostrarBorradores && (

@@ -32,9 +32,16 @@ interface PanelPagosProps {
   onDescuentoChange: (v: number) => void
   onVentaConfirmada: (ventaId: number) => void
   notaInterna: string
+  clienteId: number
+  clienteTieneCtaCte: boolean
 }
 
 const MEDIOS_CON_EMISOR = ['Débito', 'Crédito']
+// Medio de pago que no representa plata real recibida — cierra el total
+// de la venta contablemente para clientes con cuenta corriente, dejando
+// el cobro real para más adelante (pantalla Cuentas por Cobrar). Nunca
+// fiscaliza por defecto ni requiere emisor.
+const MEDIO_CUENTA_CORRIENTE = 'Cuenta Corriente'
 
 export default function PanelPagos({
   items,
@@ -42,6 +49,8 @@ export default function PanelPagos({
   onDescuentoChange,
   onVentaConfirmada,
   notaInterna,
+  clienteId,
+  clienteTieneCtaCte,
 }: PanelPagosProps) {
   const [mediosPago, setMediosPago] = useState<MedioPago[]>([])
   const [emisores, setEmisores] = useState<EmisorPago[]>([])
@@ -73,10 +82,28 @@ export default function PanelPagos({
   const vuelto = pendiente < 0 ? Math.abs(pendiente) : 0
   const tieneEfectivo = pagos.some(p => p.nombre_medio === 'Efectivo')
   const debeFiscalizar = pagos.some(p => p.fiscaliza)
+  const usaCuentaCorriente = pagos.some(p => p.nombre_medio === MEDIO_CUENTA_CORRIENTE)
   const puedeConfirmar = items.length > 0 && pagos.length > 0 && pendiente <= 1 && (tieneEfectivo || vuelto <= 1)
 
-  const medioNombreSeleccionado = mediosPago.find(m => m.id === medioSeleccionado)?.nombre ?? ''
+  // "Cuenta Corriente" solo aparece como opción si el cliente elegido la
+  // tiene habilitada — evita que se pueda usar por error en una venta de
+  // mostrador común.
+  const mediosPagoDisponibles = mediosPago.filter(m =>
+    clienteTieneCtaCte || m.nombre !== MEDIO_CUENTA_CORRIENTE
+  )
+
+  const medioNombreSeleccionado = mediosPagoDisponibles.find(m => m.id === medioSeleccionado)?.nombre ?? ''
   const requiereEmisor = MEDIOS_CON_EMISOR.includes(medioNombreSeleccionado)
+
+  // Si el medio elegido deja de estar disponible (ej. se cambió a un
+  // cliente sin cta cte mientras "Cuenta Corriente" estaba seleccionado),
+  // volvemos al primero disponible para no dejar un id inválido cargado.
+  useEffect(() => {
+    if (mediosPagoDisponibles.length === 0) return
+    if (!mediosPagoDisponibles.some(m => m.id === medioSeleccionado)) {
+      setMedioSeleccionado(mediosPagoDisponibles[0].id)
+    }
+  }, [clienteTieneCtaCte, mediosPagoDisponibles])
 
   // Foco automático en botón correcto cuando pendiente llega a 0
   useEffect(() => {
@@ -223,6 +250,7 @@ export default function PanelPagos({
           descuento_pct: descuento_pct_final,
           observaciones: notaInterna || null,
           fiscalizar,
+          cliente_id: clienteId,
         }),
       })
       const data = await res.json()
@@ -325,6 +353,12 @@ export default function PanelPagos({
           </div>
         )}
 
+        {usaCuentaCorriente && (
+          <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 mb-3 text-xs text-amber-700">
+            Cuenta Corriente no es plata recibida — queda como saldo pendiente de cobro para este cliente en Clientes → Cuenta Corriente.
+          </div>
+        )}
+
         {pagos.map((pago, i) => (
           <div
             key={i}
@@ -368,7 +402,7 @@ export default function PanelPagos({
             onChange={e => { setMedioSeleccionado(parseInt(e.target.value)); setEmisorSeleccionado(0) }}
             className="w-full h-8 border border-gray-300 rounded text-sm mb-2 px-2 focus:outline-none focus:border-[#00a19a]"
           >
-            {mediosPago.map(m => (
+            {mediosPagoDisponibles.map(m => (
               <option key={m.id} value={m.id}>{m.nombre}</option>
             ))}
           </select>
