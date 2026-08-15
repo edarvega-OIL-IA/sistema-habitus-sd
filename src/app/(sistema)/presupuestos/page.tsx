@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { Plus, Search } from 'lucide-react'
+import { Plus, Search, Edit } from 'lucide-react'
 
 interface Presupuesto {
   id: number
@@ -147,16 +147,13 @@ export default function PresupuestosPage() {
                 <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Validez</th>
                 <th className="text-right px-4 py-3 text-xs text-gray-600 font-semibold">Total</th>
                 <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Estado</th>
+                <th className="px-4 py-3 w-16"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {presupuestosFiltrados.map(p => (
                 <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <Link href={`/presupuestos/${p.id}`} className="text-[#00a19a] font-medium hover:underline">
-                      #{p.numero}
-                    </Link>
-                  </td>
+                  <td className="px-4 py-3 text-[#3c3c3b] font-medium">#{p.numero}</td>
                   <td className="px-4 py-3 text-gray-700">{clientesMap.get(p.cliente_id) || '—'}</td>
                   <td className="px-4 py-3 text-gray-500">{fmtFecha(p.fecha)}</td>
                   <td className="px-4 py-3 text-gray-500">{fmtFecha(p.validez_hasta)}</td>
@@ -165,6 +162,15 @@ export default function PresupuestosPage() {
                     <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${ESTADOS_BADGE[p.estado] || 'bg-gray-100 text-gray-600'}`}>
                       {p.estado}
                     </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Link
+                      href={`/presupuestos/${p.id}`}
+                      title="Ver / Editar"
+                      className="inline-flex items-center justify-center w-8 h-8 rounded text-blue-400 hover:bg-blue-500 hover:text-white transition-colors"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </Link>
                   </td>
                 </tr>
               ))}
