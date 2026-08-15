@@ -41,14 +41,20 @@ export async function POST(request: NextRequest) {
   if (totalPagos < total - 1)
     return NextResponse.json({ error: 'El monto pagado no cubre el total' }, { status: 400 })
 
-  // Si hay excedente (vuelto) solo se permite cuando hay efectivo entre los medios de pago
+  // Nombres de los medios de pago usados en esta venta — se necesita
+  // siempre (antes solo se pedía cuando había vuelto) porque también sirve
+  // para identificar y excluir "Cuenta Corriente" del movimiento financiero
+  // más abajo (no es plata real recibida, ver comentario en esa sección).
   const mediosPagoIds: number[] = pagos.map((p: any) => p.medio_pago_id)
+  const { data: mediosUsados } = await supabase
+    .from('medios_pago')
+    .select('id, nombre')
+    .in('id', mediosPagoIds)
+  const nombreMedioMap = new Map((mediosUsados || []).map(m => [m.id, m.nombre]))
+
+  // Si hay excedente (vuelto) solo se permite cuando hay efectivo entre los medios de pago
   if (totalPagos > total + 1) {
-    const { data: medios } = await supabase
-      .from('medios_pago')
-      .select('id, nombre')
-      .in('id', mediosPagoIds)
-    const tieneEfectivo = medios?.some(m => m.nombre === 'Efectivo') ?? false
+    const tieneEfectivo = mediosUsados?.some(m => m.nombre === 'Efectivo') ?? false
     if (!tieneEfectivo)
       return NextResponse.json({ error: 'El monto debe coincidir con el total' }, { status: 400 })
   }
@@ -160,7 +166,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Movimiento financiero (ledger) — UNA FILA POR CADA MEDIO DE PAGO ────
+    // ── Movimiento financiero (ledger) — UNA FILA POR CADA MEDIO DE PAGO REAL ─
     // BUG CORREGIDO (17/07/2026): antes se insertaba una sola fila con el
     // medio de pago del PRIMER ítem de "pagos" y el TOTAL completo de la
     // venta — en ventas con pago mixto (ej. parte Efectivo + parte
@@ -171,38 +177,55 @@ export async function POST(request: NextRequest) {
     // "totalPagos" puede ser mayor a "total" cuando hay vuelto), y el
     // redondeo de centavos se absorbe en el último ítem para que la suma
     // de las filas coincida exactamente con "total".
-    const factorProporcion = total / totalPagos
-    let sumaAcumulada = 0
-    const contribuciones = pagos.map((pago: any, i: number) => {
-      let monto: number
-      if (i === pagos.length - 1) {
-        // Último pago: absorbe el redondeo para que la suma cierre exacta
-        monto = Math.round((total - sumaAcumulada) * 100) / 100
-      } else {
-        monto = Math.round(pago.monto * factorProporcion * 100) / 100
-        sumaAcumulada += monto
+    //
+    // FIX (15/08/2026): "Cuenta Corriente" NO es plata real recibida —
+    // queda como saldo pendiente de cobro (ver Clientes → Cuenta
+    // Corriente). Si generara un movimiento de Ingreso acá, ese monto se
+    // contaría dos veces: una (ficticia) ahora, y otra (real) cuando el
+    // cliente pague de verdad y se registre el cobro. Se excluye del
+    // cálculo entero — si la venta es 100% Cuenta Corriente, no se genera
+    // ningún movimiento financiero para ella (correcto: no entró plata).
+    const pagosReales = pagos.filter((p: any) => nombreMedioMap.get(p.medio_pago_id) !== 'Cuenta Corriente')
+    const montoCuentaCorriente = pagos
+      .filter((p: any) => nombreMedioMap.get(p.medio_pago_id) === 'Cuenta Corriente')
+      .reduce((sum: number, p: any) => sum + p.monto, 0)
+    const totalReal = Math.round((total - montoCuentaCorriente) * 100) / 100
+    const totalPagosReales = pagosReales.reduce((sum: number, p: any) => sum + p.monto, 0)
+
+    if (pagosReales.length > 0 && totalPagosReales > 0) {
+      const factorProporcion = totalReal / totalPagosReales
+      let sumaAcumulada = 0
+      const contribuciones = pagosReales.map((pago: any, i: number) => {
+        let monto: number
+        if (i === pagosReales.length - 1) {
+          // Último pago: absorbe el redondeo para que la suma cierre exacta
+          monto = Math.round((totalReal - sumaAcumulada) * 100) / 100
+        } else {
+          monto = Math.round(pago.monto * factorProporcion * 100) / 100
+          sumaAcumulada += monto
+        }
+        return { medio_pago_id: pago.medio_pago_id, monto }
+      })
+
+      const { error: movError } = await supabase
+        .from('movimientos')
+        .insert(contribuciones.map((c: { medio_pago_id: number; monto: number }) => ({
+          sucursal_id: usuarioSistema.sucursal_id || 1,
+          tipo: 'Ingreso',
+          categoria_gasto_id: 10, // Ventas
+          concepto_gasto_id: 35, // Venta local
+          medio_pago_id: c.medio_pago_id,
+          monto: c.monto,
+          fecha_utc: fechaHoy,
+          mes_contable: fechaHoy.slice(0, 7) + '-01',
+          origen_tipo: 'venta',
+          origen_id: venta.id,
+          usuario_id: user.id,
+        })))
+
+      if (movError) {
+        console.error('Error al generar movimiento para venta', venta.id, ':', movError.message)
       }
-      return { medio_pago_id: pago.medio_pago_id, monto }
-    })
-
-    const { error: movError } = await supabase
-      .from('movimientos')
-      .insert(contribuciones.map((c: { medio_pago_id: number; monto: number }) => ({
-        sucursal_id: usuarioSistema.sucursal_id || 1,
-        tipo: 'Ingreso',
-        categoria_gasto_id: 10, // Ventas
-        concepto_gasto_id: 35, // Venta local
-        medio_pago_id: c.medio_pago_id,
-        monto: c.monto,
-        fecha_utc: fechaHoy,
-        mes_contable: fechaHoy.slice(0, 7) + '-01',
-        origen_tipo: 'venta',
-        origen_id: venta.id,
-        usuario_id: user.id,
-      })))
-
-    if (movError) {
-      console.error('Error al generar movimiento para venta', venta.id, ':', movError.message)
     }
 
     // ── Fiscalización AFIP/ARCA vía TusFacturasAPP ──────────────────────────
