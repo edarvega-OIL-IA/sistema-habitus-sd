@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Filter, ChevronDown, ChevronRight, Trash2, Pencil, Receipt } from 'lucide-react'
+import { Filter, ChevronDown, ChevronRight, Trash2, Pencil, Receipt, Truck } from 'lucide-react'
 import EditarItemsVentaModal from '@/components/ventas/EditarItemsVentaModal'
 
 interface Venta {
@@ -19,6 +19,7 @@ interface Venta {
   estados_venta: { nombre: string } | null
   cierre_turno_id: number | null
   cierres_turno: { turno_id: number; turnos: { nombre: string } | null } | null
+  cliente_id: number
   venta_items: { cantidad: number; precio_unitario: number; descuento_pct: number; subtotal: number; articulos: { nombre: string } | null }[]
   venta_pagos: { monto: number; medios_pago: { nombre: string } | null; emisores_pago: { nombre: string } | null }[]
 }
@@ -43,6 +44,7 @@ export default function RegistroVentasPage() {
   const [generandoNC, setGenerandoNC] = useState<number | null>(null)
   const [confirmandoNC, setConfirmandoNC] = useState<number | null>(null)
   const [resultadoNC, setResultadoNC] = useState<{ ventaId: number; ok: boolean; mensaje: string } | null>(null)
+  const [generandoRemito, setGenerandoRemito] = useState<number | null>(null)
 
   // Filtros
   const [modoPeriodo, setModoPeriodo] = useState<'dia' | 'mes' | 'anio' | 'libre' | 'todos'>('dia')
@@ -91,7 +93,7 @@ export default function RegistroVentasPage() {
       .from('ventas')
       .select(`
         id, numero_venta, total, subtotal, descuento_pct, ajuste_edicion_monto, ajuste_edicion_tipo,
-        fecha_utc, creado_en, estado_venta_id, cierre_turno_id,
+        fecha_utc, creado_en, estado_venta_id, cierre_turno_id, cliente_id,
         estados_venta ( nombre ),
         cierres_turno ( turno_id, turnos(nombre) ),
         venta_items ( cantidad, precio_unitario, descuento_pct, subtotal, articulos(nombre) ),
@@ -156,6 +158,100 @@ export default function RegistroVentasPage() {
       }
     } catch (err: any) {
       alert('Error al descargar PDF: ' + err.message)
+    }
+  }
+
+  async function generarRemito(venta: Venta) {
+    setGenerandoRemito(venta.id)
+    try {
+      const supabase = createClient()
+
+      // Reutiliza el número si este remito ya se generó antes para esta
+      // venta (mismo criterio que Fiscalización/Nota de Crédito — nunca
+      // pedir un número nuevo en un reintento).
+      let numero: number
+      const { data: remitoExistente, error: remitoSelectError } = await supabase
+        .from('remitos')
+        .select('numero')
+        .eq('venta_id', venta.id)
+        .maybeSingle()
+
+      if (remitoSelectError) throw remitoSelectError
+
+      if (remitoExistente) {
+        numero = remitoExistente.numero
+      } else {
+        const { data: numeracion, error: numError } = await supabase.rpc('incrementar_numero_remito')
+        if (numError) throw numError
+        numero = numeracion
+
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) throw new Error('No autenticado')
+
+        const { error: insertError } = await supabase
+          .from('remitos')
+          .insert({ numero, venta_id: venta.id, usuario_id: user.id })
+
+        if (insertError) throw insertError
+      }
+
+      const { data: cliente } = await supabase
+        .from('clientes')
+        .select('nombre, domicilio, cuit, dni')
+        .eq('id', venta.cliente_id)
+        .maybeSingle()
+
+      const { jsPDF } = await import('jspdf')
+      const autoTableModule = await import('jspdf-autotable')
+      const autoTable = autoTableModule.default
+
+      const doc = new jsPDF()
+
+      doc.setFillColor(0, 161, 154)
+      doc.rect(0, 0, 210, 24, 'F')
+      doc.setTextColor(255, 255, 255)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(18)
+      doc.text('HÁBITUS SD', 14, 14)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.text('Suplementos Deportivos', 14, 20)
+
+      doc.setTextColor(60, 60, 59)
+      doc.setFontSize(9)
+      doc.text('de Vega Eduardo Ariel — Roca 54, Cinco Saltos, Río Negro', 14, 32)
+      doc.text('CUIT 23-23890071-9  ·  Tel. +54 9 299 324-4332  ·  habitus.sd@gmail.com', 14, 37)
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(14)
+      doc.text(`Remito N° ${numero}`, 14, 49)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      doc.text(`Fecha: ${new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).split('-').reverse().join('/')}`, 14, 56)
+      doc.text(`Cliente: ${cliente?.nombre || '—'}`, 14, 62)
+      if (cliente?.domicilio) doc.text(`Domicilio: ${cliente.domicilio}`, 14, 68)
+      if (cliente?.cuit || cliente?.dni) doc.text(`${cliente?.cuit ? 'CUIT' : 'DNI'}: ${cliente.cuit || cliente.dni}`, 14, cliente?.domicilio ? 74 : 68)
+      doc.text(`Corresponde a Venta N° ${venta.numero_venta}`, 14, (cliente?.domicilio ? 80 : 74))
+
+      autoTable(doc, {
+        startY: (cliente?.domicilio ? 88 : 82),
+        head: [['Descripción', 'Cantidad']],
+        body: (venta.venta_items || []).map(i => [i.articulos?.nombre || '—', i.cantidad.toLocaleString('es-AR')]),
+        headStyles: { fillColor: [0, 161, 154], textColor: [255, 255, 255] },
+        styles: { fontSize: 9, textColor: [60, 60, 59] },
+        columnStyles: { 1: { halign: 'right' } },
+      })
+
+      const finalY = (doc as any).lastAutoTable.finalY + 16
+      doc.setFontSize(9)
+      doc.text('_______________________________', 14, finalY)
+      doc.text('Firma y aclaración de quien recibe', 14, finalY + 5)
+
+      doc.save(`Remito_${numero}_Venta_${venta.numero_venta}.pdf`)
+    } catch (err: unknown) {
+      alert('Error al generar el remito: ' + (err instanceof Error ? err.message : JSON.stringify(err)))
+    } finally {
+      setGenerandoRemito(null)
     }
   }
 
@@ -620,6 +716,18 @@ export default function RegistroVentasPage() {
                           </div>
                         </div>
                       </div>
+                      {v.estado_venta_id !== 3 && (
+                        <div className="flex justify-end mt-3">
+                          <button
+                            onClick={() => generarRemito(v)}
+                            disabled={generandoRemito === v.id}
+                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-gray-300 rounded text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            <Truck className="w-3.5 h-3.5" />
+                            {generandoRemito === v.id ? 'Generando...' : 'Generar Remito'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
