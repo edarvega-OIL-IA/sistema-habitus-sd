@@ -43,21 +43,28 @@ src/app/(sistema)/
   movimientos/[id]/page.tsx
   obligaciones/page.tsx (nuevo 29/07 — cuenta corriente por acreedor)
   fiscalizacion/page.tsx (nuevo 27/07 — reintento manual de fiscalización, rol Admin)
+  clientes/page.tsx, clientes/nuevo/page.tsx, clientes/[id]/page.tsx (nuevo 15/08)
+  clientes/cuenta-corriente/page.tsx (nuevo 15/08 — cuenta corriente de clientes)
+  presupuestos/page.tsx, presupuestos/nuevo/page.tsx, presupuestos/[id]/page.tsx (nuevo 15/08)
   stock/page.tsx
   stock/nuevo/page.tsx
   stock/[id]/page.tsx
   cierre-turno/page.tsx
-  reportes/page.tsx
+  reportes/page.tsx (Gráficos)
+  reportes/ventas/page.tsx (nuevo 15/08)
+  reportes/sugerencia-compra/page.tsx (nuevo 15/08)
   configuracion/page.tsx
 
-src/app/api/ventas/route.ts (simplificado 27/07 — usa lib/tusfacturas/fiscalizar.ts)
+src/app/api/ventas/route.ts (simplificado 27/07 — usa lib/tusfacturas/fiscalizar.ts; 15/08 — recibe cliente_id real, excluye Cuenta Corriente del movimiento financiero)
 src/app/api/fiscalizacion/route.ts (nuevo 27/07)
 src/lib/tusfacturas/fiscalizar.ts (nuevo 27/07 — pipeline compartido POS automático + reintento manual)
 src/lib/tusfacturas/mapeo.ts / tipos.ts / emitir.ts
-src/components/ventas/PanelPagos.tsx
+src/components/ventas/PanelPagos.tsx (15/08 — selector de cliente, filtra/preselecciona Cuenta Corriente)
 src/components/articulos/ArticuloForm.tsx
 src/components/movimientos/MovimientoForm.tsx
 src/components/stock/MovimientoStockForm.tsx
+src/components/clientes/ClienteForm.tsx (nuevo 15/08)
+src/components/presupuestos/PresupuestoForm.tsx (nuevo 15/08 — PDF con jsPDF+jspdf-autotable)
 src/lib/supabase/client.ts / server.ts
 src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 
@@ -78,7 +85,7 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - Fechas DATE: mostrar con .substring(0,10).split('-').reverse().join('/'), NUNCA new Date()
 - Horas (TIMESTAMPTZ): new Date(s).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })
 
-## FUENTE DE VERDAD DE BD — verificado hasta el 29/07/2026 (sesión 23)
+## FUENTE DE VERDAD DE BD — verificado hasta el 15/08/2026
 **REGLA: Nunca documentar columnas sin verificar con SELECT en producción.**
 
 ### Catálogo
@@ -99,8 +106,8 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - medios_pago: id, nombre, fiscaliza_por_defecto, activo, creado_en — Efectivo=1, Débito=2, Crédito=3, Transferencia=4, QR Mercado Pago=5
 - emisores_pago: id, nombre, fiscaliza, activo, creado_en — Mercado Pago=7
 - estados_venta: id, nombre — 1=Fiscal, 2=Guardado, 3=Anulada, 4=Fiscalizada, 5=Fiscalizado externamente (agregado 08/07/2026 — ventas facturadas por fuera del sistema propio, ej. Cover durante el período paralelo; nombres corregidos contra SELECT real en producción, NO coincidían con lo documentado antes)
-- clientes: id, nombre(texto único, NO nombre/apellido separados), tipo_cliente_id(FK tipos_cliente: 1=Consumidor Final, 2=Cuenta Corriente), cuit, dni, condicion_iva_id(FK condiciones_iva: 1=RI, 2=Monotributista, 3=Exento, 4=Consumidor Final, 5=No Responsable), domicilio, localidad_id(FK localidades), telefono, email, tiene_cuenta_corriente(bool), plazo_dias_cta_cte, descuento_default_pct, notas, activo, creado_en — id=1 Consumidor Final (default), id=2 Municipalidad de Cinco Saltos (cargada 27/07, cta cte 15 días)
-- **IMPORTANTE (incidente 27/07):** `condiciones_iva`, `localidades` y `tipos_cliente` son tablas viejas — verificar SIEMPRE que tengan RLS+GRANT antes de sumarles un JOIN nuevo, no asumir que por ser preexistentes ya están bien configuradas (rompieron la fiscalización automática en producción por faltarles el GRANT).
+- clientes: id, nombre(texto único, NO nombre/apellido separados), tipo_cliente_id(FK tipos_cliente: 1=Consumidor Final, 2=Cuenta Corriente), cuit, dni, condicion_iva_id(FK condiciones_iva: 1=RI, 2=Monotributista, 3=Exento, 4=Consumidor Final, 5=No Responsable), domicilio, localidad_id(FK localidades — tabla acotada al Alto Valle Río Negro/Neuquén, NO es catálogo nacional, verificado 15/08), telefono, email, tiene_cuenta_corriente(bool), plazo_dias_cta_cte, descuento_default_pct, notas, activo, creado_en — id=1 Consumidor Final (default), id=2 Municipalidad de Cinco Saltos (cta cte 15 días). **73 clientes cargados al 15/08** (2 originales + 71 importados de Empretienda/vitrina propia).
+- **IMPORTANTE (incidente 27/07, repetido 15/08):** `condiciones_iva`, `localidades` y `tipos_cliente` son tablas viejas — verificar SIEMPRE que tengan RLS+GRANT antes de sumarles un JOIN nuevo. La propia `clientes` tuvo el mismo gap el 15/08 (solo política SELECT, sin GRANT de INSERT/UPDATE para `authenticated`) — corregido, pero recordar verificar las 4 políticas en CUALQUIER tabla antes de construir un formulario de alta/edición sobre ella, no solo en tablas nuevas.
 - comprobantes: id, venta_id, tipo_comprobante_id, punto_venta_id, numero, comprobante_asociado_id, estado_fiscal_id, factura_cae, factura_cae_vencimiento, fecha_emision_utc, fiscalizacion_intentos, mensaje_error(TEXT, agregado 29/07 — motivo real de rechazo de ARCA/TusFacturasAPP, antes se perdía), creado_en, total, impreso_enviado
 - estados_fiscales: 1=Pendiente, 2=Enviado, 3=CAE_Recibido, 4=CAE_Rechazado, 5=Reintentando, 6=Anulado
 - numeracion_comprobantes: id, punto_venta_id, tipo_comprobante_id, ultimo_numero — **si se emite una factura a mano por el portal web de TusFacturasAPP (no por la API), este contador NO se entera solo; hay que corregirlo a mano antes de la próxima fiscalización por sistema**, o va a pedir un número ya usado ante ARCA.
@@ -126,6 +133,27 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - Categoría nueva: `Profesionales`. Conceptos nuevos: `Honorarios Contador`, `SAC` (separado de `Sueldo`, se paga en junio/diciembre).
 - 3 conceptos renombrados para coincidir con el nombre del acreedor real: `Agua`→`Aguas Rionegrinas`, `Gas Camuzzi`→`Camuzzi Gas`, `Luz EDERSA`→`Edersa`.
 - Insumos (Artículos de limpieza, Bolsas/Packaging) decidido explícitamente que NO entran en Obligaciones — no tienen proveedor fijo.
+
+### Cuenta Corriente de Clientes (sesión 15/08 — espejo de Obligaciones, en sentido inverso)
+- cliente_cobros: id, cliente_id(FK clientes), monto, fecha_cobro, medio_pago_id(FK medios_pago — SIEMPRE el medio real recibido, nunca "Cuenta Corriente"), movimiento_id(FK movimientos — SIEMPRE se genera/enlaza, igual que Obligaciones), observaciones, usuario_id, anulado, creado_en
+- **Cargo = automático**, derivado de `venta_pagos` con `medio_pago_id` = id de "Cuenta Corriente" en `medios_pago` — NO se guarda en ninguna tabla, se calcula al vuelo en la pantalla cruzando `ventas`+`venta_pagos` de los clientes con `tiene_cuenta_corriente=true`.
+- **Cobro = manual** (total o parcial) — SIEMPRE genera (o enlaza) una fila real en `movimientos`, mismo criterio que Obligaciones.
+- Medio de pago "Cuenta Corriente": `fiscaliza_por_defecto=false`. **CRÍTICO:** `api/ventas/route.ts` excluye explícitamente los pagos con este medio del cálculo del movimiento financiero de la venta — si no se excluyera, se duplicaría el ingreso (una vez ficticio al vender, otra vez real al cobrar). Ver comentario "FIX (15/08/2026)" en ese archivo antes de tocar esa sección.
+- Concepto de gasto "Cobro Cuenta Corriente" bajo categoría "Ventas" (`categoria_gasto_id=10`).
+- `ventas_borrador.cliente_id` — columna que ya existía sin usarse, ahora se lee/escribe desde `ventas/page.tsx` (guardar borrador, restaurar borrador, cargar por `?borrador=X`).
+
+### Presupuestos (sesión 15/08)
+- presupuestos: id, numero(desde secuencia `numeracion_presupuestos`, vía rpc `incrementar_numero_presupuesto()`), cliente_id(FK clientes), estado(CHECK: Borrador/Enviado/Aprobado/Rechazado/Vencido/Convertido), fecha, validez_hasta, forma_pago, observaciones, subtotal, total, venta_borrador_id(FK ventas_borrador — se completa al Aprobar y enviar), venta_id(FK ventas — se completa a mano cuando esa venta se confirma de verdad), usuario_id, creado_en
+- presupuesto_items: id, presupuesto_id(FK, ON DELETE CASCADE), articulo_id, cantidad, precio_unitario, subtotal, creado_en
+- Reemplazo completo de ítems al editar (delete + insert) — seguro SOLO mientras `estado` es Borrador/Enviado (nunca tocó stock/movimientos reales en esos estados).
+- Faltante de compra (dato interno, no persiste en tabla) = `cantidad presupuestada − stock_actual − cantidad en orden_compra_items de OC con estado_orden_compra_id=1 (Borrador)`, filtrado solo a los artículos del presupuesto.
+- PDF generado client-side con `jsPDF` + `jspdf-autotable` (sin pasar por el servidor) — no confundir con el PDF de facturas, que viene de TusFacturasAPP.
+
+### Remitos (sesión 15/08)
+- remitos: id, numero(desde secuencia `numeracion_remitos`, vía rpc `incrementar_numero_remito()`), venta_id(FK ventas), fecha, observaciones, usuario_id, creado_en
+- NO guarda copia de ítems — el PDF se arma leyendo `venta_items` en vivo al generarlo, nunca desactualizable.
+- NO requiere CAE/ARCA — el remito de entrega entre privados no es documento fiscal (confirmado con RG 1415 AFIP: la Factura se emite en el momento de la entrega, el remito es solo respaldo de la entrega física, con firma de quien recibe).
+- Reutiliza el mismo número si se vuelve a generar para la misma venta (mismo criterio que Fiscalización/Nota de Crédito).
 
 ### Stock
 - articulo_stock: id, articulo_id, sucursal_id, stock_actual, stock_min, stock_max, actualizado_en
@@ -200,6 +228,10 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - NO hacer que `mes_contable` de `movimientos` siga a un campo distinto de `fecha_utc` — siempre es caja real, "Período" es solo referencia
 - NO insertar un "Pago" en `obligaciones` sin un `movimiento_id` real enlazado — siempre generar (o enlazar a) una fila real de `movimientos`
 - NO filtrar los conceptos disponibles de un acreedor por su `categoria_gasto_id` — usar siempre la tabla puente `acreedor_conceptos`
+- NO generar movimiento financiero en `api/ventas/route.ts` para pagos con medio "Cuenta Corriente" — no es plata real, duplicaría el ingreso cuando se cobre de verdad
+- NO asumir que `ventas_borrador.cliente_id` no existe o no se usa — se agregó/lee desde el 15/08, versiones previas del código no la leían
+- NO usar `nombre_base` para mostrar el nombre de un artículo en listados/reportes — usar siempre `articulos.nombre` (el que arma el trigger con sabor incluido); `nombre_base` no distingue sabores y agrupa por error variantes distintas
+- NO guardar copia de ítems en `remitos` — leer siempre `venta_items` en vivo al generar el PDF
 
 ## Errores críticos aprendidos
 1. Joins anidados bloqueados por RLS — siempre query separada + merge por Map
@@ -223,3 +255,6 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 19. Tablas viejas/preexistentes pueden no tener RLS+GRANT completos aunque ya estén en producción hace tiempo — el 27/07 un `JOIN` nuevo a `condiciones_iva`/`localidades`/`tipos_cliente` rompió la fiscalización automática porque nadie las había consultado desde el pipeline antes; verificar SIEMPRE, no solo en tablas recién creadas
 20. Confundir "Período" (etiqueta de referencia) con "mes_contable" (lo que alimenta Dashboard/Reportes) descuadra los totales mensuales de forma silenciosa — `mes_contable` debe seguir SIEMPRE a `fecha_utc` (caja real), nunca a un campo editable aparte
 21. Al mandar el mismo archivo de descarga varias veces en una sesión larga con el mismo nombre, el navegador puede guardar copias numeradas o el usuario puede mover una versión vieja sin darse cuenta — si `git status`/`git commit` dice "nothing to commit" después de un `Move-Item` que se esperaba con cambios, verificar el contenido real del archivo local (`Select-String -Pattern "algo_distintivo_del_cambio"`) antes de asumir que el deploy está mal
+22. Un medio de pago que no representa plata real (ej. "Cuenta Corriente") debe excluirse explícitamente de cualquier cálculo que alimente `movimientos` — no alcanza con que el medio no fiscalice por defecto, hay que sacarlo a mano del loop que genera el Ingreso/Egreso, o se duplica la plata contada dos veces (venta + cobro)
+23. Un ID de Postgres puede saltear números aunque no se haya borrado nada — si un `INSERT` falla después de que la secuencia ya entregó el próximo valor, ese número queda salteado para siempre (comportamiento normal, no bug ni pérdida de datos)
+24. El remito de entrega entre privados NO requiere CAE/ARCA — solo la Factura es el documento fiscal (RG 1415, AFIP: la Factura se emite en el momento de la entrega de la mercadería, no cuando se cobra; el plazo de cta cte es una condición comercial que no mueve el momento fiscal)

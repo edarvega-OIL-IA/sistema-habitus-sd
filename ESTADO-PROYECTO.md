@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 13/08/2026 (madrugada) — Cierre de la sesión larga del 12/08. Se sumó un fix de validación real en la cancelación de Pedidos Web (devolución sin monto cargado quedaba en silencio), y **se confirmó un tercer caso del bug de stock huérfano del webhook de Mercado Pago** (ventas #196, #197, y ahora #224) — con 3 casos ya no es "a vigilar", pasa a ser prioridad alta de investigación real para la próxima sesión.
-**Estado general:** 🟢 En producción, con datos corregidos a mano en los 2 casos puntuales detectados (financiero y de stock de la venta #224). El patrón de fondo del webhook sigue sin resolverse — necesita atraparse en el momento (Logs de Vercel en vivo) la próxima vez que ocurra.
-**Próxima acción concreta:** ver la lista de pendientes por prioridad al final de la sección 26 — el ítem 1 (investigar el bug del webhook) es el más importante y el más difícil de resolver sin un caso fresco para diagnosticar en el momento.
+**Última actualización:** 15/08/2026 — Sesión disparada por un pedido real y urgente de presupuesto de la Municipalidad de Cinco Saltos, que terminó destapando y resolviendo varias piezas faltantes del sistema en la misma sesión: submenú Reportes, módulo Clientes, Cuenta Corriente de Clientes, módulo Presupuestos, Remito. **Presupuesto #1 real ya enviado a la Muni** ($1.171.000). Ver Bloque 18 para el detalle completo. **Nota:** este archivo saltea directo del Bloque 17 (13/08) al 18 (15/08) — la sesión de Nota de Crédito del 13-14/08 no llegó a volcarse acá, revisar si hay una versión más nueva de este documento en otro lado antes de asumir que ese trabajo no existe.
+**Estado general:** 🟢 En producción. Cuenta Corriente de Clientes probada de punta a punta con una venta real (incluyendo un bug real de doble conteo de ingreso, corregido antes de que afectara una venta de verdad). Presupuestos y Remito recién construidos, en su primer uso real — a confirmar con la respuesta de la Muni.
+**Próxima acción concreta:** seguir la respuesta de la Muni al Presupuesto #1 — cuando aprueben, probar el circuito completo real (Aprobado → Enviar a borrador de venta → confirmar venta con Cuenta Corriente → entregar con Factura + Remito → Registrar cobro a los 15 días). El bug de stock huérfano del webhook de MP (Bloque 17, 3 casos confirmados) sigue sin diagnosticar — prioridad alta apenas aparezca un caso fresco.
 
 ---
 
@@ -1018,7 +1018,82 @@ Como la reversión de la cancelación asumió que el descuento original sí se h
 4. Banners de marca e institucionales (medios de pago) — segunda pasada de la mejora visual de la Vitrina.
 5. Evaluar si habilitar tipo "Ingreso" en `MovimientoStockForm.tsx` para el motivo "Corrección de stock".
 6. Confirmar en la práctica que el aviso de "1 pedido web pendiente de acción" del Dashboard se actualiza correctamente al resolver el pedido.
-7. Circuito de Nota de Crédito real (bloqueado por constraint `comprobantes.venta_id` UNIQUE) — desbloquea el caso "delicado" de cancelación de Pedidos Web.
+7. Circuito de Nota de Crédito real (bloqueado por constraint `comprobantes.venta_id` UNIQUE) — desbloquea el caso "delicado" de cancelación de Pedidos Web. **Ver nota en cabecera: puede que esto ya esté resuelto en una sesión (13-14/08) que no quedó documentada acá — confirmar contra el código real antes de retomarlo desde cero.**
 8. Pantalla "Correcciones" para Admin, resync de sandbox, permisos granulares de Agustín.
 9. Comprimir las 6 imágenes de banners de categoría si se nota lenta la carga inicial de `/tienda` en el celular.
-10. Actualizar `MAPA-ARCHIVOS.md` con todos los archivos nuevos/tocados de las últimas 2 sesiones.
+10. Actualizar `MAPA-ARCHIVOS.md` con todos los archivos nuevos/tocados de las últimas 2 sesiones. ✅ Hecho para la sesión del 15/08 (ver Bloque 18) — sigue pendiente para 13-14/08 si esa sesión no está volcada en ningún lado.
+11. **Seguir la respuesta de la Muni al Presupuesto #1** — cuando aprueben, probar el circuito completo real de punta a punta (ver Bloque 18).
+
+---
+
+## Sesión 15/08/2026 — Reportes, Clientes, Cuenta Corriente, Presupuestos, Remito
+
+**Disparador de toda la sesión:** pedido real y urgente de presupuesto de la Municipalidad de Cinco Saltos — al conversar la estrategia con Ariel, se destaparon 4 piezas faltantes del sistema (Clientes, cuenta corriente, presupuestos, remito) que se resolvieron todas en la misma sesión, terminando con el **Presupuesto #1 real enviado a la Muni** ($1.171.000, condiciones a 15 días F.F., validez hasta 24/08/2026).
+
+### Bloque 18.1 — Submenú Reportes (Gráficos / Ventas / Sugerencia de Compra)
+
+`Sidebar.tsx` reescrito: el acordeón de grupos (antes solo funcionaba bien con "Artículos") se generalizó para soportar múltiples grupos simultáneos, usando un `Set` de labels abiertos en vez de una variable de estado por grupo — de lo contrario, agregar "Reportes" como segundo acordeón hubiera compartido el mismo estado de abierto/cerrado con "Artículos" (bug real detectado antes de escribir el código, no en producción).
+
+- `reportes/page.tsx` (Gráficos) — sin cambios, es la pantalla ya existente.
+- `reportes/ventas/page.tsx` — nuevo. Reporte por rubro/artículo, filtro de fecha idéntico al de Movimientos (Día/Mes/Año/Libre/Todos con flechas de navegación), filtro multi-select de Rubros (dropdown con checkboxes, "Limpiar"), columnas ordenables por click en el header. **Fix real encontrado en el camino:** la primera versión mostraba `articulos.nombre_base` en vez de `articulos.nombre` — como `nombre_base` no incluye el sabor, artículos distintos (ej. "Classic Whey Protein - 2 lb" en varios sabores) aparecían agrupados por error bajo el mismo texto repetido. Corregido a usar `nombre` (el que arma el trigger `fn_generar_nombre_articulo` con sabor incluido) — mismo fix aplicado después en Sugerencia de Compra y en `PresupuestoForm.tsx`, todos tenían el mismo error heredado del mismo patrón de código copiado.
+- `reportes/sugerencia-compra/page.tsx` — nuevo. Cobertura calculada por velocidad de venta real, con período configurable (Último mes / 3 / 6 / 12 meses — calculados los 4 en una sola carga) porque la demanda varía estacionalmente (ej. multivitamínicos/ganadores de peso en invierno, productos de definición en verano — el motivo real que dio Ariel para pedir esta flexibilidad). Umbral de cobertura y cobertura objetivo al reponer, ambos configurables en pantalla (default 15 y 30 días). Cruce con OC en estado Borrador (columna "Cant. pedida", resta del cálculo de cantidad sugerida). Agrupado por proveedor de la compra Confirmada más reciente de cada artículo — "Sin proveedor asignado" al final para los que nunca tuvieron compra registrada. Orden dentro de cada grupo: **Cant. sugerida descendente, desempate por venta promedio mensual descendente** (no por días de cobertura — decisión tomada después de que Ariel viera en la primera versión que un artículo con stock 0 pero venta casi nula tapaba a otros con más impacto real en la próxima compra).
+
+### Bloque 18.2 — Módulo Clientes
+
+`clientes/page.tsx` (listado), `clientes/nuevo/page.tsx` + `clientes/[id]/page.tsx` (alta/edición, comparten `ClienteForm.tsx`).
+
+**Gap real de RLS encontrado antes de escribir el formulario:** la tabla `clientes` (preexistente, usada hasta ahora solo para SELECT desde el POS) tenía únicamente política de SELECT — sin GRANT de INSERT/UPDATE para `authenticated`. Se hubiera roto en silencio apenas alguien intentara guardar desde la pantalla nueva. Corregido con las 4 políticas + GRANT antes de deployar el formulario.
+
+**Import de 71 clientes** desde un export de Empretienda (75 filas originales):
+- Excluidas 3 cuentas de prueba: "Habitus Cinco Saltos - Vta Local" (cuenta interna del propio sistema viejo), "Kk Iy" y "Jusn Jhjh" (con toda la pinta de pruebas de checkout, esta última con el mail de Agustín).
+- Descartados 2 duplicados por DNI (Martin/Martín Gutiérrez, Ornella Todero con 2 emails cada uno) — se quedó el registro más reciente de cada par.
+- Sin CUIT (Empretienda no lo exporta) — `condicion_iva_id=4` (Consumidor Final) por default para todos. Confirmado que no existe forma confiable de derivar el CUIT del DNI: el dígito verificador se calcula, pero el prefijo (20/23/24/27/30/33...) depende de cómo la persona está registrada en AFIP, no es calculable sin consultarlo.
+- Ciudad/Provincia guardadas como texto libre en "Notas" — la tabla `localidades` existente resultó ser acotada al Alto Valle (Río Negro + parte de Neuquén, para el cálculo de envío de la Vitrina), no un catálogo nacional. De los 71 importados, solo 4 hubieran tenido match real; se decidió no forzar el vínculo.
+- Sumada **Viviana Godoy** manualmente (cliente real de la vitrina propia, sin datos de Empretienda).
+- **Total: 73 clientes** (2 originales + 71 importados), verificado con `SELECT count(*)`.
+
+### Bloque 18.3 — Cuenta Corriente de Clientes (espejo de Obligaciones, en sentido inverso)
+
+Antes de construir, se le preguntó a Ariel una consulta legal/técnica real: **¿la Factura se emite al entregar la mercadería o al cobrar, en una venta a 15/30 días?** Se confirmó por búsqueda web (RG 1415 AFIP/ARCA, vigente) — para compraventa de cosas muebles, la obligación de emitir la Factura nace con la entrega o puesta a disposición del comprador, o con la percepción del precio, **lo que ocurra primero**. El plazo de pago pactado es una condición comercial, no cambia el momento fiscal. Esto validó el diseño completo antes de escribir código: la venta se fiscaliza normal en el momento de la entrega, "Cuenta Corriente" cierra el total contablemente sin ser plata real, y el cobro posterior es un evento aparte que no dispara ni retrasa nada ante ARCA.
+
+**Decisión de diseño confirmada con Ariel** (elicitación explícita, dos opciones): "Cargo" enganchado a la venta real del POS (no manual como en Obligaciones) — más prolijo, aunque requirió tocar el POS.
+
+Construido: tabla nueva `cliente_cobros`, medio de pago nuevo "Cuenta Corriente" (`fiscaliza_por_defecto=false`), concepto de gasto nuevo "Cobro Cuenta Corriente" bajo categoría "Ventas". Pantalla `clientes/cuenta-corriente/page.tsx`: **Cargo = automático** (derivado de `venta_pagos` con medio Cuenta Corriente, nunca cargado a mano), **Cobro = manual** (total o parcial, siempre genera un `movimiento` real de Ingreso enlazado por `movimiento_id`), saldo corrido calculado al vuelo, filtro "Solo clientes con saldo pendiente" (default on).
+
+**Cambios en el POS** (`ventas/page.tsx`, `PanelPagos.tsx`, `api/ventas/route.ts`):
+- Selector de Cliente en la barra superior — antes `cliente_id` estaba hardcodeado a `1` en `route.ts`, ni el frontend lo mandaba (bug real: toda venta se hubiera fiscalizado siempre a nombre de Consumidor Final, aunque se eligiera un cliente real, si el selector se hubiera agregado sin tocar el backend).
+- "Cuenta Corriente" solo aparece como medio si el cliente elegido tiene `tiene_cuenta_corriente=true`; se preselecciona automáticamente (Cuenta Corriente para cta cte, Efectivo para el resto), editable, no bloqueado — a pedido explícito de Ariel tras ver la primera versión, que no defaulteaba.
+- Cambiar de cliente limpia los pagos ya cargados (evita dejar un pago pensado para otro cliente).
+- `ventas_borrador.cliente_id` (columna existente, sin usar hasta ahora) se lee/escribe en guardar/restaurar/cargar-por-query — un borrador recuerda su cliente.
+
+**Bug real encontrado y corregido antes de afectar una venta real:** `api/ventas/route.ts` generaba un movimiento de Ingreso por el medio "Cuenta Corriente" al confirmar la venta — hubiera contado la plata dos veces (ficticia al vender, real al cobrar). Detectado en la prueba real (ver abajo) por un movimiento fantasma (id salteado en la secuencia, comportamiento normal de Postgres cuando un `INSERT` falla después de pedir el número — no hay pérdida de datos, solo un hueco permanente en el ID). Corregido excluyendo explícitamente "Cuenta Corriente" del cálculo del movimiento financiero — una venta 100% cta cte ahora no genera ningún movimiento al crearse (correcto, no entró plata real).
+
+**Probado de punta a punta en producción** con una venta real a la Municipalidad (venta #1540/id 239, $3.500): venta con Cuenta Corriente → cargo visible en la pantalla → cobro por Transferencia → saldo $0 → movimiento real verificado en Movimientos → limpieza completa de la prueba (`Anular` desde Registro de Ventas para revertir stock correctamente — nunca `UPDATE` directo a `articulo_stock` — más `DELETE` del cobro/movimiento/venta, confirmado con conteos en 0 y stock del artículo coincidiendo con Historial de Artículos).
+
+### Bloque 18.4 — Módulo Presupuestos
+
+`presupuestos/page.tsx` (listado), `presupuestos/nuevo/page.tsx` + `presupuestos/[id]/page.tsx` (comparten `PresupuestoForm.tsx`), tablas nuevas `presupuestos` + `presupuesto_items`.
+
+Estados: `Borrador → Enviado → Aprobado/Rechazado → Convertido` (+ `Vencido`). **Decisión confirmada con Ariel:** el presupuesto original queda congelado al Aprobar — no se edita después, aunque lo que se termine entregando varíe (sabores, cantidades). Al aprobar, "Enviar a borrador de venta" copia los ítems a un `ventas_borrador` nuevo (con `cliente_id`) donde sí se ajusta todo lo necesario antes de confirmar la venta real — el presupuesto queda como respaldo de lo pactado, sin mezclarse con lo efectivamente vendido.
+
+Buscador de artículos **sin filtrar por stock** (muestra "Sin stock" en ámbar, permite agregar igual — requisito explícito de Ariel). Dos fixes de UX pedidos después de la primera prueba real: (1) el filtro no matcheaba por substring exacto — corregido a match por todas las palabras sin importar orden (`"prote one"` encuentra "Whey Protein... One Fit"); (2) sin navegación por teclado — agregado ↑↓+Enter, mismo criterio que el resto del sistema.
+
+**Faltante de compra** (dato interno, no va al PDF): `cantidad presupuestada − stock actual − cantidad ya pedida en OC en Borrador`, misma lógica de Sugerencia de Compra aplicada por ítem del presupuesto — a pedido explícito de Ariel ("contemplar si hay algo también en las OC pendientes de confirmar").
+
+**PDF generado client-side** con `jsPDF` + `jspdf-autotable` (librerías nuevas, `npm install jspdf jspdf-autotable`) — decisión tomada en vez de un flujo server-side tipo Puppeteer, más liviano para algo que se genera ocasionalmente. Membrete Hábitus SD, tabla Descripción/Unidades/Prec. Unit./Total, "Presupuesto final", forma de pago, validez, observaciones. Botón "+ Agregar condiciones estándar" arma la glosa legal (usa el `plazo_dias_cta_cte` real del cliente si lo tiene, si no dice "A convenir") — no duplica si ya está agregada (fix real tras la primera prueba, donde cada click sumaba la glosa de nuevo). La línea "Mantenimiento de la oferta" se sacó de la glosa por pedido de Ariel (redundante con el campo "Validez hasta", que ahora se precarga en Fecha + 7 días por defecto).
+
+**Reordenamiento de UI:** a pedido de Ariel, el bloque Fecha/Validez/Forma de pago/Observaciones se movió para quedar antes de Artículos (antes iba después) — reordenado con un script Python que localiza y mueve el bloque JSX completo en vez de edición manual, para no arriesgar el balance de tags en un archivo de 700+ líneas.
+
+**Listado (`presupuestos/page.tsx`):** primera versión ponía el N° como link clickeable a la izquierda — corregido a texto plano + ícono de editar a la derecha, mismo patrón exacto que Clientes/Movimientos (consistencia de UI pedida explícitamente por Ariel).
+
+**Presupuesto #1 real:** Municipalidad de Cinco Saltos, 13 ítems, $1.171.000, condiciones a 15 días F.F., validez hasta 24/08/2026 — enviado el 15/08.
+
+### Bloque 18.5 — Remito
+
+`ventas/registro/page.tsx`, tabla nueva `remitos`. Botón "Generar Remito" en el detalle expandido de cada venta no anulada. PDF (mismo mecanismo `jsPDF`) leído en vivo desde `venta_items` en el momento de generarlo — nunca guarda una copia que pueda quedar desactualizada. Descripción/Cantidad (sin precios, como corresponde a un remito) + renglón de firma y aclaración de quien recibe. Numeración propia (`numeracion_remitos`) — confirmado con la misma consulta legal del Bloque 18.3 que el remito de entrega entre privados no requiere CAE/ARCA, no es documento fiscal. Reutiliza el mismo número si se vuelve a generar para la misma venta.
+
+### Aclaración pendiente de auditoría
+
+Este archivo (`ESTADO-PROYECTO.md`) saltea del Bloque 17 (13/08) directo a este Bloque 18 (15/08) — no hay registro acá de una sesión de Nota de Crédito del 13-14/08 que existe como referencia suelta. Antes de dar por sentado el estado de esa feature, conviene confirmar contra el código real de `ventas/registro/page.tsx` y `comprobantes` en producción, o buscar si existe una versión más nueva de este documento en otro lado.
+
+

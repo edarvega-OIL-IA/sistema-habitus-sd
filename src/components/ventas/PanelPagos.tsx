@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ItemCarrito } from './CarritoItems'
 
@@ -88,8 +88,13 @@ export default function PanelPagos({
   // "Cuenta Corriente" solo aparece como opción si el cliente elegido la
   // tiene habilitada — evita que se pueda usar por error en una venta de
   // mostrador común.
-  const mediosPagoDisponibles = mediosPago.filter(m =>
-    clienteTieneCtaCte || m.nombre !== MEDIO_CUENTA_CORRIENTE
+  // useMemo es importante acá: sin memoizar, .filter() crea un array nuevo
+  // en CADA render, y como el efecto de abajo depende de esta lista,
+  // se disparaba en cada render y pisaba cualquier elección manual del
+  // medio de pago, volviendo siempre al default (bug real, 15/08).
+  const mediosPagoDisponibles = useMemo(
+    () => mediosPago.filter(m => clienteTieneCtaCte || m.nombre !== MEDIO_CUENTA_CORRIENTE),
+    [mediosPago, clienteTieneCtaCte]
   )
 
   const medioNombreSeleccionado = mediosPagoDisponibles.find(m => m.id === medioSeleccionado)?.nombre ?? ''
@@ -105,15 +110,17 @@ export default function PanelPagos({
 
   // Medio de pago preseleccionado según el cliente — Cuenta Corriente para
   // clientes con cta cte habilitada, Efectivo para el resto (Consumidor
-  // Final). Sigue siendo editable a mano desde el combo, esto solo define
-  // el punto de partida más probable para no agregar un paso extra.
+  // Final). Sigue siendo editable a mano desde el combo — este efecto solo
+  // debe correr cuando cambia el CLIENTE (o carga la lista de medios por
+  // primera vez), nunca en cada render, o pisa la elección manual.
   useEffect(() => {
     if (mediosPagoDisponibles.length === 0) return
     const preferido = clienteTieneCtaCte
       ? mediosPagoDisponibles.find(m => m.nombre === MEDIO_CUENTA_CORRIENTE)
       : mediosPagoDisponibles.find(m => m.nombre === 'Efectivo')
     setMedioSeleccionado(preferido ? preferido.id : mediosPagoDisponibles[0].id)
-  }, [clienteId, clienteTieneCtaCte, mediosPagoDisponibles])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clienteId, mediosPago.length])
 
   // Foco automático en botón correcto cuando pendiente llega a 0
   useEffect(() => {
