@@ -9,7 +9,7 @@ import { createClient } from '@/lib/supabase/server'
 import { idDesdeSlugProducto, armarSlugProducto } from '@/lib/slug'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { Package, ChevronRight } from 'lucide-react'
+import { Package, ChevronRight, ChevronLeft } from 'lucide-react'
 import DetalleAgregar from '@/components/tienda/DetalleAgregar'
 import CarritoBoton from '@/components/tienda/CarritoBoton'
 import { Mail, Phone, MapPin } from 'lucide-react'
@@ -101,6 +101,14 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
   const tieneVariantes = variantes.length > 1
   const sinStock = producto.stock <= 0
 
+  // Casi todo el contenido de la descripción (composición, beneficios, modo
+  // de uso) es igual entre sabores de un mismo producto — solo cambia el
+  // sabor puntual. Si esta variante no tiene descripción propia cargada,
+  // se usa la de cualquier hermana del mismo grupo que sí la tenga, en vez
+  // de dejarlo en blanco. Así alcanza con cargar UNA descripción por
+  // familia de producto, no una por cada sabor.
+  const descripcionAMostrar = producto.descripcion || variantes.find(v => v.descripcion)?.descripcion || null
+
   // JSON-LD — mismos datos que después van a alimentar los feeds de
   // Facebook/Google Shopping, reutilizados acá para que Google entienda
   // precio/disponibilidad/marca de la página directamente.
@@ -108,7 +116,7 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
     '@context': 'https://schema.org',
     '@type': 'Product',
     name: titulo,
-    description: producto.descripcion || undefined,
+    description: descripcionAMostrar || undefined,
     image: producto.imagen_url || undefined,
     brand: producto.marca ? { '@type': 'Brand', name: producto.marca } : undefined,
     sku: String(producto.id),
@@ -139,6 +147,14 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
       </header>
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+        <Link
+          href="/tienda"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-charcoal hover:text-offer-teal transition-colors mb-4"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Volver al catálogo
+        </Link>
+
         {/* Breadcrumb */}
         <nav aria-label="Ruta de navegación" className="flex items-center gap-1.5 text-xs text-medium-gray mb-5 flex-wrap">
           <Link href="/tienda" className="hover:text-charcoal transition-colors">Tienda</Link>
@@ -229,10 +245,10 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
               />
             </div>
 
-            {producto.descripcion && (
+            {descripcionAMostrar && (
               <div className="mt-6 pt-6 border-t border-border-gray">
                 <h2 className="text-sm font-semibold text-charcoal mb-2">Descripción</h2>
-                <p className="text-sm text-medium-gray whitespace-pre-line leading-relaxed">{producto.descripcion}</p>
+                <p className="text-sm text-medium-gray whitespace-pre-line leading-relaxed">{descripcionAMostrar}</p>
               </div>
             )}
 
