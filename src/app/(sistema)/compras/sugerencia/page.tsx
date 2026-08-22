@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Search, Filter, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
 
+interface DetallePresupuesto {
+  numero: number
+  cantidad: number
+}
+
 interface FilaArticulo {
   id: number
   nombre: string
@@ -12,6 +17,8 @@ interface FilaArticulo {
   cantidadPedida: number
   proveedorId: number | null
   proveedorNombre: string
+  cantidadPresupuestos: number
+  detallePresupuestos: DetallePresupuesto[]
 }
 
 interface Proveedor {
@@ -69,7 +76,63 @@ export default function SugerenciaCompraPage() {
       // sabores y mostraba artículos distintos repetidos con el mismo texto.
       const articuloNombreMap = new Map<number, string>()
       ;(articulosData || []).forEach(a => articuloNombreMap.set(a.id, a.nombre))
-      const articuloIds = (articulosData || []).map(a => a.id)
+      let articuloIds = (articulosData || []).map(a => a.id)
+
+      // Presupuestos activos (Enviado/Aprobado — compromisos reales con un
+      // cliente, no Borradores que todavía son solo una exploración) —
+      // suman demanda propia además de la venta histórica, con trazabilidad
+      // de a qué presupuesto puntual corresponde cada cantidad.
+      const { data: presupuestosData, error: presupuestosError } = await supabase
+        .from('presupuestos')
+        .select('id, numero')
+        .in('estado', ['Enviado', 'Aprobado'])
+
+      if (presupuestosError) throw presupuestosError
+
+      const presupuestoNumeroMap = new Map<number, number>()
+      ;(presupuestosData || []).forEach(p => presupuestoNumeroMap.set(p.id, p.numero))
+      const presupuestoIds = (presupuestosData || []).map(p => p.id)
+
+      const cantidadPresupuestosMap = new Map<number, number>()
+      const detallePresupuestosMap = new Map<number, DetallePresupuesto[]>()
+
+      if (presupuestoIds.length > 0) {
+        for (const lote of partirEnLotes(presupuestoIds, 500)) {
+          const { data: presupuestoItemsData, error: presupuestoItemsError } = await supabase
+            .from('presupuesto_items')
+            .select('presupuesto_id, articulo_id, cantidad')
+            .in('presupuesto_id', lote)
+
+          if (presupuestoItemsError) throw presupuestoItemsError
+
+          ;(presupuestoItemsData || []).forEach(it => {
+            const numero = presupuestoNumeroMap.get(it.presupuesto_id)
+            if (!numero) return
+            cantidadPresupuestosMap.set(it.articulo_id, (cantidadPresupuestosMap.get(it.articulo_id) || 0) + it.cantidad)
+            const detalle = detallePresupuestosMap.get(it.articulo_id) || []
+            detalle.push({ numero, cantidad: it.cantidad })
+            detallePresupuestosMap.set(it.articulo_id, detalle)
+          })
+        }
+      }
+
+      // El buscador de Presupuestos no filtra por "Disponible en local" (a
+      // propósito, para poder presupuestar cualquier cosa) — así que puede
+      // haber artículos con compromiso real en un presupuesto que no
+      // formen parte del universo normal de esta pantalla. Se agregan acá
+      // para no dejarlos invisibles, en vez de perderlos en silencio.
+      const idsFaltantesEnUniverso = [...cantidadPresupuestosMap.keys()].filter(id => !articuloNombreMap.has(id))
+      if (idsFaltantesEnUniverso.length > 0) {
+        const { data: articulosExtra, error: articulosExtraError } = await supabase
+          .from('articulos')
+          .select('id, nombre')
+          .in('id', idsFaltantesEnUniverso)
+
+        if (articulosExtraError) throw articulosExtraError
+
+        ;(articulosExtra || []).forEach(a => articuloNombreMap.set(a.id, a.nombre))
+        articuloIds = [...articuloIds, ...idsFaltantesEnUniverso]
+      }
 
       // Stock actual
       const stockMap = new Map<number, number>()
@@ -194,6 +257,8 @@ export default function SugerenciaCompraPage() {
           cantidadPedida: cantidadPedidaMap.get(id) || 0,
           proveedorId,
           proveedorNombre,
+          cantidadPresupuestos: cantidadPresupuestosMap.get(id) || 0,
+          detallePresupuestos: detallePresupuestosMap.get(id) || [],
         }
       })
 
@@ -212,10 +277,17 @@ export default function SugerenciaCompraPage() {
       const unidades = f.unidadesPeriodo[periodo]
       const promedioDiario = unidades / diasPeriodo
       const diasCobertura = promedioDiario > 0 ? f.stockActual / promedioDiario : Infinity
-      const necesitaCompra = diasCobertura < umbralDias
+      const necesitaPorCobertura = diasCobertura < umbralDias
+      // Lo que falta específicamente para cubrir los presupuestos activos
+      // (Enviado/Aprobado), descontando stock y lo que ya viene en camino
+      // por OC pendiente — independiente de si la venta histórica lo pedía.
+      const faltantePresupuesto = Math.max(0, Math.ceil(f.cantidadPresupuestos - f.stockActual - f.cantidadPedida))
+      const necesitaCompra = necesitaPorCobertura || faltantePresupuesto > 0
       const cantidadSugeridaBruta = promedioDiario * objetivoDias - f.stockActual - f.cantidadPedida
-      const cantidadSugerida = necesitaCompra ? Math.max(0, Math.ceil(cantidadSugeridaBruta)) : 0
-      return { ...f, promedioDiario, diasCobertura, necesitaCompra, cantidadSugerida }
+      const cantidadSugerida = necesitaCompra
+        ? Math.max(0, Math.ceil(cantidadSugeridaBruta), faltantePresupuesto)
+        : 0
+      return { ...f, promedioDiario, diasCobertura, necesitaCompra, cantidadSugerida, faltantePresupuesto }
     })
   }, [filas, periodo, umbralDias, objetivoDias])
 
@@ -240,11 +312,16 @@ export default function SugerenciaCompraPage() {
       map.set(key, grupo)
     })
     const arr = Array.from(map.values())
-    // Orden dentro de cada grupo: primero lo que más pesa en la próxima
-    // compra (Cant. sugerida desc), y a igualdad de cantidad, lo que más
-    // rota primero (Venta prom. mensual desc) — evita que un artículo con
-    // stock 0 pero venta casi nula tape a otros con más impacto real.
+    // Orden dentro de cada grupo: primero lo que tiene un presupuesto
+    // activo esperando (compromiso real con un cliente, la urgencia más
+    // alta posible), después lo que más pesa en la próxima compra (Cant.
+    // sugerida desc), y a igualdad, lo que más rota (Venta prom. mensual
+    // desc) — evita que un artículo con stock 0 pero venta casi nula tape
+    // a otros con más impacto real.
     arr.forEach(g => g.filas.sort((a, b) => {
+      const aTienePresupuesto = a.faltantePresupuesto > 0
+      const bTienePresupuesto = b.faltantePresupuesto > 0
+      if (aTienePresupuesto !== bTienePresupuesto) return aTienePresupuesto ? -1 : 1
       if (b.cantidadSugerida !== a.cantidadSugerida) return b.cantidadSugerida - a.cantidadSugerida
       return b.promedioDiario - a.promedioDiario
     }))
@@ -285,7 +362,7 @@ export default function SugerenciaCompraPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-xl font-semibold text-[#3c3c3b]">Reportes — Sugerencia de Compra</h1>
+        <h1 className="text-xl font-semibold text-[#3c3c3b]">Compras — Sugerencia de Compra</h1>
         {totalArticulos > 0 && (
           <span className="text-xs text-gray-400">
             {totalArticulos} {totalArticulos === 1 ? 'artículo' : 'artículos'} · {totalUnidadesSugeridas.toLocaleString('es-AR')} unidades sugeridas
@@ -393,12 +470,13 @@ export default function SugerenciaCompraPage() {
                         <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Venta prom. mensual</th>
                         <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Días cobertura</th>
                         <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Cant. pedida</th>
+                        <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Presupuestos</th>
                         <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Cant. sugerida</th>
                       </tr>
                     </thead>
                     <tbody>
                       {grupo.filas.map(f => (
-                        <tr key={f.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                        <tr key={f.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50 ${f.faltantePresupuesto > 0 ? 'bg-blue-50/40' : ''}`}>
                           <td className="px-4 py-2.5 text-[#3c3c3b] flex items-center gap-1.5">
                             {f.necesitaCompra && f.diasCobertura < umbralDias / 2 && (
                               <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
@@ -411,6 +489,15 @@ export default function SugerenciaCompraPage() {
                             {fmtDias(f.diasCobertura)}
                           </td>
                           <td className="px-4 py-2.5 text-right text-gray-500">{f.cantidadPedida.toLocaleString('es-AR')}</td>
+                          <td className="px-4 py-2.5 text-right">
+                            {f.detallePresupuestos.length === 0 ? (
+                              <span className="text-gray-300">—</span>
+                            ) : (
+                              <span className="text-xs text-blue-700 font-medium">
+                                {f.detallePresupuestos.map(d => `#${d.numero} (${d.cantidad})`).join(', ')}
+                              </span>
+                            )}
+                          </td>
                           <td className="px-4 py-2.5 text-right font-semibold text-[#00a19a]">
                             {f.cantidadSugerida > 0 ? f.cantidadSugerida.toLocaleString('es-AR') : '—'}
                           </td>
@@ -426,9 +513,12 @@ export default function SugerenciaCompraPage() {
       )}
 
       <p className="text-xs text-gray-400">
-        Solo se evalúan artículos marcados como "Disponible en local". Cant. pedida = unidades ya cargadas en Órdenes
-        de Compra en estado Borrador (todavía no confirmadas/recibidas). El proveedor de cada artículo se toma de su
-        compra Confirmada más reciente — los que nunca tuvieron una compra registrada quedan en "Sin proveedor asignado".
+        Solo se evalúan artículos marcados como "Disponible en local" (más los que estén en un presupuesto activo
+        aunque no tengan ese tilde, para no dejarlos invisibles). Cant. pedida = unidades ya cargadas en Órdenes de Compra en estado Borrador (todavía no
+        confirmadas/recibidas). Presupuestos = artículos comprometidos en presupuestos Enviados o Aprobados (no
+        Borrador), con el número de cada uno entre paréntesis la cantidad — siempre dispara la necesidad de compra,
+        incluso si la venta histórica no lo pedía. El proveedor de cada artículo se toma de su compra Confirmada más
+        reciente — los que nunca tuvieron una compra registrada quedan en "Sin proveedor asignado".
       </p>
     </div>
   )

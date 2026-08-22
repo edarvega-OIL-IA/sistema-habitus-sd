@@ -34,14 +34,20 @@ const nav = [
       { label: 'Movimientos de Stock', href: '/stock' },
     ],
   },
-  { label: 'Compras', href: '/compras', icon: '🚚' },
+  {
+    label: 'Compras',
+    icon: '🚚',
+    children: [
+      { label: 'Órdenes de Compra', href: '/compras' },
+      { label: 'Sugerencia de Compra', href: '/compras/sugerencia' },
+    ],
+  },
   {
     label: 'Reportes',
     icon: '📊',
     children: [
       { label: 'Gráficos', href: '/reportes' },
       { label: 'Ventas', href: '/reportes/ventas' },
-      { label: 'Sugerencia de Compra', href: '/reportes/sugerencia-compra' },
     ],
   },
   { label: 'Configuración', href: '/configuracion', icon: '⚙️' },
