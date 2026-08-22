@@ -7,18 +7,19 @@ import { Search, Filter, AlertTriangle } from 'lucide-react'
 interface DetallePresupuesto {
   numero: number
   cantidad: number
+  estado: string
 }
 
 interface FilaArticulo {
   id: number
   nombre: string
   stockActual: number
+  stockMinimo: number | null
   unidadesPeriodo: { 1: number; 3: number; 6: number; 12: number }
   cantidadPedida: number
   ultimoProveedorId: number | null
   ultimoProveedorNombre: string
   proveedoresHistoricos: Set<number>
-  cantidadPresupuestos: number
   detallePresupuestos: DetallePresupuesto[]
 }
 
@@ -43,6 +44,7 @@ export default function SugerenciaCompraPage() {
   const [umbralDias, setUmbralDias] = useState<number>(15)
   const [objetivoDias, setObjetivoDias] = useState<number>(30)
   const [mostrarTodos, setMostrarTodos] = useState(false)
+  const [incluirBorradores, setIncluirBorradores] = useState(false)
   const [busqueda, setBusqueda] = useState('')
   const [filtroProveedor, setFiltroProveedor] = useState<string>('todos')
 
@@ -80,22 +82,24 @@ export default function SugerenciaCompraPage() {
       ;(articulosData || []).forEach(a => articuloNombreMap.set(a.id, a.nombre))
       let articuloIds = (articulosData || []).map(a => a.id)
 
-      // Presupuestos activos (Enviado/Aprobado — compromisos reales con un
-      // cliente, no Borradores que todavía son solo una exploración) —
-      // suman demanda propia además de la venta histórica, con trazabilidad
-      // de a qué presupuesto puntual corresponde cada cantidad.
+      // Presupuestos — se traen los 3 estados relevantes (Borrador incluido)
+      // y se filtra según el toggle "Incluir presupuestos en Borrador" al
+      // calcular, no acá — así cambiar el toggle no requiere volver a
+      // consultar la base. Por default solo cuentan Enviado/Aprobado
+      // (compromisos reales); Borrador es respaldo para cuando el
+      // presupuesto real ya se mandó por fuera del sistema (mail/WhatsApp)
+      // pero todavía no se marcó como Enviado en la pantalla.
       const { data: presupuestosData, error: presupuestosError } = await supabase
         .from('presupuestos')
-        .select('id, numero')
-        .in('estado', ['Enviado', 'Aprobado'])
+        .select('id, numero, estado')
+        .in('estado', ['Borrador', 'Enviado', 'Aprobado'])
 
       if (presupuestosError) throw presupuestosError
 
-      const presupuestoNumeroMap = new Map<number, number>()
-      ;(presupuestosData || []).forEach(p => presupuestoNumeroMap.set(p.id, p.numero))
+      const presupuestoInfoMap = new Map<number, { numero: number; estado: string }>()
+      ;(presupuestosData || []).forEach(p => presupuestoInfoMap.set(p.id, { numero: p.numero, estado: p.estado }))
       const presupuestoIds = (presupuestosData || []).map(p => p.id)
 
-      const cantidadPresupuestosMap = new Map<number, number>()
       const detallePresupuestosMap = new Map<number, DetallePresupuesto[]>()
 
       if (presupuestoIds.length > 0) {
@@ -108,11 +112,10 @@ export default function SugerenciaCompraPage() {
           if (presupuestoItemsError) throw presupuestoItemsError
 
           ;(presupuestoItemsData || []).forEach(it => {
-            const numero = presupuestoNumeroMap.get(it.presupuesto_id)
-            if (!numero) return
-            cantidadPresupuestosMap.set(it.articulo_id, (cantidadPresupuestosMap.get(it.articulo_id) || 0) + it.cantidad)
+            const info = presupuestoInfoMap.get(it.presupuesto_id)
+            if (!info) return
             const detalle = detallePresupuestosMap.get(it.articulo_id) || []
-            detalle.push({ numero, cantidad: it.cantidad })
+            detalle.push({ numero: info.numero, cantidad: it.cantidad, estado: info.estado })
             detallePresupuestosMap.set(it.articulo_id, detalle)
           })
         }
@@ -123,7 +126,7 @@ export default function SugerenciaCompraPage() {
       // haber artículos con compromiso real en un presupuesto que no
       // formen parte del universo normal de esta pantalla. Se agregan acá
       // para no dejarlos invisibles, en vez de perderlos en silencio.
-      const idsFaltantesEnUniverso = [...cantidadPresupuestosMap.keys()].filter(id => !articuloNombreMap.has(id))
+      const idsFaltantesEnUniverso = [...detallePresupuestosMap.keys()].filter(id => !articuloNombreMap.has(id))
       if (idsFaltantesEnUniverso.length > 0) {
         const { data: articulosExtra, error: articulosExtraError } = await supabase
           .from('articulos')
@@ -136,17 +139,22 @@ export default function SugerenciaCompraPage() {
         articuloIds = [...articuloIds, ...idsFaltantesEnUniverso]
       }
 
-      // Stock actual
+      // Stock actual + mínimo (el mínimo es un disparador independiente de
+      // la rotación — ver más abajo, "bajoMinimo")
       const stockMap = new Map<number, number>()
+      const stockMinMap = new Map<number, number | null>()
       for (const lote of partirEnLotes(articuloIds, 500)) {
         const { data: stockData, error: stockError } = await supabase
           .from('articulo_stock')
-          .select('articulo_id, stock_actual')
+          .select('articulo_id, stock_actual, stock_min')
           .eq('sucursal_id', 1)
           .in('articulo_id', lote)
 
         if (stockError) throw stockError
-        ;(stockData || []).forEach(s => stockMap.set(s.articulo_id, s.stock_actual))
+        ;(stockData || []).forEach(s => {
+          stockMap.set(s.articulo_id, s.stock_actual)
+          stockMinMap.set(s.articulo_id, s.stock_min)
+        })
       }
 
       // Ventas del último año (excluye anuladas) — se calculan los 4
@@ -262,12 +270,12 @@ export default function SugerenciaCompraPage() {
           id,
           nombre: articuloNombreMap.get(id) || `Artículo #${id}`,
           stockActual: stockMap.get(id) || 0,
+          stockMinimo: stockMinMap.get(id) ?? null,
           unidadesPeriodo: unidadesPorArticulo.get(id) || { 1: 0, 3: 0, 6: 0, 12: 0 },
           cantidadPedida: cantidadPedidaMap.get(id) || 0,
           ultimoProveedorId,
           ultimoProveedorNombre,
           proveedoresHistoricos: todosProveedoresPorArticuloMap.get(id) || new Set<number>(),
-          cantidadPresupuestos: cantidadPresupuestosMap.get(id) || 0,
           detallePresupuestos: detallePresupuestosMap.get(id) || [],
         }
       })
@@ -288,18 +296,31 @@ export default function SugerenciaCompraPage() {
       const promedioDiario = unidades / diasPeriodo
       const diasCobertura = promedioDiario > 0 ? f.stockActual / promedioDiario : Infinity
       const necesitaPorCobertura = diasCobertura < umbralDias
-      // Lo que falta específicamente para cubrir los presupuestos activos
-      // (Enviado/Aprobado), descontando stock y lo que ya viene en camino
-      // por OC pendiente — independiente de si la venta histórica lo pedía.
-      const faltantePresupuesto = Math.max(0, Math.ceil(f.cantidadPresupuestos - f.stockActual - f.cantidadPedida))
-      const necesitaCompra = necesitaPorCobertura || faltantePresupuesto > 0
+      // Lo que falta específicamente para cubrir los presupuestos activos,
+      // descontando stock y lo que ya viene en camino por OC pendiente —
+      // independiente de si la venta histórica lo pedía. Por default solo
+      // cuenta Enviado/Aprobado; con "Incluir presupuestos en Borrador"
+      // tildado, también suma los que todavía no se marcaron como
+      // enviados en el sistema (respaldo para cuando el envío real ya
+      // pasó por fuera, mail/WhatsApp).
+      const detallePresupuestosVigente = f.detallePresupuestos.filter(d => incluirBorradores || d.estado !== 'Borrador')
+      const cantidadPresupuestos = detallePresupuestosVigente.reduce((s, d) => s + d.cantidad, 0)
+      const faltantePresupuesto = Math.max(0, Math.ceil(cantidadPresupuestos - f.stockActual - f.cantidadPedida))
+      // Tercer disparador, totalmente independiente de la rotación: stock
+      // por debajo del mínimo cargado en Artículos. Sirve para productos
+      // nuevos o de nicho que casi no rotan pero igual querés tener
+      // siempre disponibles — la lógica de velocidad de venta nunca los
+      // va a marcar como urgentes por sí sola.
+      const bajoMinimo = f.stockMinimo !== null && f.stockMinimo > 0 && f.stockActual < f.stockMinimo
+      const faltanteMinimo = bajoMinimo ? Math.max(0, Math.ceil((f.stockMinimo as number) - f.stockActual - f.cantidadPedida)) : 0
+      const necesitaCompra = necesitaPorCobertura || faltantePresupuesto > 0 || bajoMinimo
       const cantidadSugeridaBruta = promedioDiario * objetivoDias - f.stockActual - f.cantidadPedida
       const cantidadSugerida = necesitaCompra
-        ? Math.max(0, Math.ceil(cantidadSugeridaBruta), faltantePresupuesto)
+        ? Math.max(0, Math.ceil(cantidadSugeridaBruta), faltantePresupuesto, faltanteMinimo)
         : 0
-      return { ...f, promedioDiario, diasCobertura, necesitaCompra, cantidadSugerida, faltantePresupuesto }
+      return { ...f, promedioDiario, diasCobertura, necesitaCompra, cantidadSugerida, faltantePresupuesto, bajoMinimo, detallePresupuestosVigente }
     })
-  }, [filas, periodo, umbralDias, objetivoDias])
+  }, [filas, periodo, umbralDias, objetivoDias, incluirBorradores])
 
   const filasFiltradas = useMemo(() => {
     let out = filasCalculadas
@@ -320,12 +341,14 @@ export default function SugerenciaCompraPage() {
     }
     // Orden: primero lo que tiene un presupuesto activo esperando
     // (compromiso real con un cliente, la urgencia más alta posible),
-    // después lo que más pesa en la próxima compra (Cant. sugerida desc),
-    // y a igualdad, lo que más rota (Venta prom. mensual desc).
+    // después lo que está bajo su stock mínimo (independiente de si rota o
+    // no), después lo que más pesa en la próxima compra (Cant. sugerida
+    // desc), y a igualdad, lo que más rota (Venta prom. mensual desc).
     return [...out].sort((a, b) => {
       const aTienePresupuesto = a.faltantePresupuesto > 0
       const bTienePresupuesto = b.faltantePresupuesto > 0
       if (aTienePresupuesto !== bTienePresupuesto) return aTienePresupuesto ? -1 : 1
+      if (a.bajoMinimo !== b.bajoMinimo) return a.bajoMinimo ? -1 : 1
       if (b.cantidadSugerida !== a.cantidadSugerida) return b.cantidadSugerida - a.cantidadSugerida
       return b.promedioDiario - a.promedioDiario
     })
@@ -427,15 +450,26 @@ export default function SugerenciaCompraPage() {
               className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg text-[#3c3c3b]"
             />
           </div>
-          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={mostrarTodos}
-              onChange={e => setMostrarTodos(e.target.checked)}
-              className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
-            />
-            Mostrar todos (no solo los que necesitan reposición)
-          </label>
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={mostrarTodos}
+                onChange={e => setMostrarTodos(e.target.checked)}
+                className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+              />
+              Mostrar todos (no solo los que necesitan reposición)
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer" title="Respaldo por si un presupuesto ya se envió por fuera del sistema (mail/WhatsApp) pero todavía no se marcó como Enviado acá">
+              <input
+                type="checkbox"
+                checked={incluirBorradores}
+                onChange={e => setIncluirBorradores(e.target.checked)}
+                className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+              />
+              Incluir presupuestos en Borrador
+            </label>
+          </div>
         </div>
       </div>
 
@@ -452,6 +486,7 @@ export default function SugerenciaCompraPage() {
               <tr className="border-b border-gray-100 bg-gray-50/50">
                 <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Artículo</th>
                 <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Stock actual</th>
+                <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Stock mín.</th>
                 <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Venta prom. mensual</th>
                 <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Días cobertura</th>
                 <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Cant. pedida</th>
@@ -462,7 +497,9 @@ export default function SugerenciaCompraPage() {
             </thead>
             <tbody>
               {filasFiltradas.map(f => (
-                <tr key={f.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50 ${f.faltantePresupuesto > 0 ? 'bg-blue-50/40' : ''}`}>
+                <tr key={f.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50 border-l-4 ${
+                  f.faltantePresupuesto > 0 ? 'bg-blue-50 border-l-blue-500' : f.bajoMinimo ? 'bg-orange-50 border-l-orange-400' : 'border-l-transparent'
+                }`}>
                   <td className="px-4 py-2.5 text-[#3c3c3b] flex items-center gap-1.5">
                     {f.necesitaCompra && f.diasCobertura < umbralDias / 2 && (
                       <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
@@ -470,17 +507,20 @@ export default function SugerenciaCompraPage() {
                     {f.nombre}
                   </td>
                   <td className="px-4 py-2.5 text-right text-[#3c3c3b]">{f.stockActual.toLocaleString('es-AR')}</td>
+                  <td className={`px-4 py-2.5 text-right ${f.bajoMinimo ? 'text-orange-600 font-semibold' : 'text-gray-400'}`}>
+                    {f.stockMinimo !== null ? f.stockMinimo.toLocaleString('es-AR') : '—'}
+                  </td>
                   <td className="px-4 py-2.5 text-right text-gray-500">{(f.promedioDiario * 30).toFixed(1)}</td>
                   <td className={`px-4 py-2.5 text-right font-medium ${f.necesitaCompra ? 'text-red-600' : 'text-gray-500'}`}>
                     {fmtDias(f.diasCobertura)}
                   </td>
                   <td className="px-4 py-2.5 text-right text-gray-500">{f.cantidadPedida.toLocaleString('es-AR')}</td>
                   <td className="px-4 py-2.5 text-right">
-                    {f.detallePresupuestos.length === 0 ? (
+                    {f.detallePresupuestosVigente.length === 0 ? (
                       <span className="text-gray-300">—</span>
                     ) : (
                       <span className="text-xs text-blue-700 font-medium">
-                        {f.detallePresupuestos.map(d => `#${d.numero} (${d.cantidad})`).join(', ')}
+                        {f.detallePresupuestosVigente.map(d => `#${d.numero}${d.estado === 'Borrador' ? ' (Borr.)' : ''} (${d.cantidad})`).join(', ')}
                       </span>
                     )}
                   </td>
@@ -499,10 +539,12 @@ export default function SugerenciaCompraPage() {
         Solo se evalúan artículos marcados como "Disponible en local" (más los que estén en un presupuesto activo
         aunque no tengan ese tilde, para no dejarlos invisibles). Cant. pedida = unidades ya cargadas en Órdenes de
         Compra en estado Borrador (todavía no confirmadas/recibidas). Presupuestos = artículos comprometidos en
-        presupuestos Enviados o Aprobados (no Borrador) — siempre dispara la necesidad de compra, incluso si la venta
-        histórica no lo pedía; esas filas quedan resaltadas y primero en la lista. "Último proveedor" es la compra
-        Confirmada más reciente de ese artículo puntual — el filtro de Proveedor, en cambio, busca en todo el
-        historial (puede mostrar un artículo cuyo Último proveedor sea otro distinto al filtrado).
+        presupuestos Enviados o Aprobados (o también Borrador si tildás esa opción arriba) — siempre dispara la
+        necesidad de compra, incluso si la venta histórica no lo pedía. Stock mín. resaltado en naranja = tercer
+        disparador independiente de la rotación (útil para productos de poca venta que igual querés tener siempre
+        disponibles). "Último proveedor" es la compra Confirmada más reciente de ese artículo puntual — el filtro de
+        Proveedor, en cambio, busca en todo el historial (puede mostrar un artículo cuyo Último proveedor sea otro
+        distinto al filtrado).
       </p>
     </div>
   )
