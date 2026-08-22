@@ -279,6 +279,13 @@ export default function PresupuestoForm({
 
       if (itemsError) throw itemsError
 
+      // Actualiza el estado en memoria ya mismo — no alcanza con
+      // router.refresh() cuando nos quedamos en la misma URL, porque
+      // useState solo toma su valor inicial una vez; sin esto, el botón
+      // "Marcar como Enviado" seguía visible aunque el guardado en la base
+      // ya hubiera funcionado bien (bug real, 22/08).
+      setEstado(estadoFinal)
+
       router.push(estadoFinal === 'Borrador' ? '/presupuestos' : `/presupuestos/${idPresupuesto}`)
       router.refresh()
     } catch (err: unknown) {
