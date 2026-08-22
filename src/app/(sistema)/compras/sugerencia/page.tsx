@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Search, Filter, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
+import { Search, Filter, AlertTriangle } from 'lucide-react'
 
 interface DetallePresupuesto {
   numero: number
@@ -15,8 +15,9 @@ interface FilaArticulo {
   stockActual: number
   unidadesPeriodo: { 1: number; 3: number; 6: number; 12: number }
   cantidadPedida: number
-  proveedorId: number | null
-  proveedorNombre: string
+  ultimoProveedorId: number | null
+  ultimoProveedorNombre: string
+  proveedoresHistoricos: Set<number>
   cantidadPresupuestos: number
   detallePresupuestos: DetallePresupuesto[]
 }
@@ -28,7 +29,7 @@ interface Proveedor {
 
 type PeriodoMeses = 1 | 3 | 6 | 12
 
-const SIN_PROVEEDOR = 0
+const SIN_PROVEEDOR = 'sin_proveedor'
 
 export default function SugerenciaCompraPage() {
   const supabase = createClient()
@@ -36,13 +37,14 @@ export default function SugerenciaCompraPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filas, setFilas] = useState<FilaArticulo[]>([])
+  const [proveedores, setProveedores] = useState<Proveedor[]>([])
 
   const [periodo, setPeriodo] = useState<PeriodoMeses>(3)
   const [umbralDias, setUmbralDias] = useState<number>(15)
   const [objetivoDias, setObjetivoDias] = useState<number>(30)
   const [mostrarTodos, setMostrarTodos] = useState(false)
   const [busqueda, setBusqueda] = useState('')
-  const [gruposColapsados, setGruposColapsados] = useState<Set<number>>(new Set())
+  const [filtroProveedor, setFiltroProveedor] = useState<string>('todos')
 
   useEffect(() => { cargar() }, [])
 
@@ -193,8 +195,9 @@ export default function SugerenciaCompraPage() {
       }
 
       // Órdenes de Compra: Borrador (pendiente de llegar) y Confirmada
-      // (ya recibida — sirve para saber el proveedor habitual de cada
-      // artículo, tomando la compra confirmada más reciente).
+      // (ya recibida — sirve tanto para "Último proveedor" como para saber
+      // TODOS los proveedores a los que se le compró alguna vez cada
+      // artículo, no solo el más reciente — necesario para el filtro).
       const { data: ordenesData, error: ordenesError } = await supabase
         .from('ordenes_compra')
         .select('id, proveedor_id, estado_orden_compra_id, fecha_orden')
@@ -209,14 +212,17 @@ export default function SugerenciaCompraPage() {
       const { data: proveedoresData, error: proveedoresError } = await supabase
         .from('proveedores')
         .select('id, nombre_comercial')
+        .order('nombre_comercial')
 
       if (proveedoresError) throw proveedoresError
 
       const proveedorNombreMap = new Map<number, string>()
       ;(proveedoresData || []).forEach(p => proveedorNombreMap.set(p.id, p.nombre_comercial))
+      setProveedores((proveedoresData || []).map(p => ({ id: p.id, nombre: p.nombre_comercial })))
 
       const cantidadPedidaMap = new Map<number, number>()
-      const proveedorPorArticuloMap = new Map<number, { proveedorId: number; fecha: string }>()
+      const ultimoProveedorPorArticuloMap = new Map<number, { proveedorId: number; fecha: string }>()
+      const todosProveedoresPorArticuloMap = new Map<number, Set<number>>()
 
       if (ordenIds.length > 0) {
         for (const lote of partirEnLotes(ordenIds, 500)) {
@@ -235,19 +241,22 @@ export default function SugerenciaCompraPage() {
             if (orden.estado === 1) {
               cantidadPedidaMap.set(it.articulo_id, (cantidadPedidaMap.get(it.articulo_id) || 0) + it.cantidad_facturada)
             } else if (orden.estado === 2) {
-              const actual = proveedorPorArticuloMap.get(it.articulo_id)
+              const actual = ultimoProveedorPorArticuloMap.get(it.articulo_id)
               if (!actual || orden.fecha > actual.fecha) {
-                proveedorPorArticuloMap.set(it.articulo_id, { proveedorId: orden.proveedorId, fecha: orden.fecha })
+                ultimoProveedorPorArticuloMap.set(it.articulo_id, { proveedorId: orden.proveedorId, fecha: orden.fecha })
               }
+              const historicos = todosProveedoresPorArticuloMap.get(it.articulo_id) || new Set<number>()
+              historicos.add(orden.proveedorId)
+              todosProveedoresPorArticuloMap.set(it.articulo_id, historicos)
             }
           })
         }
       }
 
       const filasArmadas: FilaArticulo[] = articuloIds.map(id => {
-        const proveedorInfo = proveedorPorArticuloMap.get(id)
-        const proveedorId = proveedorInfo?.proveedorId ?? null
-        const proveedorNombre = proveedorId ? (proveedorNombreMap.get(proveedorId) || 'Proveedor desconocido') : 'Sin proveedor asignado'
+        const proveedorInfo = ultimoProveedorPorArticuloMap.get(id)
+        const ultimoProveedorId = proveedorInfo?.proveedorId ?? null
+        const ultimoProveedorNombre = ultimoProveedorId ? (proveedorNombreMap.get(ultimoProveedorId) || 'Proveedor desconocido') : 'Sin proveedor asignado'
 
         return {
           id,
@@ -255,8 +264,9 @@ export default function SugerenciaCompraPage() {
           stockActual: stockMap.get(id) || 0,
           unidadesPeriodo: unidadesPorArticulo.get(id) || { 1: 0, 3: 0, 6: 0, 12: 0 },
           cantidadPedida: cantidadPedidaMap.get(id) || 0,
-          proveedorId,
-          proveedorNombre,
+          ultimoProveedorId,
+          ultimoProveedorNombre,
+          proveedoresHistoricos: todosProveedoresPorArticuloMap.get(id) || new Set<number>(),
           cantidadPresupuestos: cantidadPresupuestosMap.get(id) || 0,
           detallePresupuestos: detallePresupuestosMap.get(id) || [],
         }
@@ -296,51 +306,30 @@ export default function SugerenciaCompraPage() {
     if (!mostrarTodos) out = out.filter(f => f.necesitaCompra)
     if (busqueda.trim()) {
       const q = busqueda.trim().toLowerCase()
-      out = out.filter(f => f.nombre.toLowerCase().includes(q) || f.proveedorNombre.toLowerCase().includes(q))
+      out = out.filter(f => f.nombre.toLowerCase().includes(q) || f.ultimoProveedorNombre.toLowerCase().includes(q))
     }
-    return out
-  }, [filasCalculadas, mostrarTodos, busqueda])
-
-  // Agrupación por proveedor, ordenada alfabéticamente — "Sin proveedor
-  // asignado" siempre al final. Dentro de cada grupo, más urgente primero.
-  const grupos = useMemo(() => {
-    const map = new Map<number, { id: number; nombre: string; filas: typeof filasFiltradas }>()
-    filasFiltradas.forEach(f => {
-      const key = f.proveedorId ?? SIN_PROVEEDOR
-      const grupo = map.get(key) || { id: key, nombre: f.proveedorNombre, filas: [] }
-      grupo.filas.push(f)
-      map.set(key, grupo)
-    })
-    const arr = Array.from(map.values())
-    // Orden dentro de cada grupo: primero lo que tiene un presupuesto
-    // activo esperando (compromiso real con un cliente, la urgencia más
-    // alta posible), después lo que más pesa en la próxima compra (Cant.
-    // sugerida desc), y a igualdad, lo que más rota (Venta prom. mensual
-    // desc) — evita que un artículo con stock 0 pero venta casi nula tape
-    // a otros con más impacto real.
-    arr.forEach(g => g.filas.sort((a, b) => {
+    // Filtro por proveedor: "comprado ALGUNA VEZ ahí" (todo el historial),
+    // no solo el último — por eso puede aparecer un artículo cuyo "Último
+    // proveedor" mostrado sea otro distinto al elegido acá; es intencional,
+    // sirve para armar un pedido completo a un proveedor puntual.
+    if (filtroProveedor === SIN_PROVEEDOR) {
+      out = out.filter(f => f.proveedoresHistoricos.size === 0)
+    } else if (filtroProveedor !== 'todos') {
+      const proveedorId = Number(filtroProveedor)
+      out = out.filter(f => f.proveedoresHistoricos.has(proveedorId))
+    }
+    // Orden: primero lo que tiene un presupuesto activo esperando
+    // (compromiso real con un cliente, la urgencia más alta posible),
+    // después lo que más pesa en la próxima compra (Cant. sugerida desc),
+    // y a igualdad, lo que más rota (Venta prom. mensual desc).
+    return [...out].sort((a, b) => {
       const aTienePresupuesto = a.faltantePresupuesto > 0
       const bTienePresupuesto = b.faltantePresupuesto > 0
       if (aTienePresupuesto !== bTienePresupuesto) return aTienePresupuesto ? -1 : 1
       if (b.cantidadSugerida !== a.cantidadSugerida) return b.cantidadSugerida - a.cantidadSugerida
       return b.promedioDiario - a.promedioDiario
-    }))
-    arr.sort((a, b) => {
-      if (a.id === SIN_PROVEEDOR) return 1
-      if (b.id === SIN_PROVEEDOR) return -1
-      return a.nombre.localeCompare(b.nombre)
     })
-    return arr
-  }, [filasFiltradas])
-
-  function toggleGrupo(id: number) {
-    setGruposColapsados(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+  }, [filasCalculadas, mostrarTodos, busqueda, filtroProveedor])
 
   const totalUnidadesSugeridas = filasFiltradas.reduce((sum, f) => sum + f.cantidadSugerida, 0)
   const totalArticulos = filasFiltradas.length
@@ -411,114 +400,109 @@ export default function SugerenciaCompraPage() {
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
             />
           </div>
-          <div className="flex items-end">
-            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={mostrarTodos}
-                onChange={e => setMostrarTodos(e.target.checked)}
-                className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
-              />
-              Mostrar todos (no solo los que necesitan reposición)
-            </label>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Proveedor (comprado alguna vez ahí)</label>
+            <select
+              value={filtroProveedor}
+              onChange={e => setFiltroProveedor(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+            >
+              <option value="todos">Todos</option>
+              {proveedores.map(p => (
+                <option key={p.id} value={p.id}>{p.nombre}</option>
+              ))}
+              <option value={SIN_PROVEEDOR}>Sin proveedor asignado</option>
+            </select>
           </div>
         </div>
 
-        <div className="relative max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-          <input
-            type="text"
-            value={busqueda}
-            onChange={e => setBusqueda(e.target.value)}
-            placeholder="Buscar artículo o proveedor..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg text-[#3c3c3b]"
-          />
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="relative max-w-xs flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+            <input
+              type="text"
+              value={busqueda}
+              onChange={e => setBusqueda(e.target.value)}
+              placeholder="Buscar artículo o proveedor..."
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg text-[#3c3c3b]"
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={mostrarTodos}
+              onChange={e => setMostrarTodos(e.target.checked)}
+              className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+            />
+            Mostrar todos (no solo los que necesitan reposición)
+          </label>
         </div>
       </div>
 
-      {grupos.length === 0 ? (
+      {filasFiltradas.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-400">
           {mostrarTodos
-            ? 'No hay artículos disponibles en el local para evaluar.'
+            ? 'No hay artículos que coincidan con los filtros elegidos.'
             : 'Ningún artículo está por debajo del umbral de cobertura elegido — probá bajar el umbral o tildar "Mostrar todos".'}
         </div>
       ) : (
-        <div className="space-y-4">
-          {grupos.map(grupo => {
-            const colapsado = gruposColapsados.has(grupo.id)
-            const unidadesGrupo = grupo.filas.reduce((s, f) => s + f.cantidadSugerida, 0)
-            return (
-              <div key={grupo.id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                <button
-                  onClick={() => toggleGrupo(grupo.id)}
-                  className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200 hover:bg-gray-100 transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    {colapsado ? <ChevronRight className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-                    <span className="text-sm font-semibold text-[#3c3c3b]">{grupo.nombre}</span>
-                    <span className="text-xs text-gray-400">({grupo.filas.length})</span>
-                  </div>
-                  <span className="text-xs text-gray-500">{unidadesGrupo.toLocaleString('es-AR')} unidades sugeridas</span>
-                </button>
-
-                {!colapsado && (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-100 bg-gray-50/50">
-                        <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Artículo</th>
-                        <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Stock actual</th>
-                        <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Venta prom. mensual</th>
-                        <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Días cobertura</th>
-                        <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Cant. pedida</th>
-                        <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Presupuestos</th>
-                        <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Cant. sugerida</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {grupo.filas.map(f => (
-                        <tr key={f.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50 ${f.faltantePresupuesto > 0 ? 'bg-blue-50/40' : ''}`}>
-                          <td className="px-4 py-2.5 text-[#3c3c3b] flex items-center gap-1.5">
-                            {f.necesitaCompra && f.diasCobertura < umbralDias / 2 && (
-                              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                            )}
-                            {f.nombre}
-                          </td>
-                          <td className="px-4 py-2.5 text-right text-[#3c3c3b]">{f.stockActual.toLocaleString('es-AR')}</td>
-                          <td className="px-4 py-2.5 text-right text-gray-500">{(f.promedioDiario * 30).toFixed(1)}</td>
-                          <td className={`px-4 py-2.5 text-right font-medium ${f.necesitaCompra ? 'text-red-600' : 'text-gray-500'}`}>
-                            {fmtDias(f.diasCobertura)}
-                          </td>
-                          <td className="px-4 py-2.5 text-right text-gray-500">{f.cantidadPedida.toLocaleString('es-AR')}</td>
-                          <td className="px-4 py-2.5 text-right">
-                            {f.detallePresupuestos.length === 0 ? (
-                              <span className="text-gray-300">—</span>
-                            ) : (
-                              <span className="text-xs text-blue-700 font-medium">
-                                {f.detallePresupuestos.map(d => `#${d.numero} (${d.cantidad})`).join(', ')}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-2.5 text-right font-semibold text-[#00a19a]">
-                            {f.cantidadSugerida > 0 ? f.cantidadSugerida.toLocaleString('es-AR') : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            )
-          })}
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50/50">
+                <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Artículo</th>
+                <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Stock actual</th>
+                <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Venta prom. mensual</th>
+                <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Días cobertura</th>
+                <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Cant. pedida</th>
+                <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Presupuestos</th>
+                <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Último proveedor</th>
+                <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Cant. sugerida</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filasFiltradas.map(f => (
+                <tr key={f.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50 ${f.faltantePresupuesto > 0 ? 'bg-blue-50/40' : ''}`}>
+                  <td className="px-4 py-2.5 text-[#3c3c3b] flex items-center gap-1.5">
+                    {f.necesitaCompra && f.diasCobertura < umbralDias / 2 && (
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    )}
+                    {f.nombre}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-[#3c3c3b]">{f.stockActual.toLocaleString('es-AR')}</td>
+                  <td className="px-4 py-2.5 text-right text-gray-500">{(f.promedioDiario * 30).toFixed(1)}</td>
+                  <td className={`px-4 py-2.5 text-right font-medium ${f.necesitaCompra ? 'text-red-600' : 'text-gray-500'}`}>
+                    {fmtDias(f.diasCobertura)}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-gray-500">{f.cantidadPedida.toLocaleString('es-AR')}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    {f.detallePresupuestos.length === 0 ? (
+                      <span className="text-gray-300">—</span>
+                    ) : (
+                      <span className="text-xs text-blue-700 font-medium">
+                        {f.detallePresupuestos.map(d => `#${d.numero} (${d.cantidad})`).join(', ')}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-500 text-sm">{f.ultimoProveedorNombre}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-[#00a19a]">
+                    {f.cantidadSugerida > 0 ? f.cantidadSugerida.toLocaleString('es-AR') : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
       <p className="text-xs text-gray-400">
         Solo se evalúan artículos marcados como "Disponible en local" (más los que estén en un presupuesto activo
-        aunque no tengan ese tilde, para no dejarlos invisibles). Cant. pedida = unidades ya cargadas en Órdenes de Compra en estado Borrador (todavía no
-        confirmadas/recibidas). Presupuestos = artículos comprometidos en presupuestos Enviados o Aprobados (no
-        Borrador), con el número de cada uno entre paréntesis la cantidad — siempre dispara la necesidad de compra,
-        incluso si la venta histórica no lo pedía. El proveedor de cada artículo se toma de su compra Confirmada más
-        reciente — los que nunca tuvieron una compra registrada quedan en "Sin proveedor asignado".
+        aunque no tengan ese tilde, para no dejarlos invisibles). Cant. pedida = unidades ya cargadas en Órdenes de
+        Compra en estado Borrador (todavía no confirmadas/recibidas). Presupuestos = artículos comprometidos en
+        presupuestos Enviados o Aprobados (no Borrador) — siempre dispara la necesidad de compra, incluso si la venta
+        histórica no lo pedía; esas filas quedan resaltadas y primero en la lista. "Último proveedor" es la compra
+        Confirmada más reciente de ese artículo puntual — el filtro de Proveedor, en cambio, busca en todo el
+        historial (puede mostrar un artículo cuyo Último proveedor sea otro distinto al filtrado).
       </p>
     </div>
   )
