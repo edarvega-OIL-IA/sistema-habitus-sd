@@ -1,7 +1,7 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 15/08/2026 — Sesión disparada por un pedido real y urgente de presupuesto de la Municipalidad de Cinco Saltos, que terminó destapando y resolviendo varias piezas faltantes del sistema en la misma sesión: submenú Reportes, módulo Clientes, Cuenta Corriente de Clientes, módulo Presupuestos, Remito. **Presupuesto #1 real ya enviado a la Muni** ($1.171.000). Ver Bloque 18 para el detalle completo. **Nota:** este archivo saltea directo del Bloque 17 (13/08) al 18 (15/08) — la sesión de Nota de Crédito del 13-14/08 no llegó a volcarse acá, revisar si hay una versión más nueva de este documento en otro lado antes de asumir que ese trabajo no existe.
-**Estado general:** 🟢 En producción. Cuenta Corriente de Clientes probada de punta a punta con una venta real (incluyendo un bug real de doble conteo de ingreso, corregido antes de que afectara una venta de verdad). Presupuestos y Remito recién construidos, en su primer uso real — a confirmar con la respuesta de la Muni.
+**Última actualización:** 22/08/2026 — Sesión disparada por una duda operativa real de Ariel (una caja suya apareció abierta cuando no debía) que terminó destapando y resolviendo un bug real de permisos en `reaperturas_caja` y un bug real en la función `reabrir_ultimo_cierre()`. Ver Bloque 19 para el detalle completo.
+**Estado general:** 🟢 En producción. Módulo de Caja/reaperturas auditado a fondo y con dos bugs reales corregidos el mismo día que se detectaron, antes de que causaran un problema real de conciliación. Presupuesto #1 sigue esperando respuesta de la Municipalidad.
 **Próxima acción concreta:** seguir la respuesta de la Muni al Presupuesto #1 — cuando aprueben, probar el circuito completo real (Aprobado → Enviar a borrador de venta → confirmar venta con Cuenta Corriente → entregar con Factura + Remito → Registrar cobro a los 15 días). El bug de stock huérfano del webhook de MP (Bloque 17, 3 casos confirmados) sigue sin diagnosticar — prioridad alta apenas aparezca un caso fresco.
 
 ---
@@ -1023,6 +1023,7 @@ Como la reversión de la cancelación asumió que el descuento original sí se h
 9. Comprimir las 6 imágenes de banners de categoría si se nota lenta la carga inicial de `/tienda` en el celular.
 10. Actualizar `MAPA-ARCHIVOS.md` con todos los archivos nuevos/tocados de las últimas 2 sesiones. ✅ Hecho para la sesión del 15/08 (ver Bloque 18) — sigue pendiente para 13-14/08 si esa sesión no está volcada en ningún lado.
 11. **Seguir la respuesta de la Muni al Presupuesto #1** — cuando aprueben, probar el circuito completo real de punta a punta (ver Bloque 18).
+12. Considerar agregar filtros (fecha/turno/responsable/estado) a la tabla "Historial de cajas" — sigue pendiente desde hace varias sesiones, quedó de lado por las prioridades más urgentes.
 
 ---
 
@@ -1095,5 +1096,40 @@ Buscador de artículos **sin filtrar por stock** (muestra "Sin stock" en ámbar,
 ### Aclaración pendiente de auditoría
 
 Este archivo (`ESTADO-PROYECTO.md`) saltea del Bloque 17 (13/08) directo a este Bloque 18 (15/08) — no hay registro acá de una sesión de Nota de Crédito del 13-14/08 que existe como referencia suelta. Antes de dar por sentado el estado de esa feature, conviene confirmar contra el código real de `ventas/registro/page.tsx` y `comprobantes` en producción, o buscar si existe una versión más nueva de este documento en otro lado.
+
+---
+
+## Sesión 22/08/2026 — Auditoría de Caja/Reaperturas
+
+**Disparador:** duda operativa real de Ariel — trabajó el turno mañana un miércoles/jueves, hizo el cierre, y horas después (cuando Agustín entró a las 17hs) la caja de Ariel aparecía abierta de nuevo. Dos hipótesis sobre la mesa: (1) Ariel creyó que había cerrado pero no cerró, o (2) Agustín tocó "Reabrir" por error en vez de abrir su propio turno. Se decidió investigar con datos reales en vez de asumir.
+
+### Bloque 19.1 — Verificación con datos reales
+
+Se confirmó que el sistema ya guarda lo necesario para responder este tipo de pregunta sin adivinar: `cierres_turno.cantidad_reaperturas` (contador) y la tabla `reaperturas_caja` (quién, cuándo, motivo, y los números que tenía el cierre justo antes de reabrirse). Se corrió un `SELECT` sobre `cierres_turno` para el rango de fechas en cuestión (18 al 21/08): las 8 filas mostraban `cantidad_reaperturas=0` y `estado_cierre_turno_id=2` (Cuadrada) — descarta la hipótesis 2 para esas fechas puntuales, apuntando más a la hipótesis 1 (turno sin cerrar realmente).
+
+### Bloque 19.2 — Bug real encontrado al probar el flujo: falta GRANT en `reaperturas_caja`
+
+Para confirmar que el mecanismo de auditoría funcionaba de verdad, Ariel hizo una prueba controlada: cerró una caja real y la volvió a abrir con el botón "Reabrir última caja". Resultado: **error "permission denied for table reaperturas_caja"**. Verificado: las 4 políticas RLS estaban bien puestas (`INSERT`/`SELECT` para `authenticated` existían), pero **faltaba el GRANT de tabla** — mismo patrón exacto que `clientes`/`presupuestos` el 15/08, esta vez con la particularidad de que las políticas sí estaban correctas y aun así bloqueaba todo (confirma una vez más que son dos capas independientes, hay que revisar ambas siempre). Corregido:
+
+```sql
+GRANT SELECT, INSERT ON reaperturas_caja TO authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+```
+
+Reintentada la prueba después del fix: funcionó — quedó grabada la fila real en `reaperturas_caja` (id=1, usuario, motivo, timestamp) y `cierres_turno.cantidad_reaperturas` subió de 0 a 1. Como fue una reapertura real (no aislada), la caja de ese turno quedó efectivamente reabierta en producción — confirmado con Ariel que era intencional (su caja real del día, sigue operando hasta el cierre de ese turno).
+
+### Bloque 19.3 — Bug visual encontrado a partir de la prueba: columna "Cierre" no respetaba el estado Abierta
+
+Con la caja recién reabierta, Ariel notó que el Historial de Cajas mostraba la fila como estado "Abierta" pero con un horario de Cierre visible (el del cierre anterior a la reapertura) — contradictorio. Causa en `cierre-turno/page.tsx`: la celda de esa columna solo chequeaba si `cerrado_en` tenía algún valor (`c.cerrado_en ? fmtFecha(...) : '—'`), sin fijarse en el estado `abierto` como sí hacían el resto de las columnas (Ingresos/Egresos/Dinero cierre/Diferencia). Corregido para que también muestre "—" cuando el estado es Abierta, sin importar qué haya quedado guardado en `cerrado_en`.
+
+### Bloque 19.4 — Bug real de fondo encontrado al revisar la función: `reabrir_ultimo_cierre()` no limpiaba `cerrado_en`
+
+El fix visual tapaba el síntoma en pantalla, pero el dato de fondo seguía "mintiendo". Se pidió el cuerpo real de la función con `pg_get_functiondef('reabrir_ultimo_cierre'::regproc)` — confirmado: el `UPDATE` que reabre la caja resetea `estado_cierre_turno_id`, `efectivo_real`, `diferencia`, `ingresos_sistema`, `egresos_sistema`, `resultado_sistema` y suma `cantidad_reaperturas`, pero nunca tocaba `cerrado_en`. Corregido agregando `cerrado_en = NULL` a ese mismo `UPDATE` (resto de la función sin cambios). Aplicado en producción con `CREATE OR REPLACE FUNCTION` — no rompe nada de lo que ya funcionaba.
+
+### Bloque 19.5 — Aclarado (y corregida la documentación): las reaperturas múltiples del mismo turno NO pierden información
+
+Antes de tener el código real de la función a la vista, se planteó como duda abierta si reabrir el mismo turno más de una vez podía perder el historial de la primera reapertura (ya que `cierres_turno` es una sola fila reutilizada). Con el cuerpo real de `reabrir_ultimo_cierre()` a la vista quedó confirmado que **no se pierde nada**: cada reapertura hace un `INSERT` en `reaperturas_caja` con 5 columnas numéricas (`efectivo_real_original`, `diferencia_original`, `ingresos_sistema_original`, `egresos_sistema_original`, `resultado_sistema_original`) que capturan una foto completa de los valores que tenía `cierres_turno` justo antes de resetearse — cada reapertura es una fila propia, nunca se pisan entre sí.
+
+**De paso se corrigió un error real en `CLAUDE_CODE_PROMPT.md`:** una versión previa del documento describía esta tabla con columnas `snapshot_antes`/`snapshot_despues` (JSONB) — no existen, son las 5 columnas numéricas sueltas mencionadas arriba. Corregido con la fuente de verdad real (el código de la función), no con una suposición.
 
 

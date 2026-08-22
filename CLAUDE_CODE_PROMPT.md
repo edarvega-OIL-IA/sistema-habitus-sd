@@ -85,7 +85,7 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - Fechas DATE: mostrar con .substring(0,10).split('-').reverse().join('/'), NUNCA new Date()
 - Horas (TIMESTAMPTZ): new Date(s).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })
 
-## FUENTE DE VERDAD DE BD — verificado hasta el 15/08/2026
+## FUENTE DE VERDAD DE BD — verificado hasta el 22/08/2026
 **REGLA: Nunca documentar columnas sin verificar con SELECT en producción.**
 
 ### Catálogo
@@ -178,7 +178,7 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - cierres_turno: id, sucursal_id, turno_id, usuario_id, estado_cierre_turno_id, fecha(DATE), apertura, apertura_contada, diferencia_apertura, ingresos_sistema, egresos_sistema, resultado_sistema, efectivo_real, diferencia, observaciones, creado_en, cerrado_en, cantidad_reaperturas — estados: 1=Abierto, 2=Sin diferencia, 3=Con diferencia
 - retiros_caja: id, cierre_turno_id, usuario_id, monto, concepto, fecha_utc(TIMESTAMPTZ en prod), creado_en, sucursal_id
 - turnos: 1=Mañana, 2=Tarde
-- reaperturas_caja: id, cierre_turno_id, usuario_id, snapshot_antes(JSONB), snapshot_despues(JSONB), motivo, creado_en
+- reaperturas_caja: id, cierre_turno_id, usuario_id, motivo, efectivo_real_original, diferencia_original, ingresos_sistema_original, egresos_sistema_original, resultado_sistema_original, creado_en — **corregido 22/08**: NO son `snapshot_antes`/`snapshot_despues` (JSONB) como decía una versión previa de este documento; son 5 columnas numéricas sueltas con los valores que tenía `cierres_turno` justo antes de esa reapertura puntual. Confirmado con `pg_get_functiondef('reabrir_ultimo_cierre'::regproc)`. Cada reapertura inserta una fila nueva (no pisa las anteriores) — el historial completo de reaperturas múltiples del mismo turno queda preservado sin pérdida de datos.
 
 ### Deportistas
 - deportes: id, nombre, activo, creado_en
@@ -232,6 +232,7 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 - NO asumir que `ventas_borrador.cliente_id` no existe o no se usa — se agregó/lee desde el 15/08, versiones previas del código no la leían
 - NO usar `nombre_base` para mostrar el nombre de un artículo en listados/reportes — usar siempre `articulos.nombre` (el que arma el trigger con sabor incluido); `nombre_base` no distingue sabores y agrupa por error variantes distintas
 - NO guardar copia de ítems en `remitos` — leer siempre `venta_items` en vivo al generar el PDF
+- NO asumir que una función PL/pgSQL que resetea campos de una fila (ej. `reabrir_ultimo_cierre`) resetea TODOS los campos relevantes — verificar el `pg_get_functiondef` completo antes de asumir; `cerrado_en` quedó sin limpiar en la primera versión de esta función (bug real, corregido 22/08)
 
 ## Errores críticos aprendidos
 1. Joins anidados bloqueados por RLS — siempre query separada + merge por Map
@@ -258,3 +259,4 @@ src/proxy.ts (reemplaza middleware.ts en Next.js 16)
 22. Un medio de pago que no representa plata real (ej. "Cuenta Corriente") debe excluirse explícitamente de cualquier cálculo que alimente `movimientos` — no alcanza con que el medio no fiscalice por defecto, hay que sacarlo a mano del loop que genera el Ingreso/Egreso, o se duplica la plata contada dos veces (venta + cobro)
 23. Un ID de Postgres puede saltear números aunque no se haya borrado nada — si un `INSERT` falla después de que la secuencia ya entregó el próximo valor, ese número queda salteado para siempre (comportamiento normal, no bug ni pérdida de datos)
 24. El remito de entrega entre privados NO requiere CAE/ARCA — solo la Factura es el documento fiscal (RG 1415, AFIP: la Factura se emite en el momento de la entrega de la mercadería, no cuando se cobra; el plazo de cta cte es una condición comercial que no mueve el momento fiscal)
+25. Una tabla con las 4 políticas RLS correctas puede seguir bloqueando todo si falta el `GRANT` de tabla — son dos capas independientes, hay que verificar ambas siempre (repetido con `reaperturas_caja` el 22/08, mismo patrón que `clientes` y `presupuestos` el 15/08 — la diferencia esta vez es que las políticas SÍ estaban bien, solo faltaba el GRANT)
