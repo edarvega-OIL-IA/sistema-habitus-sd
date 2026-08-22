@@ -43,7 +43,14 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const esRutaPublica = RUTAS_PUBLICAS.some(ruta => request.nextUrl.pathname.startsWith(ruta))
+  // La raíz '/' se trata aparte (comparación exacta, nunca con startsWith
+  // — si no, matchearía TODO y anularía el resto del chequeo de sesión).
+  // Sin esto, cualquier visitante sin sesión que entra a habitussd.com/
+  // quedaba atrapado acá y nunca llegaba a ejecutarse el redirect propio
+  // de page.tsx hacia /tienda — terminaba viendo el login del sistema
+  // interno en vez de la Vitrina (bug real, reportado por un cliente real
+  // el 22/08/2026).
+  const esRutaPublica = request.nextUrl.pathname === '/' || RUTAS_PUBLICAS.some(ruta => request.nextUrl.pathname.startsWith(ruta))
 
   if (!user && !esRutaPublica) {
     const url = request.nextUrl.clone()
