@@ -2,8 +2,10 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { Package, Minus, Plus, ShoppingCart, Check } from 'lucide-react'
 import { useCarrito } from './CarritoContext'
+import { armarSlugProducto } from '@/lib/slug'
 
 interface Variante {
   id: number
@@ -61,7 +63,7 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
 
   return (
     <div className={`bg-white rounded-xl border border-border-gray overflow-hidden flex flex-col ${sinStock ? 'opacity-60' : ''}`}>
-      <div className="aspect-square bg-surface-light flex items-center justify-center relative">
+      <Link href={`/tienda/producto/${armarSlugProducto(seleccionada.id, titulo)}`} className="aspect-square bg-surface-light flex items-center justify-center relative">
         {seleccionada.imagen_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={seleccionada.imagen_url} alt={titulo} loading="lazy" className="w-full h-full object-cover" />
@@ -78,10 +80,12 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
             SIN STOCK
           </span>
         )}
-      </div>
+      </Link>
       <div className="p-3 flex flex-col flex-1">
         {marca && <p className="text-xs text-medium-gray uppercase tracking-wide">{marca}</p>}
-        <p className="text-sm font-medium text-charcoal leading-snug mt-0.5 line-clamp-2">{titulo}</p>
+        <Link href={`/tienda/producto/${armarSlugProducto(seleccionada.id, titulo)}`} className="text-sm font-medium text-charcoal leading-snug mt-0.5 line-clamp-2 hover:text-offer-teal transition-colors">
+          {titulo}
+        </Link>
 
         {tieneVariantes ? (
           <div role="radiogroup" aria-label="Sabores disponibles" className="flex flex-wrap gap-1 mt-2">
