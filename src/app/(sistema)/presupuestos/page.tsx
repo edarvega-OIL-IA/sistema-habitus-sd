@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { Plus, Search, Edit } from 'lucide-react'
+import { Plus, Search, Edit, ChevronDown, ChevronRight } from 'lucide-react'
 
 interface Presupuesto {
   id: number
@@ -18,6 +18,14 @@ interface Presupuesto {
 interface Cliente {
   id: number
   nombre: string
+}
+
+interface ItemPresupuesto {
+  id: number
+  nombre: string
+  cantidad: number
+  precio_unitario: number
+  subtotal: number
 }
 
 type FiltroEstado = 'todos' | 'Borrador' | 'Enviado' | 'Aprobado' | 'Rechazado' | 'Vencido' | 'Convertido'
@@ -40,6 +48,12 @@ export default function PresupuestosPage() {
   const [clientesMap, setClientesMap] = useState<Map<number, string>>(new Map())
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todos')
   const [busqueda, setBusqueda] = useState('')
+
+  // Filas desplegadas + ítems ya cargados (se piden una sola vez por
+  // presupuesto, la primera vez que se abre — no de entrada para todos).
+  const [filasAbiertas, setFilasAbiertas] = useState<Set<number>>(new Set())
+  const [itemsPorPresupuesto, setItemsPorPresupuesto] = useState<Map<number, ItemPresupuesto[]>>(new Map())
+  const [cargandoItems, setCargandoItems] = useState<Set<number>>(new Set())
 
   useEffect(() => { cargar() }, [])
 
@@ -69,6 +83,45 @@ export default function PresupuestosPage() {
       setError(err instanceof Error ? err.message : JSON.stringify(err))
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function toggleFila(presupuestoId: number) {
+    setFilasAbiertas(prev => {
+      const next = new Set(prev)
+      if (next.has(presupuestoId)) next.delete(presupuestoId)
+      else next.add(presupuestoId)
+      return next
+    })
+
+    if (itemsPorPresupuesto.has(presupuestoId)) return
+
+    setCargandoItems(prev => new Set(prev).add(presupuestoId))
+    try {
+      const { data, error: itemsError } = await supabase
+        .from('presupuesto_items')
+        .select('id, cantidad, precio_unitario, subtotal, articulos(nombre)')
+        .eq('presupuesto_id', presupuestoId)
+
+      if (itemsError) throw itemsError
+
+      const items: ItemPresupuesto[] = (data || []).map((i: any) => ({
+        id: i.id,
+        nombre: i.articulos?.nombre || 'Artículo eliminado',
+        cantidad: i.cantidad,
+        precio_unitario: i.precio_unitario,
+        subtotal: i.subtotal,
+      }))
+
+      setItemsPorPresupuesto(prev => new Map(prev).set(presupuestoId, items))
+    } catch (err: unknown) {
+      setError('Error al cargar ítems: ' + (err instanceof Error ? err.message : JSON.stringify(err)))
+    } finally {
+      setCargandoItems(prev => {
+        const next = new Set(prev)
+        next.delete(presupuestoId)
+        return next
+      })
     }
   }
 
@@ -141,6 +194,7 @@ export default function PresupuestosPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
+                <th className="w-8"></th>
                 <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">N°</th>
                 <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Cliente</th>
                 <th className="text-left px-4 py-3 text-xs text-gray-600 font-semibold">Fecha</th>
@@ -151,29 +205,75 @@ export default function PresupuestosPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {presupuestosFiltrados.map(p => (
-                <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-[#3c3c3b] font-medium">#{p.numero}</td>
-                  <td className="px-4 py-3 text-gray-700">{clientesMap.get(p.cliente_id) || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500">{fmtFecha(p.fecha)}</td>
-                  <td className="px-4 py-3 text-gray-500">{fmtFecha(p.validez_hasta)}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-[#3c3c3b]">{fmt(p.total)}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${ESTADOS_BADGE[p.estado] || 'bg-gray-100 text-gray-600'}`}>
-                      {p.estado}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      href={`/presupuestos/${p.id}`}
-                      title="Ver / Editar"
-                      className="inline-flex items-center justify-center w-8 h-8 rounded text-blue-400 hover:bg-blue-500 hover:text-white transition-colors"
+              {presupuestosFiltrados.map(p => {
+                const abierta = filasAbiertas.has(p.id)
+                const items = itemsPorPresupuesto.get(p.id)
+                const cargando = cargandoItems.has(p.id)
+                return (
+                  <Fragment key={p.id}>
+                    <tr
+                      onClick={() => toggleFila(p.id)}
+                      className="hover:bg-gray-50 cursor-pointer"
                     >
-                      <Edit className="w-4 h-4" />
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+                      <td className="pl-4 py-3 text-gray-400">
+                        {abierta ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                      </td>
+                      <td className="px-4 py-3 text-[#3c3c3b] font-medium">#{p.numero}</td>
+                      <td className="px-4 py-3 text-gray-700">{clientesMap.get(p.cliente_id) || '—'}</td>
+                      <td className="px-4 py-3 text-gray-500">{fmtFecha(p.fecha)}</td>
+                      <td className="px-4 py-3 text-gray-500">{fmtFecha(p.validez_hasta)}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-[#3c3c3b]">{fmt(p.total)}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${ESTADOS_BADGE[p.estado] || 'bg-gray-100 text-gray-600'}`}>
+                          {p.estado}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          href={`/presupuestos/${p.id}`}
+                          onClick={e => e.stopPropagation()}
+                          title="Ver / Editar"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded text-blue-400 hover:bg-blue-500 hover:text-white transition-colors"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Link>
+                      </td>
+                    </tr>
+                    {abierta && (
+                      <tr key={`${p.id}-detalle`}>
+                        <td colSpan={8} className="bg-gray-50 px-4 py-3">
+                          {cargando ? (
+                            <p className="text-xs text-gray-400 py-2">Cargando ítems...</p>
+                          ) : !items || items.length === 0 ? (
+                            <p className="text-xs text-gray-400 py-2">Este presupuesto no tiene ítems cargados.</p>
+                          ) : (
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="text-gray-500">
+                                  <th className="text-left py-1.5 pl-8 font-semibold uppercase tracking-wide">Artículo</th>
+                                  <th className="text-right py-1.5 font-semibold uppercase tracking-wide">Cantidad</th>
+                                  <th className="text-right py-1.5 font-semibold uppercase tracking-wide">Precio Unit.</th>
+                                  <th className="text-right py-1.5 pr-4 font-semibold uppercase tracking-wide">Subtotal</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {items.map(i => (
+                                  <tr key={i.id}>
+                                    <td className="py-1.5 pl-8 text-gray-700">{i.nombre}</td>
+                                    <td className="py-1.5 text-right text-gray-600">{i.cantidad.toLocaleString('es-AR')}</td>
+                                    <td className="py-1.5 text-right text-gray-600">{fmt(i.precio_unitario)}</td>
+                                    <td className="py-1.5 pr-4 text-right font-medium text-[#3c3c3b]">{fmt(i.subtotal)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>
