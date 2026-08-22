@@ -1125,7 +1125,7 @@ export default function CierreTurnoPage() {
                         {c.usuarios ? `${c.usuarios.nombre} ${c.usuarios.apellido}` : '—'}
                       </td>
                       <td className="px-4 py-2 text-gray-500">{fmtFecha(c.creado_en)}</td>
-                      <td className="px-4 py-2 text-gray-500">{c.cerrado_en ? fmtFecha(c.cerrado_en) : '—'}</td>
+                      <td className="px-4 py-2 text-gray-500">{abierto ? '—' : (c.cerrado_en ? fmtFecha(c.cerrado_en) : '—')}</td>
                       <td className="px-4 py-2 text-right text-gray-700">
                         {fmt(c.apertura_contada ?? c.apertura)}
                       </td>
