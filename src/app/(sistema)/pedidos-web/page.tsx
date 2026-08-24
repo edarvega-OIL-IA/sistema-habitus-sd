@@ -32,6 +32,7 @@ interface PedidoWeb {
   sucursal_id: number
   estado: string
   medio_elegido: string
+  cliente_id: number | null
   cliente_nombre: string
   cliente_telefono: string
   cliente_email: string | null
@@ -202,6 +203,7 @@ export default function PedidosWebPage() {
           items: itemsCarrito,
           descuento_pct: 0,
           pedido_web_id: pedido.id,
+          cliente_id: pedido.cliente_id, // null es válido — el POS cae a Consumidor Final
         })
         .select('id')
         .single()

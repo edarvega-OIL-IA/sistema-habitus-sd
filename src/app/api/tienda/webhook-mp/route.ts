@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { fiscalizarVenta } from '@/lib/tusfacturas/fiscalizar'
+import { matchOCrearClienteWeb } from '@/lib/tienda/clientes'
 
 // Cliente por defecto de toda venta web — mismo criterio que el POS
 // automático (api/ventas/route.ts): Consumidor Final fijo. El DNI/CUIT
@@ -102,6 +103,27 @@ async function procesarNotificacion(request: NextRequest) {
     }
     const pedido = pedidoReclamado
 
+    // ── Cliente real — recién ahora, con el pago ya aprobado de verdad ──
+    // (para "retiro y pago en el local" esto ya se resolvió en el checkout
+    // — ver api/tienda/checkout/route.ts — pero un pedido pagado con MP
+    // puede llegar sin cliente_id todavía si es la primera vez que compra).
+    let clienteIdWeb: number = CLIENTE_ID_CONSUMIDOR_FINAL
+    if (pedido.cliente_id) {
+      clienteIdWeb = pedido.cliente_id
+    } else {
+      const idEncontrado = await matchOCrearClienteWeb(admin, {
+        nombre: pedido.cliente_nombre,
+        telefono: pedido.cliente_telefono,
+        email: pedido.cliente_email,
+        dni: pedido.cliente_dni,
+        cuit: pedido.cliente_cuit,
+      })
+      if (idEncontrado) {
+        clienteIdWeb = idEncontrado
+        await admin.from('pedidos_web').update({ cliente_id: idEncontrado }).eq('id', pedidoId)
+      }
+    }
+
     // ── Re-chequeo de stock real al momento de la aprobación ────────────
     const items: any[] = pedido.items
     const articuloIds = items.map(i => i.articulo_id)
@@ -134,7 +156,7 @@ async function procesarNotificacion(request: NextRequest) {
       .from('ventas')
       .insert({
         numero_venta: numeracion,
-        cliente_id: CLIENTE_ID_CONSUMIDOR_FINAL,
+        cliente_id: clienteIdWeb,
         sucursal_id: pedido.sucursal_id,
         usuario_id: USUARIO_ID_VENTA_WEB,
         estado_venta_id: 1, // Fiscal — se fiscaliza a continuación
@@ -276,7 +298,7 @@ async function procesarNotificacion(request: NextRequest) {
 
     const inicioFiscal = Date.now()
     try {
-      const resultadoFiscal = await fiscalizarVenta(venta.id, CLIENTE_ID_CONSUMIDOR_FINAL, true, admin)
+      const resultadoFiscal = await fiscalizarVenta(venta.id, clienteIdWeb, true, admin)
       const msDuracionFiscal = Date.now() - inicioFiscal
       if (!resultadoFiscal.ok) {
         console.error('Fiscalización falló para venta web', venta.id, ':', resultadoFiscal.mensaje)

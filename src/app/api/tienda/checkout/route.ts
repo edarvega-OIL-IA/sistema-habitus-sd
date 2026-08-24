@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { MINIMOS_POR_RUBRO } from '@/lib/tienda/config'
+import { matchOCrearClienteWeb } from '@/lib/tienda/clientes'
 
 const SUCURSAL_ID = 1 // única sucursal existente hoy
 
@@ -180,6 +181,23 @@ export async function POST(request: NextRequest) {
 
     const total = subtotalMercaderia + costoEnvio
 
+    // ── Cliente real — solo para "retiro y pago en el local" ────────────
+    // Ese medio ya es un compromiso real desde el checkout (no depende de
+    // que se apruebe ningún pago online), así que el cliente se crea o
+    // matchea acá mismo. Para Mercado Pago se deja para el webhook, cuando
+    // el pago esté realmente aprobado — evita crear clientes "fantasma"
+    // por carritos de MP que alguien arranca y nunca termina de pagar.
+    let clienteIdWeb: number | null = null
+    if (medioElegido === 'retiro_efectivo') {
+      clienteIdWeb = await matchOCrearClienteWeb(admin, {
+        nombre: cliente.nombre,
+        telefono: cliente.telefono,
+        email: cliente.email,
+        dni: cliente.dni,
+        cuit: cliente.cuit,
+      })
+    }
+
     // ── Crear el pedido ──────────────────────────────────────────────────
     const { data: pedido, error: pedidoError } = await admin
       .from('pedidos_web')
@@ -187,6 +205,7 @@ export async function POST(request: NextRequest) {
         sucursal_id: SUCURSAL_ID,
         estado: medioElegido === 'mercado_pago' ? 'pendiente_pago' : 'pendiente_retiro',
         medio_elegido: medioElegido,
+        cliente_id: clienteIdWeb,
         cliente_nombre: cliente.nombre,
         cliente_telefono: cliente.telefono,
         cliente_email: cliente.email || null,
