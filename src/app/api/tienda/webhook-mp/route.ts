@@ -17,6 +17,7 @@ const MEDIO_PAGO_QR_MP = 5
 const EMISOR_MERCADO_PAGO = 7
 
 async function procesarNotificacion(request: NextRequest) {
+  const inicioWebhook = Date.now()
   const url = request.nextUrl
   let body: any = null
   try {
@@ -242,13 +243,67 @@ async function procesarNotificacion(request: NextRequest) {
     // Try/catch propio: un error o timeout acá nunca debe afectar la
     // respuesta al webhook ni lo que ya se confirmó arriba. Si falla,
     // queda para revisión manual en /fiscalizacion, igual que el POS.
+    //
+    // Log en DOS pasos (22/08/2026 → 24/08/2026, después de un caso real
+    // sin diagnosticar): se inserta un registro ANTES de llamar a
+    // fiscalizarVenta() y se actualiza DESPUÉS con el resultado. Si Vercel
+    // corta la función a mitad de camino (límite ~10s del plan Hobby —
+    // sospecha real, no confirmada, de por qué a veces la venta/stock/pago
+    // quedan bien pero la fiscalización no corre), el registro queda a
+    // medias con ok=false y el mensaje de "intento iniciado" — es la
+    // prueba directa de un corte, en vez de tener que adivinarlo. Antes de
+    // esto, comprobantes.mensaje_error se pisaba con cada reintento manual
+    // y el error original del webhook se perdía para siempre (pasó con la
+    // venta #1583/pedido #14).
+    const msAntesDeFiscalizar = Date.now() - inicioWebhook
+    let logId: number | null = null
+    try {
+      const { data: logRow } = await admin
+        .from('log_fiscalizacion_webhook')
+        .insert({
+          pedido_id: pedidoId,
+          venta_id: venta.id,
+          ok: false,
+          mensaje: 'Intento iniciado — todavía sin resultado (si esto queda así, la función se cortó a mitad de camino)',
+          ms_desde_inicio_webhook: msAntesDeFiscalizar,
+        })
+        .select('id')
+        .single()
+      logId = logRow?.id ?? null
+    } catch {
+      // best-effort — si el log en sí falla, no debe frenar la fiscalización real
+    }
+
+    const inicioFiscal = Date.now()
     try {
       const resultadoFiscal = await fiscalizarVenta(venta.id, CLIENTE_ID_CONSUMIDOR_FINAL, true, admin)
+      const msDuracionFiscal = Date.now() - inicioFiscal
       if (!resultadoFiscal.ok) {
         console.error('Fiscalización falló para venta web', venta.id, ':', resultadoFiscal.mensaje)
       }
+      if (logId) {
+        await admin
+          .from('log_fiscalizacion_webhook')
+          .update({
+            ok: resultadoFiscal.ok,
+            mensaje: resultadoFiscal.ok ? 'OK' : resultadoFiscal.mensaje,
+            ms_duracion_fiscalizacion: msDuracionFiscal,
+          })
+          .eq('id', logId)
+      }
     } catch (fiscalError: any) {
+      const msDuracionFiscal = Date.now() - inicioFiscal
       console.error('Fiscalización tiró excepción para venta web', venta.id, ':', fiscalError.message)
+      if (logId) {
+        await admin
+          .from('log_fiscalizacion_webhook')
+          .update({
+            ok: false,
+            mensaje: 'Excepción: ' + fiscalError.message,
+            ms_duracion_fiscalizacion: msDuracionFiscal,
+          })
+          .eq('id', logId)
+      }
     }
 
     return NextResponse.json({ ok: true, ventaId: venta.id })
