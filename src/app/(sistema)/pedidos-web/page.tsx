@@ -157,7 +157,7 @@ export default function PedidosWebPage() {
     if (filtro === 'todos') return true
     // "Pendientes" = necesita alguna acción de caja: a cobrar, o ya pagado
     // pero todavía no retirado físicamente.
-    return p.estado === 'pendiente_retiro' || (p.estado === 'confirmado' && !p.entregado_en)
+    return p.estado === 'pendiente_pago' || p.estado === 'pendiente_retiro' || (p.estado === 'confirmado' && !p.entregado_en)
   })
 
   async function cobrarEnCaja(pedido: PedidoWeb) {
@@ -179,6 +179,32 @@ export default function PedidosWebPage() {
         setError('Abrí la caja primero para poder cobrar este pedido.')
         setProcesando(null)
         return
+      }
+
+      // Reclamo atómico — solo para pedidos todavía esperando el pago de
+      // Mercado Pago (el cliente decidió pagar en persona en cambio). Va
+      // DESPUÉS del chequeo de caja abierta a propósito: si reclamáramos
+      // primero y la caja resultara cerrada, el pedido quedaría con el
+      // estado ya cambiado pero sin borrador — colgado a mitad de camino.
+      // Si el reclamo no se logra (0 filas), es porque el webhook de MP
+      // ganó la carrera justo en simultáneo y ya está procesando el pago
+      // real — frenamos acá para no generar una venta duplicada (mismo
+      // mecanismo que ya usa webhook-mp/route.ts para el problema inverso).
+      if (pedido.estado === 'pendiente_pago') {
+        const { data: reclamado, error: reclamoError } = await supabase
+          .from('pedidos_web')
+          .update({ estado: 'pendiente_retiro' })
+          .eq('id', pedido.id)
+          .eq('estado', 'pendiente_pago')
+          .select('id')
+          .maybeSingle()
+
+        if (reclamoError) throw new Error(reclamoError.message)
+        if (!reclamado) {
+          setError('Este pedido se acaba de pagar por Mercado Pago justo ahora — actualizá la pantalla, ya se está procesando solo.')
+          setProcesando(null)
+          return
+        }
       }
 
       const itemsCarrito = pedido.items.map(it => {
@@ -465,10 +491,11 @@ export default function PedidosWebPage() {
                       )}
                     </span>
                     <span className="flex justify-end gap-2 min-w-[140px]" onClick={e => e.stopPropagation()}>
-                      {p.estado === 'pendiente_retiro' && (
+                      {(p.estado === 'pendiente_retiro' || p.estado === 'pendiente_pago') && (
                         <button
                           onClick={() => cobrarEnCaja(p)}
                           disabled={procesando === p.id}
+                          title={p.estado === 'pendiente_pago' ? 'El cliente eligió Mercado Pago pero no pagó — usar solo si va a pagar en persona' : undefined}
                           className="text-xs bg-[#00a19a] text-white px-3 py-1.5 rounded hover:bg-[#008f89] disabled:opacity-50 flex items-center gap-1.5"
                         >
                           <ShoppingCart className="w-3.5 h-3.5" />
