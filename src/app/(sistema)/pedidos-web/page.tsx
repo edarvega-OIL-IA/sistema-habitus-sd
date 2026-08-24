@@ -10,6 +10,7 @@ interface ItemPedido {
   articulo_id: number
   nombre_base: string
   sabor: string | null
+  marca: string | null
   rubro_nombre: string | null
   cantidad: number
   precio_unitario: number
@@ -90,6 +91,7 @@ export default function PedidosWebPage() {
   const [procesando, setProcesando] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [mediosPago, setMediosPago] = useState<{ id: number; nombre: string }[]>([])
+  const [marcasRespaldo, setMarcasRespaldo] = useState<Map<number, string>>(new Map())
   const [cancelandoId, setCancelandoId] = useState<number | null>(null)
   const [hayDevolucion, setHayDevolucion] = useState(false)
   const [montoDevuelto, setMontoDevuelto] = useState('')
@@ -114,6 +116,27 @@ export default function PedidosWebPage() {
     if (error) setError(error.message)
     const pedidosData = data || []
     setPedidos(pedidosData)
+
+    // Respaldo para pedidos de antes del fix del checkout (22/08/2026):
+    // esos ítems nunca guardaron la marca en el momento de la compra —
+    // se busca en vivo contra el catálogo actual solo para esos artículos
+    // puntuales, sin tocar el dato histórico del pedido.
+    const idsSinMarca = [...new Set(
+      pedidosData.flatMap(p => p.items)
+        .filter(it => it.marca === undefined || it.marca === null)
+        .map(it => it.articulo_id)
+    )]
+    if (idsSinMarca.length > 0) {
+      const { data: articulosData } = await supabase
+        .from('articulos')
+        .select('id, marca_id, marcas(nombre)')
+        .in('id', idsSinMarca)
+      const mapa = new Map<number, string>()
+      ;(articulosData || []).forEach((a: any) => {
+        if (a.marcas?.nombre) mapa.set(a.id, a.marcas.nombre)
+      })
+      setMarcasRespaldo(mapa)
+    }
 
     const ventaIds = pedidosData.map(p => p.venta_id).filter((id): id is number => !!id)
     if (ventaIds.length > 0) {
@@ -157,13 +180,17 @@ export default function PedidosWebPage() {
         return
       }
 
-      const itemsCarrito = pedido.items.map(it => ({
-        articulo_id: it.articulo_id,
-        nombre: it.sabor ? `${it.nombre_base} - ${it.sabor}` : it.nombre_base,
-        precio_unitario: it.precio_unitario,
-        cantidad: it.cantidad,
-        descuento_pct: 0,
-      }))
+      const itemsCarrito = pedido.items.map(it => {
+        const marca = it.marca ?? marcasRespaldo.get(it.articulo_id) ?? null
+        const partes = [it.nombre_base, it.sabor, marca].filter(Boolean)
+        return {
+          articulo_id: it.articulo_id,
+          nombre: partes.join(' - '),
+          precio_unitario: it.precio_unitario,
+          cantidad: it.cantidad,
+          descuento_pct: 0,
+        }
+      })
 
       const { data: borrador, error: borradorError } = await supabase
         .from('ventas_borrador')
@@ -497,14 +524,19 @@ export default function PedidosWebPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {p.items.map((it, i) => (
-                            <tr key={i} className="border-b border-gray-100 last:border-0">
-                              <td className="py-2 text-gray-700">{it.nombre_base}{it.sabor ? ` - ${it.sabor}` : ''}</td>
-                              <td className="py-2 text-center text-gray-500">{it.cantidad}</td>
-                              <td className="py-2 text-right text-gray-500">{fmt(it.precio_unitario)}</td>
-                              <td className="py-2 text-right font-medium text-gray-700">{fmt(it.subtotal)}</td>
-                            </tr>
-                          ))}
+                          {p.items.map((it, i) => {
+                            const marca = it.marca ?? marcasRespaldo.get(it.articulo_id) ?? null
+                            return (
+                              <tr key={i} className="border-b border-gray-100 last:border-0">
+                                <td className="py-2 text-gray-700">
+                                  {it.nombre_base}{it.sabor ? ` - ${it.sabor}` : ''}{marca ? ` - ${marca}` : ''}
+                                </td>
+                                <td className="py-2 text-center text-gray-500">{it.cantidad}</td>
+                                <td className="py-2 text-right text-gray-500">{fmt(it.precio_unitario)}</td>
+                                <td className="py-2 text-right font-medium text-gray-700">{fmt(it.subtotal)}</td>
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </table>
 

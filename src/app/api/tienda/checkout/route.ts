@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     const articuloIds = items.map(i => i.articuloId)
     const { data: articulos, error: artError } = await admin
       .from('articulos')
-      .select('id, nombre, nombre_base, rubro_id, precio_local, precio_web, precio_oferta_web, disponible_web, sabor_id')
+      .select('id, nombre, nombre_base, rubro_id, marca_id, precio_local, precio_web, precio_oferta_web, disponible_web, sabor_id')
       .in('id', articuloIds)
 
     if (artError) throw new Error('Error al leer artículos: ' + artError.message)
@@ -80,6 +80,9 @@ export async function POST(request: NextRequest) {
 
     const { data: rubros } = await admin.from('rubros').select('id, nombre')
     const rubrosMap = new Map((rubros || []).map((r: any) => [r.id, r.nombre]))
+
+    const { data: marcas } = await admin.from('marcas').select('id, nombre')
+    const marcasMap = new Map((marcas || []).map((m: any) => [m.id, m.nombre]))
 
     const { data: stockData, error: stockError } = await admin
       .from('articulo_stock')
@@ -117,6 +120,7 @@ export async function POST(request: NextRequest) {
         articulo_id: art.id,
         nombre_base: nombreArticulo,
         sabor: art.sabor_id ? saboresMap.get(art.sabor_id) ?? null : null,
+        marca: art.marca_id ? marcasMap.get(art.marca_id) ?? null : null,
         rubro_nombre: rubrosMap.get(art.rubro_id) ?? null,
         cantidad: item.cantidad,
         precio_unitario: precio,
