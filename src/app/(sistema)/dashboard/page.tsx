@@ -520,10 +520,13 @@ export default function DashboardPage() {
   }
 
   async function cargarPedidosPendientes() {
+    // Mismo criterio que "Pendientes de acción" en pedidos-web/page.tsx —
+    // incluye pendiente_pago desde el 24/08/2026 (antes quedaban invisibles
+    // acá, pasaban directo a "Todos" sin que nadie se enterara).
     const { data, error } = await supabase
       .from('pedidos_web')
       .select('id, estado, entregado_en')
-      .or('estado.eq.pendiente_retiro,and(estado.eq.confirmado,entregado_en.is.null)')
+      .or('estado.eq.pendiente_pago,estado.eq.pendiente_retiro,and(estado.eq.confirmado,entregado_en.is.null)')
 
     if (error) throw error
     setPedidosPendientes((data || []).length)
