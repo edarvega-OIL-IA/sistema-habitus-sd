@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronDown, ChevronRight, Plus, X } from 'lucide-react'
+import { FECHA_MIN, fechaMax } from '@/lib/fechaLimites'
 
 interface Cliente {
   id: number
@@ -424,6 +425,7 @@ export default function CuentaCorrienteClientesPage() {
                   type="date"
                   value={fechaCobro}
                   onChange={e => setFechaCobro(e.target.value)}
+                  min={FECHA_MIN} max={fechaMax()}
                   className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
                 />
               </div>

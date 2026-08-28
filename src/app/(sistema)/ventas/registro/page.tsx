@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Filter, ChevronDown, ChevronRight, Trash2, Pencil, Receipt, Truck } from 'lucide-react'
 import EditarItemsVentaModal from '@/components/ventas/EditarItemsVentaModal'
+import { FECHA_MIN, fechaMax } from '@/lib/fechaLimites'
 
 interface Venta {
   id: number
@@ -452,10 +453,12 @@ export default function RegistroVentasPage() {
             <div className="flex items-center gap-2 ml-2">
               <input type="date" value={desde}
                 onChange={e => { setModoPeriodo('libre'); setFechaDesde(e.target.value) }}
+                min={FECHA_MIN} max={fechaMax()}
                 className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
               <span className="text-gray-400 text-sm">—</span>
               <input type="date" value={hasta}
                 onChange={e => { setModoPeriodo('libre'); setFechaHasta(e.target.value) }}
+                min={FECHA_MIN} max={fechaMax()}
                 className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
             </div>
           )}

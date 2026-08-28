@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Search, Trash2, AlertTriangle, Save, FileDown, ShoppingCart } from 'lucide-react'
+import { FECHA_MIN, fechaMax } from '@/lib/fechaLimites'
 
 interface Cliente {
   id: number
@@ -487,6 +488,7 @@ export default function PresupuestoForm({
               value={fecha}
               disabled={!editable}
               onChange={e => setFecha(e.target.value)}
+              min={FECHA_MIN} max={fechaMax()}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50"
             />
           </div>
@@ -497,6 +499,7 @@ export default function PresupuestoForm({
               value={validezHasta}
               disabled={!editable}
               onChange={e => setValidezHasta(e.target.value)}
+              min={FECHA_MIN} max={fechaMax()}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50"
             />
           </div>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { Plus, Filter, CheckCircle2, FileText, XCircle, ChevronDown, ChevronRight, Edit, Tag, Ban } from 'lucide-react'
+import { FECHA_MIN, fechaMax } from '@/lib/fechaLimites'
 
 interface ItemOrden {
   id: number
@@ -255,11 +256,13 @@ export default function ComprasPage() {
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Desde</label>
             <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
+              min={FECHA_MIN} max={fechaMax()}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Hasta</label>
             <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
+              min={FECHA_MIN} max={fechaMax()}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
           </div>
         </div>
@@ -470,6 +473,7 @@ export default function ComprasPage() {
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fecha factura</label>
                 <input type="date" value={fechaFactura} onChange={e => setFechaFactura(e.target.value)}
+                  min={FECHA_MIN} max={fechaMax()}
                   className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
               </div>
             </div>

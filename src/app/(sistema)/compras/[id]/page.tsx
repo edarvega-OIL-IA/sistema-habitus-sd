@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import { Save, X, FileCheck, Search, Trash2 } from 'lucide-react'
 import { RECUPERA_IVA_COMPRAS } from '@/lib/config'
+import { FECHA_MIN, fechaMax } from '@/lib/fechaLimites'
 
 interface Proveedor { id: number; nombre_comercial: string }
 interface Transportista { id: number; nombre: string }
@@ -900,6 +901,7 @@ export default function ComprasEditarPage() {
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Fecha factura</label>
               <input type="date" value={fechaFactura} onChange={e => setFechaFactura(e.target.value)}
+                min={FECHA_MIN} max={fechaMax()}
                 disabled={esAnulada}
                 className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
             </div>
@@ -940,6 +942,7 @@ export default function ComprasEditarPage() {
               Fecha (pedido / pago mercadería) <span className="text-red-500">*</span>
             </label>
             <input type="date" value={fechaOrden} onChange={e => setFechaOrden(e.target.value)}
+              min={FECHA_MIN} max={fechaMax()}
               disabled={esAnulada}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
           </div>
@@ -948,6 +951,7 @@ export default function ComprasEditarPage() {
               Fecha de recepción real
             </label>
             <input type="date" value={fechaRecepcion} onChange={e => setFechaRecepcion(e.target.value)}
+              min={FECHA_MIN} max={fechaMax()}
               disabled={esAnulada}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
           </div>
@@ -1109,6 +1113,7 @@ export default function ComprasEditarPage() {
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Fecha de pago del flete</label>
             <input type="date" value={fleteFecha} onChange={e => setFleteFecha(e.target.value)}
+              min={FECHA_MIN} max={fechaMax()}
               disabled={esAnulada || fleteMonto === 0}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
           </div>

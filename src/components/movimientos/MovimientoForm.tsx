@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Save, X, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
+import { FECHA_MIN, fechaMax, FECHA_MIN_MES, fechaMaxMes } from '@/lib/fechaLimites'
 
 const movimientoSchema = z.object({
   tipo: z.enum(['Ingreso', 'Egreso']),
@@ -403,6 +404,7 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Fecha <span className="text-red-500">*</span></label>
             <input {...register('fecha')} type="date"
+              min={FECHA_MIN} max={fechaMax()}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
             {errors.fecha && <p className="text-red-500 text-xs mt-1">{errors.fecha.message}</p>}
           </div>
@@ -411,6 +413,7 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Período <span className="text-red-500">*</span></label>
             <input {...register('periodo')} type="month"
+              min={FECHA_MIN_MES} max={fechaMaxMes()}
               onChange={e => { setPeriodoTocado(true); setValue('periodo', e.target.value, { shouldValidate: true }) }}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
             <p className="text-xs text-gray-500 mt-1">Solo referencia (ej. "este pago es del impuesto de junio") — no cambia el mes en Dashboard/Reportes, eso siempre sigue a la Fecha real de pago.</p>
@@ -422,6 +425,7 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento</label>
             <input {...register('fecha_vencimiento')} type="date"
+              min={FECHA_MIN} max={fechaMax()}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
             <p className="text-xs text-gray-500 mt-1">Opcional — solo para impuestos y cargas sociales con vencimiento formal.</p>
           </div>

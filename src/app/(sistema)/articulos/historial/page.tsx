@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { FECHA_MIN, fechaMax } from '@/lib/fechaLimites'
 
 interface Articulo {
   id: number
@@ -256,11 +257,13 @@ export default function HistorialArticulosPage() {
         <div>
           <label className="block text-xs text-gray-500 mb-1">Mov. desde</label>
           <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
+            min={FECHA_MIN} max={fechaMax()}
             className="w-full h-8 px-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-[#00a19a]" />
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">Hasta</label>
           <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
+            min={FECHA_MIN} max={fechaMax()}
             className="w-full h-8 px-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-[#00a19a]" />
         </div>
         <label className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap pb-1.5">

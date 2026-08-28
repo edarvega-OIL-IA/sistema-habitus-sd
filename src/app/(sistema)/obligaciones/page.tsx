@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
+import { FECHA_MIN, fechaMax, FECHA_MIN_MES, fechaMaxMes } from '@/lib/fechaLimites'
 
 interface Acreedor {
   id: number
@@ -471,11 +472,11 @@ function ModalNuevoCargo({ acreedor, conceptos, guardando, onCerrar, onGuardar }
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Período</label>
-              <input type="month" value={periodo} onChange={e => setPeriodo(e.target.value)} className={inputClass} />
+              <input type="month" value={periodo} onChange={e => setPeriodo(e.target.value)} min={FECHA_MIN_MES} max={fechaMaxMes()} className={inputClass} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Vencimiento</label>
-              <input type="date" value={vencimiento} onChange={e => setVencimiento(e.target.value)} className={inputClass} />
+              <input type="date" value={vencimiento} onChange={e => setVencimiento(e.target.value)} min={FECHA_MIN} max={fechaMax()} className={inputClass} />
             </div>
           </div>
           <div>
@@ -658,6 +659,7 @@ function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, g
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Fecha de pago</label>
               <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
+                min={FECHA_MIN} max={fechaMax()}
                 disabled={modo === 'existente'} className={inputClass + (modo === 'existente' ? ' bg-gray-100' : '')} />
             </div>
             <div>
