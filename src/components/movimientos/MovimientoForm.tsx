@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Save, X, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
-import { FECHA_MIN, fechaMax, FECHA_MIN_MES, fechaMaxMes } from '@/lib/fechaLimites'
+import { FECHA_MIN, fechaMax, FECHA_MIN_MES, fechaMaxMes, fechaFueraDeRango, mesFueraDeRango } from '@/lib/fechaLimites'
 
 const movimientoSchema = z.object({
   tipo: z.enum(['Ingreso', 'Egreso']),
@@ -43,6 +43,9 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
   const [mediosPago, setMediosPago] = useState<{ id: number, nombre: string }[]>([])
   const [montoTexto, setMontoTexto] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [errFecha, setErrFecha] = useState(false)
+  const [errPeriodo, setErrPeriodo] = useState(false)
+  const [errFechaVto, setErrFechaVto] = useState(false)
 
   // sucursal_id, cierre_turno_id activo y usuario/rol — necesarios para
   // guardar la caja de origen (alta) y para el gate de permisos (edición).
@@ -99,6 +102,8 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
   const categoriaId = watch('categoria_id')
   const monto = watch('monto')
   const fecha = watch('fecha')
+  const periodo = watch('periodo')
+  const fechaVencimiento = watch('fecha_vencimiento')
   const medioPagoId = watch('medio_pago_id')
 
   useEffect(() => {
@@ -405,8 +410,13 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
             <label className="block text-sm font-medium text-gray-700 mb-1">Fecha <span className="text-red-500">*</span></label>
             <input {...register('fecha')} type="date"
               min={FECHA_MIN} max={fechaMax()}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+              onBlur={e => {
+                if (fechaFueraDeRango(e.target.value)) { setValue('fecha', ''); setErrFecha(true) }
+                else setErrFecha(false)
+              }}
+              className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFecha && !fecha ? 'border-red-300' : 'border-gray-300'}`} />
             {errors.fecha && <p className="text-red-500 text-xs mt-1">{errors.fecha.message}</p>}
+            {errFecha && !fecha && <p className="text-red-500 text-xs mt-1">Fecha fuera de rango, revisá el año</p>}
           </div>
 
           {requierePeriodo && (
@@ -415,9 +425,14 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
             <input {...register('periodo')} type="month"
               min={FECHA_MIN_MES} max={fechaMaxMes()}
               onChange={e => { setPeriodoTocado(true); setValue('periodo', e.target.value, { shouldValidate: true }) }}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+              onBlur={e => {
+                if (mesFueraDeRango(e.target.value)) { setValue('periodo', ''); setErrPeriodo(true) }
+                else setErrPeriodo(false)
+              }}
+              className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errPeriodo && !periodo ? 'border-red-300' : 'border-gray-300'}`} />
             <p className="text-xs text-gray-500 mt-1">Solo referencia (ej. "este pago es del impuesto de junio") — no cambia el mes en Dashboard/Reportes, eso siempre sigue a la Fecha real de pago.</p>
             {errors.periodo && <p className="text-red-500 text-xs mt-1">{errors.periodo.message}</p>}
+            {errPeriodo && !periodo && <p className="text-red-500 text-xs mt-1">Mes fuera de rango, revisá el año</p>}
           </div>
           )}
 
@@ -426,8 +441,13 @@ export default function MovimientoForm({ movimientoId }: MovimientoFormProps) {
             <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento</label>
             <input {...register('fecha_vencimiento')} type="date"
               min={FECHA_MIN} max={fechaMax()}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+              onBlur={e => {
+                if (fechaFueraDeRango(e.target.value)) { setValue('fecha_vencimiento', ''); setErrFechaVto(true) }
+                else setErrFechaVto(false)
+              }}
+              className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaVto && !fechaVencimiento ? 'border-red-300' : 'border-gray-300'}`} />
             <p className="text-xs text-gray-500 mt-1">Opcional — solo para impuestos y cargas sociales con vencimiento formal.</p>
+            {errFechaVto && !fechaVencimiento && <p className="text-red-500 text-xs mt-1">Fecha fuera de rango, revisá el año</p>}
           </div>
           )}
         </div>

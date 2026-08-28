@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
-import { FECHA_MIN, fechaMax, FECHA_MIN_MES, fechaMaxMes } from '@/lib/fechaLimites'
+import { FECHA_MIN, fechaMax, FECHA_MIN_MES, fechaMaxMes, fechaFueraDeRango, mesFueraDeRango } from '@/lib/fechaLimites'
 
 interface Acreedor {
   id: number
@@ -426,6 +426,8 @@ function ModalNuevoCargo({ acreedor, conceptos, guardando, onCerrar, onGuardar }
   const [montoTexto, setMontoTexto] = useState<string | null>(null)
   const [periodo, setPeriodo] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).slice(0, 7))
   const [vencimiento, setVencimiento] = useState('')
+  const [errPeriodo, setErrPeriodo] = useState(false)
+  const [errVencimiento, setErrVencimiento] = useState(false)
   const [comprobante, setComprobante] = useState('')
   const [obs, setObs] = useState('')
 
@@ -472,11 +474,27 @@ function ModalNuevoCargo({ acreedor, conceptos, guardando, onCerrar, onGuardar }
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Período</label>
-              <input type="month" value={periodo} onChange={e => setPeriodo(e.target.value)} min={FECHA_MIN_MES} max={fechaMaxMes()} className={inputClass} />
+              <input type="month" value={periodo} onChange={e => setPeriodo(e.target.value)} min={FECHA_MIN_MES} max={fechaMaxMes()}
+                onBlur={e => {
+                  if (mesFueraDeRango(e.target.value)) { setPeriodo(''); setErrPeriodo(true) }
+                  else setErrPeriodo(false)
+                }}
+                className={errPeriodo && !periodo ? inputClass.replace('border-gray-300', 'border-red-500') : inputClass} />
+              {errPeriodo && !periodo && (
+                <p className="mt-1 text-xs text-red-600">Mes fuera de rango, revisá el año</p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Vencimiento</label>
-              <input type="date" value={vencimiento} onChange={e => setVencimiento(e.target.value)} min={FECHA_MIN} max={fechaMax()} className={inputClass} />
+              <input type="date" value={vencimiento} onChange={e => setVencimiento(e.target.value)} min={FECHA_MIN} max={fechaMax()}
+                onBlur={e => {
+                  if (fechaFueraDeRango(e.target.value)) { setVencimiento(''); setErrVencimiento(true) }
+                  else setErrVencimiento(false)
+                }}
+                className={errVencimiento && !vencimiento ? inputClass.replace('border-gray-300', 'border-red-500') : inputClass} />
+              {errVencimiento && !vencimiento && (
+                <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+              )}
             </div>
           </div>
           <div>
@@ -530,6 +548,7 @@ function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, g
   const [monto, setMonto] = useState(saldoPendiente)
   const [montoTexto, setMontoTexto] = useState<string | null>(null)
   const [fecha, setFecha] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }))
+  const [errFecha, setErrFecha] = useState(false)
   const [medioPagoId, setMedioPagoId] = useState<number | ''>('')
   const [obs, setObs] = useState('')
 
@@ -660,7 +679,14 @@ function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, g
               <label className="block text-xs font-medium text-gray-700 mb-1">Fecha de pago</label>
               <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
                 min={FECHA_MIN} max={fechaMax()}
-                disabled={modo === 'existente'} className={inputClass + (modo === 'existente' ? ' bg-gray-100' : '')} />
+                onBlur={e => {
+                  if (fechaFueraDeRango(e.target.value)) { setFecha(''); setErrFecha(true) }
+                  else setErrFecha(false)
+                }}
+                disabled={modo === 'existente'} className={(errFecha && !fecha ? inputClass.replace('border-gray-300', 'border-red-500') : inputClass) + (modo === 'existente' ? ' bg-gray-100' : '')} />
+              {errFecha && !fecha && (
+                <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Medio de pago</label>

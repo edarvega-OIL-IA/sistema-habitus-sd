@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Save, X, FileCheck, Search, Trash2 } from 'lucide-react'
 import { RECUPERA_IVA_COMPRAS } from '@/lib/config'
-import { FECHA_MIN, fechaMax } from '@/lib/fechaLimites'
+import { FECHA_MIN, fechaMax, fechaFueraDeRango } from '@/lib/fechaLimites'
 
 interface Proveedor { id: number; nombre_comercial: string }
 interface Transportista { id: number; nombre: string }
@@ -63,6 +63,10 @@ export default function ComprasNuevaPage() {
   const [medioPagoId, setMedioPagoId] = useState<number>(1)
   const [fleteMonto, setFleteMonto] = useState<number>(0)
   const [fleteFecha, setFleteFecha] = useState('')
+  const [errFechaFactura, setErrFechaFactura] = useState(false)
+  const [errFechaOrden, setErrFechaOrden] = useState(false)
+  const [errFechaRecepcion, setErrFechaRecepcion] = useState(false)
+  const [errFleteFecha, setErrFleteFecha] = useState(false)
   const [fleteTransportistaId, setFleteTransportistaId] = useState<number | ''>('')
   const [fleteMedioPagoId, setFleteMedioPagoId] = useState<number>(1)
   const [distribuirFlete, setDistribuirFlete] = useState(true)
@@ -583,7 +587,14 @@ export default function ComprasNuevaPage() {
               <label className="block text-xs font-medium text-gray-600 mb-1">Fecha factura</label>
               <input type="date" value={fechaFactura} onChange={e => setFechaFactura(e.target.value)}
                 min={FECHA_MIN} max={fechaMax()}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+                onBlur={e => {
+                  if (fechaFueraDeRango(e.target.value)) { setFechaFactura(''); setErrFechaFactura(true) }
+                  else setErrFechaFactura(false)
+                }}
+                className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaFactura && !fechaFactura ? 'border-red-500' : 'border-gray-300'}`} />
+              {errFechaFactura && !fechaFactura && (
+                <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Monto según comprobante</label>
@@ -621,7 +632,14 @@ export default function ComprasNuevaPage() {
             </label>
             <input type="date" value={fechaOrden} onChange={e => setFechaOrden(e.target.value)}
               min={FECHA_MIN} max={fechaMax()}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+              onBlur={e => {
+                if (fechaFueraDeRango(e.target.value)) { setFechaOrden(''); setErrFechaOrden(true) }
+                else setErrFechaOrden(false)
+              }}
+              className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaOrden && !fechaOrden ? 'border-red-500' : 'border-gray-300'}`} />
+            {errFechaOrden && !fechaOrden && (
+              <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -629,7 +647,14 @@ export default function ComprasNuevaPage() {
             </label>
             <input type="date" value={fechaRecepcion} onChange={e => setFechaRecepcion(e.target.value)}
               min={FECHA_MIN} max={fechaMax()}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+              onBlur={e => {
+                if (fechaFueraDeRango(e.target.value)) { setFechaRecepcion(''); setErrFechaRecepcion(true) }
+                else setErrFechaRecepcion(false)
+              }}
+              className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaRecepcion && !fechaRecepcion ? 'border-red-500' : 'border-gray-300'}`} />
+            {errFechaRecepcion && !fechaRecepcion && (
+              <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Nro. Pedido externo</label>
@@ -787,8 +812,15 @@ export default function ComprasNuevaPage() {
             <label className="block text-xs font-medium text-gray-600 mb-1">Fecha de pago del flete</label>
             <input type="date" value={fleteFecha} onChange={e => setFleteFecha(e.target.value)}
               min={FECHA_MIN} max={fechaMax()}
+              onBlur={e => {
+                if (fechaFueraDeRango(e.target.value)) { setFleteFecha(''); setErrFleteFecha(true) }
+                else setErrFleteFecha(false)
+              }}
               disabled={fleteMonto === 0}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50" />
+              className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50 ${errFleteFecha && !fleteFecha ? 'border-red-500' : 'border-gray-300'}`} />
+            {errFleteFecha && !fleteFecha && (
+              <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Transportista</label>

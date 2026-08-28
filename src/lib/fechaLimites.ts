@@ -28,3 +28,15 @@ export const FECHA_MIN_MES = FECHA_MIN.slice(0, 7)
 export function fechaMaxMes(): string {
   return fechaMax().slice(0, 7)
 }
+
+/** true si una fecha ('YYYY-MM-DD') cae fuera de [FECHA_MIN, fechaMax()]. Vacio = no valida. */
+export function fechaFueraDeRango(valor: string): boolean {
+  if (!valor) return false
+  return valor < FECHA_MIN || valor > fechaMax()
+}
+
+/** true si un mes ('YYYY-MM') cae fuera de [FECHA_MIN_MES, fechaMaxMes()]. Vacio = no valida. */
+export function mesFueraDeRango(valor: string): boolean {
+  if (!valor) return false
+  return valor < FECHA_MIN_MES || valor > fechaMaxMes()
+}

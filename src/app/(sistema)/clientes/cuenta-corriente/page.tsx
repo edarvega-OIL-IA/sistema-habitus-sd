@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronDown, ChevronRight, Plus, X } from 'lucide-react'
-import { FECHA_MIN, fechaMax } from '@/lib/fechaLimites'
+import { FECHA_MIN, fechaMax, fechaFueraDeRango } from '@/lib/fechaLimites'
 
 interface Cliente {
   id: number
@@ -43,6 +43,7 @@ export default function CuentaCorrienteClientesPage() {
   const [modalClienteId, setModalClienteId] = useState<number | null>(null)
   const [montoCobro, setMontoCobro] = useState('')
   const [fechaCobro, setFechaCobro] = useState('')
+  const [errFechaCobro, setErrFechaCobro] = useState(false)
   const [medioCobroId, setMedioCobroId] = useState<number>(0)
   const [observacionesCobro, setObservacionesCobro] = useState('')
   const [guardandoCobro, setGuardandoCobro] = useState(false)
@@ -426,8 +427,15 @@ export default function CuentaCorrienteClientesPage() {
                   value={fechaCobro}
                   onChange={e => setFechaCobro(e.target.value)}
                   min={FECHA_MIN} max={fechaMax()}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+                  onBlur={e => {
+                    if (fechaFueraDeRango(e.target.value)) { setFechaCobro(''); setErrFechaCobro(true) }
+                    else setErrFechaCobro(false)
+                  }}
+                  className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaCobro && !fechaCobro ? 'border-red-500' : 'border-gray-300'}`}
                 />
+                {errFechaCobro && !fechaCobro && (
+                  <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+                )}
               </div>
 
               <div>

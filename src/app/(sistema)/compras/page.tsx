@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { Plus, Filter, CheckCircle2, FileText, XCircle, ChevronDown, ChevronRight, Edit, Tag, Ban } from 'lucide-react'
-import { FECHA_MIN, fechaMax } from '@/lib/fechaLimites'
+import { FECHA_MIN, fechaMax, fechaFueraDeRango } from '@/lib/fechaLimites'
 
 interface ItemOrden {
   id: number
@@ -60,12 +60,15 @@ export default function ComprasPage() {
   const [proveedorFiltro, setProveedorFiltro] = useState('todos')
   const [fechaDesde, setFechaDesde] = useState('')
   const [fechaHasta, setFechaHasta] = useState('')
+  const [errFechaDesde, setErrFechaDesde] = useState(false)
+  const [errFechaHasta, setErrFechaHasta] = useState(false)
 
   // Modal comprobante
   const [editandoComprobante, setEditandoComprobante] = useState<number | null>(null)
   const [nroFactura, setNroFactura] = useState('')
   const [nroRemito, setNroRemito] = useState('')
   const [fechaFactura, setFechaFactura] = useState('')
+  const [errFechaFactura, setErrFechaFactura] = useState(false)
   const [guardandoComp, setGuardandoComp] = useState(false)
 
   useEffect(() => { cargarDatos() }, [])
@@ -194,6 +197,7 @@ export default function ComprasPage() {
     setNroFactura(orden.numero_factura_proveedor || '')
     setNroRemito(orden.numero_remito_proveedor || '')
     setFechaFactura(orden.fecha_factura || '')
+    setErrFechaFactura(false)
     setEditandoComprobante(orden.id)
   }
 
@@ -257,13 +261,27 @@ export default function ComprasPage() {
             <label className="block text-xs font-medium text-gray-600 mb-1">Desde</label>
             <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
               min={FECHA_MIN} max={fechaMax()}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+              onBlur={e => {
+                if (fechaFueraDeRango(e.target.value)) { setFechaDesde(''); setErrFechaDesde(true) }
+                else setErrFechaDesde(false)
+              }}
+              className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaDesde && !fechaDesde ? 'border-red-500' : 'border-gray-300'}`} />
+            {errFechaDesde && !fechaDesde && (
+              <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Hasta</label>
             <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
               min={FECHA_MIN} max={fechaMax()}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+              onBlur={e => {
+                if (fechaFueraDeRango(e.target.value)) { setFechaHasta(''); setErrFechaHasta(true) }
+                else setErrFechaHasta(false)
+              }}
+              className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaHasta && !fechaHasta ? 'border-red-500' : 'border-gray-300'}`} />
+            {errFechaHasta && !fechaHasta && (
+              <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+            )}
           </div>
         </div>
         <p className="mt-3 text-xs text-gray-500">
@@ -474,7 +492,14 @@ export default function ComprasPage() {
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fecha factura</label>
                 <input type="date" value={fechaFactura} onChange={e => setFechaFactura(e.target.value)}
                   min={FECHA_MIN} max={fechaMax()}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+                  onBlur={e => {
+                    if (fechaFueraDeRango(e.target.value)) { setFechaFactura(''); setErrFechaFactura(true) }
+                    else setErrFechaFactura(false)
+                  }}
+                  className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaFactura && !fechaFactura ? 'border-red-500' : 'border-gray-300'}`} />
+                {errFechaFactura && !fechaFactura && (
+                  <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+                )}
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-6">

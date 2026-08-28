@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Search, Trash2, AlertTriangle, Save, FileDown, ShoppingCart } from 'lucide-react'
-import { FECHA_MIN, fechaMax } from '@/lib/fechaLimites'
+import { FECHA_MIN, fechaMax, fechaFueraDeRango } from '@/lib/fechaLimites'
 
 interface Cliente {
   id: number
@@ -95,6 +95,8 @@ export default function PresupuestoForm({
   })
   const [formaPago, setFormaPago] = useState(formaPagoInicial || 'Efectivo o transferencia')
   const [observaciones, setObservaciones] = useState(observacionesInicial || '')
+  const [errFecha, setErrFecha] = useState(false)
+  const [errValidezHasta, setErrValidezHasta] = useState(false)
 
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -489,8 +491,15 @@ export default function PresupuestoForm({
               disabled={!editable}
               onChange={e => setFecha(e.target.value)}
               min={FECHA_MIN} max={fechaMax()}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50"
+              onBlur={e => {
+                if (fechaFueraDeRango(e.target.value)) { setFecha(''); setErrFecha(true) }
+                else setErrFecha(false)
+              }}
+              className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50 ${errFecha && !fecha ? 'border-red-500' : 'border-gray-300'}`}
             />
+            {errFecha && !fecha && (
+              <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Validez hasta</label>
@@ -500,8 +509,15 @@ export default function PresupuestoForm({
               disabled={!editable}
               onChange={e => setValidezHasta(e.target.value)}
               min={FECHA_MIN} max={fechaMax()}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50"
+              onBlur={e => {
+                if (fechaFueraDeRango(e.target.value)) { setValidezHasta(''); setErrValidezHasta(true) }
+                else setErrValidezHasta(false)
+              }}
+              className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] disabled:bg-gray-50 ${errValidezHasta && !validezHasta ? 'border-red-500' : 'border-gray-300'}`}
             />
+            {errValidezHasta && !validezHasta && (
+              <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Forma de pago</label>

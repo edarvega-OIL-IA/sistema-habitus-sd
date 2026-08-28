@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { FECHA_MIN, fechaMax } from '@/lib/fechaLimites'
+import { FECHA_MIN, fechaMax, fechaFueraDeRango } from '@/lib/fechaLimites'
 
 interface Articulo {
   id: number
@@ -56,6 +56,8 @@ export default function HistorialArticulosPage() {
   const [filtroNombre, setFiltroNombre] = useState('')
   const [fechaDesde, setFechaDesde] = useState('')
   const [fechaHasta, setFechaHasta] = useState('')
+  const [errFechaDesde, setErrFechaDesde] = useState(false)
+  const [errFechaHasta, setErrFechaHasta] = useState(false)
   const [soloConDiferencia, setSoloConDiferencia] = useState(false)
 
   const [expandidos, setExpandidos] = useState<Set<number>>(new Set())
@@ -258,13 +260,27 @@ export default function HistorialArticulosPage() {
           <label className="block text-xs text-gray-500 mb-1">Mov. desde</label>
           <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
             min={FECHA_MIN} max={fechaMax()}
-            className="w-full h-8 px-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-[#00a19a]" />
+            onBlur={e => {
+              if (fechaFueraDeRango(e.target.value)) { setFechaDesde(''); setErrFechaDesde(true) }
+              else setErrFechaDesde(false)
+            }}
+            className={`w-full h-8 px-2 border rounded text-sm focus:outline-none focus:border-[#00a19a] ${errFechaDesde && !fechaDesde ? 'border-red-500' : 'border-gray-300'}`} />
+          {errFechaDesde && !fechaDesde && (
+            <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+          )}
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">Hasta</label>
           <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
             min={FECHA_MIN} max={fechaMax()}
-            className="w-full h-8 px-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-[#00a19a]" />
+            onBlur={e => {
+              if (fechaFueraDeRango(e.target.value)) { setFechaHasta(''); setErrFechaHasta(true) }
+              else setErrFechaHasta(false)
+            }}
+            className={`w-full h-8 px-2 border rounded text-sm focus:outline-none focus:border-[#00a19a] ${errFechaHasta && !fechaHasta ? 'border-red-500' : 'border-gray-300'}`} />
+          {errFechaHasta && !fechaHasta && (
+            <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+          )}
         </div>
         <label className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap pb-1.5">
           <input type="checkbox" checked={soloConDiferencia}

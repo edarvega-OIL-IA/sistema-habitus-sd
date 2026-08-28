@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Search, Filter, ChevronDown } from 'lucide-react'
-import { FECHA_MIN, fechaMax } from '@/lib/fechaLimites'
+import { FECHA_MIN, fechaMax, fechaFueraDeRango } from '@/lib/fechaLimites'
 
 interface ItemAgregado {
   id: number
@@ -35,6 +35,8 @@ export default function ReporteVentasPage() {
   const [fechaRef, setFechaRef] = useState<Date>(new Date())
   const [fechaDesde, setFechaDesde] = useState<string>('')
   const [fechaHasta, setFechaHasta] = useState<string>('')
+  const [errFechaDesde, setErrFechaDesde] = useState(false)
+  const [errFechaHasta, setErrFechaHasta] = useState(false)
 
   function getDesdeHasta() {
     if (modoPeriodo === 'todos' || modoPeriodo === 'libre') return { desde: fechaDesde, hasta: fechaHasta }
@@ -328,16 +330,32 @@ export default function ReporteVentasPage() {
           </button>
 
           {modoPeriodo !== 'todos' && (
-            <div className="flex items-center gap-2 ml-2">
-              <input type="date" value={desde}
-                onChange={e => { setModoPeriodo('libre'); setFechaDesde(e.target.value) }}
-                min={FECHA_MIN} max={fechaMax()}
-                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
-              <span className="text-gray-400 text-sm">—</span>
-              <input type="date" value={hasta}
-                onChange={e => { setModoPeriodo('libre'); setFechaHasta(e.target.value) }}
-                min={FECHA_MIN} max={fechaMax()}
-                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
+            <div className="flex flex-col gap-1 ml-2">
+              <div className="flex items-center gap-2">
+                <input type="date" value={desde}
+                  onChange={e => { setModoPeriodo('libre'); setFechaDesde(e.target.value) }}
+                  min={FECHA_MIN} max={fechaMax()}
+                  onBlur={e => {
+                    if (fechaFueraDeRango(e.target.value)) { setFechaDesde(''); setErrFechaDesde(true) }
+                    else setErrFechaDesde(false)
+                  }}
+                  className={`px-2 py-1.5 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaDesde && !fechaDesde && modoPeriodo === 'libre' ? 'border-red-500' : 'border-gray-300'}`} />
+                <span className="text-gray-400 text-sm">—</span>
+                <input type="date" value={hasta}
+                  onChange={e => { setModoPeriodo('libre'); setFechaHasta(e.target.value) }}
+                  min={FECHA_MIN} max={fechaMax()}
+                  onBlur={e => {
+                    if (fechaFueraDeRango(e.target.value)) { setFechaHasta(''); setErrFechaHasta(true) }
+                    else setErrFechaHasta(false)
+                  }}
+                  className={`px-2 py-1.5 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaHasta && !fechaHasta && modoPeriodo === 'libre' ? 'border-red-500' : 'border-gray-300'}`} />
+              </div>
+              {errFechaDesde && !fechaDesde && modoPeriodo === 'libre' && (
+                <p className="text-xs text-red-600">Desde: fecha fuera de rango, revisá el año</p>
+              )}
+              {errFechaHasta && !fechaHasta && modoPeriodo === 'libre' && (
+                <p className="text-xs text-red-600">Hasta: fecha fuera de rango, revisá el año</p>
+              )}
             </div>
           )}
         </div>
