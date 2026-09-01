@@ -20,6 +20,37 @@ interface Turno {
   nombre: string
 }
 
+// Franja horaria esperada por turno (con margen — a veces se abre/cierra
+// más tarde de lo estricto) — solo dispara un aviso con confirmación,
+// nunca bloquea: puede haber una excepción real y no hay que impedirle
+// trabajar a nadie por eso. Se agregó el 01/09/2026 después de que una
+// caja se abrió como "Tarde" a la mañana por error, mezclando ventas en
+// el reporte equivocado.
+const RANGOS_TURNO: Record<string, [number, number]> = {
+  'Mañana': [8, 14],
+  'Tarde': [15, 22],
+}
+
+function horaActualArgentina(): number {
+  const hora = new Date().toLocaleString('en-US', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    hour: 'numeric',
+    hour12: false,
+  })
+  return parseInt(hora, 10)
+}
+
+// true si la hora actual cae FUERA de la franja esperada para ese turno.
+// Si el nombre no matchea ninguna franja conocida, no avisa (evita romper
+// si en algún momento se agrega un tercer turno sin actualizar esto).
+function horarioInusualPara(nombreTurno: string | undefined): [boolean, [number, number] | null] {
+  if (!nombreTurno) return [false, null]
+  const rango = RANGOS_TURNO[nombreTurno]
+  if (!rango) return [false, null]
+  const hora = horaActualArgentina()
+  return [hora < rango[0] || hora >= rango[1], rango]
+}
+
 interface Usuario {
   id: string
   nombre: string
@@ -292,6 +323,16 @@ export default function CierreTurnoPage() {
       setError('Ingresá el efectivo contado en caja')
       return
     }
+
+    const turnoElegido = turnos.find(t => t.id === parseInt(turnoSeleccionado))
+    const [inusual, rango] = horarioInusualPara(turnoElegido?.nombre)
+    if (inusual && rango) {
+      const continuar = window.confirm(
+        `Estás abriendo el turno ${turnoElegido?.nombre} fuera de su horario habitual (${rango[0]}:00 a ${rango[1]}:00hs).\n\n¿Confirmás que es correcto?`
+      )
+      if (!continuar) return
+    }
+
     setProcesando(true)
     setError(null)
     try {
@@ -389,6 +430,19 @@ export default function CierreTurnoPage() {
       setError('El motivo de reapertura es obligatorio')
       return
     }
+
+    // El turno que se va a reabrir ya está en el historial cargado — no
+    // hace falta pedirlo de nuevo a la base solo para este chequeo.
+    const cierreAReabrir = historialCierres.find((c: any) => c.id === ultimoCierreId)
+    const nombreTurnoAReabrir = (cierreAReabrir as any)?.turnos?.nombre
+    const [inusual, rango] = horarioInusualPara(nombreTurnoAReabrir)
+    if (inusual && rango) {
+      const continuar = window.confirm(
+        `Vas a reabrir el turno ${nombreTurnoAReabrir} fuera de su horario habitual (${rango[0]}:00 a ${rango[1]}:00hs).\n\n¿Confirmás que es correcto?`
+      )
+      if (!continuar) return
+    }
+
     setProcesando(true)
     setError(null)
     try {
