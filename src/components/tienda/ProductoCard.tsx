@@ -12,6 +12,7 @@ interface Variante {
   sabor: string | null
   atributo_valor: string | null
   precio: number
+  precio_original: number
   en_oferta: boolean
   stock: number
   imagen_url: string | null
@@ -115,7 +116,17 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
         )}
 
         <div className="mt-auto pt-2">
-          <p className="text-base font-bold text-charcoal">{fmt(seleccionada.precio)}</p>
+          {seleccionada.en_oferta ? (
+            <div className="flex items-baseline gap-1.5 flex-wrap">
+              <p className="text-base font-bold text-offer-teal">{fmt(seleccionada.precio)}</p>
+              <p className="text-xs text-medium-gray line-through">{fmt(seleccionada.precio_original)}</p>
+              <span className="text-xs font-semibold text-offer-teal">
+                -{Math.round((1 - seleccionada.precio / seleccionada.precio_original) * 100)}%
+              </span>
+            </div>
+          ) : (
+            <p className="text-base font-bold text-charcoal">{fmt(seleccionada.precio)}</p>
+          )}
 
           {!sinStock && (
             <div className="flex flex-wrap items-center gap-2 mt-2">

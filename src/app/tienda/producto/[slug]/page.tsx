@@ -21,6 +21,7 @@ interface ArticuloCatalogo {
   nombre_base: string | null
   descripcion: string | null
   precio: number
+  precio_original: number
   en_oferta: boolean
   rubro_id: number | null
   rubro: string | null
@@ -230,7 +231,17 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
               <p className="text-sm text-medium-gray mt-2">{producto.atributo_valor}</p>
             )}
 
-            <p className="text-2xl font-bold text-charcoal mt-4">{fmt(producto.precio)}</p>
+            {producto.en_oferta ? (
+              <div className="flex items-baseline gap-2 flex-wrap mt-4">
+                <p className="text-2xl font-bold text-offer-teal">{fmt(producto.precio)}</p>
+                <p className="text-base text-medium-gray line-through">{fmt(producto.precio_original)}</p>
+                <span className="text-sm font-semibold text-offer-teal">
+                  -{Math.round((1 - producto.precio / producto.precio_original) * 100)}%
+                </span>
+              </div>
+            ) : (
+              <p className="text-2xl font-bold text-charcoal mt-4">{fmt(producto.precio)}</p>
+            )}
 
             <div className="mt-4">
               <DetalleAgregar
