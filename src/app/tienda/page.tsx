@@ -23,6 +23,7 @@ interface ArticuloCatalogo {
   nombre_base: string | null
   descripcion: string | null
   precio: number
+  precio_original: number
   en_oferta: boolean
   rubro_id: number | null
   rubro: string | null
@@ -222,6 +223,7 @@ export default async function TiendaPage({
                     sabor: v.sabor,
                     atributo_valor: v.atributo_valor,
                     precio: v.precio,
+                    precio_original: v.precio_original,
                     en_oferta: v.en_oferta,
                     stock: v.stock,
                     imagen_url: v.imagen_url,
