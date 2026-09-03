@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
+import { ChevronDown, ChevronRight, Plus, Pencil } from 'lucide-react'
 import { FECHA_MIN, fechaMax, FECHA_MIN_MES, fechaMaxMes, fechaFueraDeRango, mesFueraDeRango } from '@/lib/fechaLimites'
 
 interface Acreedor {
@@ -58,6 +58,7 @@ export default function ObligacionesPage() {
   const [categoriasAbiertas, setCategoriasAbiertas] = useState<Set<string>>(new Set())
   const [modalCargo, setModalCargo] = useState<Acreedor | null>(null)
   const [modalPago, setModalPago] = useState<Acreedor | null>(null)
+  const [modalEditarCargo, setModalEditarCargo] = useState<Obligacion | null>(null)
   const [guardando, setGuardando] = useState(false)
   const [sucursalId, setSucursalId] = useState<number>(1)
   const [usuarioId, setUsuarioId] = useState<string | null>(null)
@@ -263,6 +264,7 @@ export default function ObligacionesPage() {
                           <th className="pb-1 font-medium text-right">Cargo</th>
                           <th className="pb-1 font-medium text-right">Pago</th>
                           <th className="pb-1 font-medium text-right">Saldo</th>
+                          <th className="pb-1 font-medium w-8"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -274,6 +276,14 @@ export default function ObligacionesPage() {
                             <td className="py-1.5 text-right">{o.tipo === 'Cargo' ? `$${fmtMonto(o.monto)}` : ''}</td>
                             <td className="py-1.5 text-right text-[#00a19a]">{o.tipo === 'Pago' ? `$${fmtMonto(o.monto)}` : ''}</td>
                             <td className="py-1.5 text-right font-medium">${fmtMonto(o.saldoCorrido)}</td>
+                            <td className="py-1.5 text-right">
+                              {o.tipo === 'Cargo' && (
+                                <button type="button" onClick={() => setModalEditarCargo(o)} title="Editar cargo"
+                                  className="text-gray-300 hover:text-[#00a19a] transition-colors">
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -403,6 +413,66 @@ export default function ObligacionesPage() {
           }}
         />
       )}
+
+      {modalEditarCargo && (
+        <ModalEditarCargo
+          cargo={modalEditarCargo}
+          conceptos={conceptos.filter(c => (conceptosPorAcreedor.get(modalEditarCargo.acreedor_id) || []).includes(c.id))}
+          guardando={guardando}
+          onCerrar={() => setModalEditarCargo(null)}
+          onGuardar={async (payload) => {
+            const acreedor = acreedores.find(a => a.id === modalEditarCargo.acreedor_id)
+            if (!acreedor) { alert('No se encontró el acreedor de este cargo'); return }
+
+            setGuardando(true)
+            const supabase = createClient()
+
+            // Nunca se pisa el cargo original con un UPDATE — se anula (queda
+            // en el historial, auditable) y se crea uno nuevo con los datos
+            // corregidos. Mismo espíritu que "Editar ítems" de Ventas.
+            const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+            const notaAnulacion = `[Corregido el ${fmtFecha(hoy)} — reemplazado por un cargo editado]`
+
+            const { error: anularError } = await supabase
+              .from('obligaciones')
+              .update({
+                anulado: true,
+                observaciones: modalEditarCargo.observaciones
+                  ? `${modalEditarCargo.observaciones} ${notaAnulacion}`
+                  : notaAnulacion,
+              })
+              .eq('id', modalEditarCargo.id)
+
+            if (anularError) {
+              setGuardando(false)
+              alert('Error al anular el cargo original: ' + anularError.message)
+              return
+            }
+
+            const { error: insertError } = await supabase.from('obligaciones').insert({
+              acreedor_id: acreedor.id,
+              categoria_gasto_id: acreedor.categoria_gasto_id,
+              concepto_gasto_id: payload.concepto_gasto_id,
+              tipo: 'Cargo',
+              monto: payload.monto,
+              periodo: payload.periodo ? `${payload.periodo}-01` : null,
+              fecha_vencimiento: payload.fecha_vencimiento || null,
+              numero_comprobante: payload.numero_comprobante || null,
+              observaciones: payload.observaciones || null,
+              usuario_id: usuarioId,
+            })
+
+            setGuardando(false)
+            if (insertError) {
+              alert('El cargo original se anuló pero falló al crear el corregido — avisar antes de reintentar: ' + insertError.message)
+              return
+            }
+            setModalEditarCargo(null)
+            await cargarDatos()
+            setExpandido(prev => new Set(prev).add(acreedor.id))
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -511,6 +581,122 @@ function ModalNuevoCargo({ acreedor, conceptos, guardando, onCerrar, onGuardar }
           <button type="button" onClick={guardar} disabled={guardando}
             className="px-4 py-2 bg-[#00a19a] text-white rounded text-sm hover:bg-[#008f89] disabled:opacity-50">
             {guardando ? 'Guardando...' : 'Guardar cargo'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
+interface ModalEditarCargoProps {
+  cargo: Obligacion
+  conceptos: Concepto[]
+  guardando: boolean
+  onCerrar: () => void
+  onGuardar: (payload: {
+    concepto_gasto_id: number; monto: number; periodo: string; fecha_vencimiento: string;
+    numero_comprobante: string; observaciones: string
+  }) => void
+}
+
+function ModalEditarCargo({ cargo, conceptos, guardando, onCerrar, onGuardar }: ModalEditarCargoProps) {
+  const [conceptoId, setConceptoId] = useState<number | ''>(cargo.concepto_gasto_id)
+  const [monto, setMonto] = useState(cargo.monto)
+  const [montoTexto, setMontoTexto] = useState<string | null>(null)
+  const [periodo, setPeriodo] = useState(
+    cargo.periodo ? cargo.periodo.slice(0, 7) : new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).slice(0, 7)
+  )
+  const [errPeriodo, setErrPeriodo] = useState(false)
+  const [vencimiento, setVencimiento] = useState(cargo.fecha_vencimiento || '')
+  const [errVencimiento, setErrVencimiento] = useState(false)
+  const [comprobante, setComprobante] = useState(cargo.numero_comprobante || '')
+  const [obs, setObs] = useState(cargo.observaciones || '')
+
+  function parsearMonto(v: string): number {
+    const s = v.trim()
+    if (!s) return 0
+    const n = parseFloat(s.replace(/\./g, '').replace(',', '.'))
+    return isNaN(n) ? 0 : n
+  }
+  function fmtInput(n: number): string {
+    return n ? n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
+  }
+  function handleMontoChange(raw: string) {
+    setMontoTexto(raw)
+    setMonto(parsearMonto(raw))
+  }
+
+  function guardar() {
+    if (!conceptoId) { alert('Elegí un concepto'); return }
+    if (monto <= 0) { alert('El monto debe ser mayor a 0'); return }
+    onGuardar({ concepto_gasto_id: Number(conceptoId), monto, periodo, fecha_vencimiento: vencimiento, numero_comprobante: comprobante, observaciones: obs })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg border border-gray-200 w-full max-w-md">
+        <div className="p-4 border-b border-gray-200">
+          <h2 className="text-base font-semibold text-[#3c3c3b]">Editar cargo</h2>
+          <p className="text-xs text-gray-500 mt-1">
+            Esto anula el cargo original (queda en el historial, no se borra) y crea uno nuevo con los datos corregidos.
+          </p>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Concepto</label>
+            <select value={conceptoId} onChange={e => setConceptoId(e.target.value ? Number(e.target.value) : '')} className={inputClass}>
+              <option value="">Seleccionar concepto</option>
+              {conceptos.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Monto</label>
+            <input type="text" inputMode="decimal" value={montoTexto !== null ? montoTexto : fmtInput(monto)}
+              onFocus={e => e.target.select()} onChange={e => handleMontoChange(e.target.value)} onBlur={() => setMontoTexto(null)}
+              placeholder="0" className={inputClass} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Período</label>
+              <input type="month" value={periodo} onChange={e => setPeriodo(e.target.value)} min={FECHA_MIN_MES} max={fechaMaxMes()}
+                onBlur={e => {
+                  if (mesFueraDeRango(e.target.value)) { setPeriodo(''); setErrPeriodo(true) }
+                  else setErrPeriodo(false)
+                }}
+                className={errPeriodo && !periodo ? inputClass.replace('border-gray-300', 'border-red-500') : inputClass} />
+              {errPeriodo && !periodo && (
+                <p className="mt-1 text-xs text-red-600">Mes fuera de rango, revisá el año</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Vencimiento</label>
+              <input type="date" value={vencimiento} onChange={e => setVencimiento(e.target.value)} min={FECHA_MIN} max={fechaMax()}
+                onBlur={e => {
+                  if (fechaFueraDeRango(e.target.value)) { setVencimiento(''); setErrVencimiento(true) }
+                  else setErrVencimiento(false)
+                }}
+                className={errVencimiento && !vencimiento ? inputClass.replace('border-gray-300', 'border-red-500') : inputClass} />
+              {errVencimiento && !vencimiento && (
+                <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+              )}
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Nº comprobante (opcional)</label>
+            <input type="text" value={comprobante} onChange={e => setComprobante(e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Observaciones</label>
+            <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2} className={inputClass} />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 p-4 border-t border-gray-200">
+          <button type="button" onClick={onCerrar} className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50">Cancelar</button>
+          <button type="button" onClick={guardar} disabled={guardando}
+            className="px-4 py-2 bg-[#00a19a] text-white rounded text-sm hover:bg-[#008f89] disabled:opacity-50">
+            {guardando ? 'Guardando...' : 'Guardar corrección'}
           </button>
         </div>
       </div>
