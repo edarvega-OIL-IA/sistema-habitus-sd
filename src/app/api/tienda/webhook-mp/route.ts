@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { fiscalizarVenta } from '@/lib/tusfacturas/fiscalizar'
 import { matchOCrearClienteWeb } from '@/lib/tienda/clientes'
+import { ARTICULO_ENVIO_ID } from '@/lib/config'
 
 // Cliente por defecto de toda venta web — mismo criterio que el POS
 // automático (api/ventas/route.ts): Consumidor Final fijo. El DNI/CUIT
@@ -125,6 +126,11 @@ async function procesarNotificacion(request: NextRequest) {
     }
 
     // ── Re-chequeo de stock real al momento de la aprobación ────────────
+    // IMPORTANTE: `items` acá son SOLO los productos reales del carrito
+    // (pedido.items nunca incluyó ni debe incluir la línea de envío). Todo
+    // lo que lee/descuenta stock más abajo sigue iterando este mismo array
+    // sin modificar — el envío se agrega recién al armar `venta_items`,
+    // nunca acá.
     const items: any[] = pedido.items
     const articuloIds = items.map(i => i.articulo_id)
     const { data: stockData } = await admin
@@ -180,17 +186,39 @@ async function procesarNotificacion(request: NextRequest) {
       .in('id', articuloIds)
     const costosMap = new Map((costosData || []).map((a: any) => [a.id, a.costo_sin_iva]))
 
-    const { error: itemsError } = await admin.from('venta_items').insert(
-      items.map((item: any) => ({
+    // ── Ítems de la venta: productos reales + línea de envío ────────────
+    // La línea de envío se agrega SOLO acá — nunca en `items` (usado arriba
+    // para descontar stock) — para que TusFacturasAPP reciba el detalle
+    // completo y `bonificacion` (subtotal de ítems - total) nunca dé
+    // negativo en una venta web con costo_envio > 0 (ver ARTICULO_ENVIO_ID
+    // en lib/config.ts para el detalle completo del porqué).
+    //
+    // costo_unitario = precio_unitario (no 0): el envío no es margen real,
+    // es plata que después se le paga a Correo Argentino — dejarlo en 0
+    // inflaría artificialmente la Utilidad Bruta de Reportes.
+    const itemsVentaParaInsertar: any[] = items.map((item: any) => ({
+      venta_id: venta.id,
+      articulo_id: item.articulo_id,
+      cantidad: item.cantidad,
+      precio_unitario: item.precio_unitario,
+      descuento_pct: 0,
+      subtotal: item.subtotal,
+      costo_unitario: costosMap.get(item.articulo_id) ?? null,
+    }))
+
+    if (pedido.costo_envio && pedido.costo_envio > 0) {
+      itemsVentaParaInsertar.push({
         venta_id: venta.id,
-        articulo_id: item.articulo_id,
-        cantidad: item.cantidad,
-        precio_unitario: item.precio_unitario,
+        articulo_id: ARTICULO_ENVIO_ID,
+        cantidad: 1,
+        precio_unitario: pedido.costo_envio,
         descuento_pct: 0,
-        subtotal: item.subtotal,
-        costo_unitario: costosMap.get(item.articulo_id) ?? null,
-      }))
-    )
+        subtotal: pedido.costo_envio,
+        costo_unitario: pedido.costo_envio,
+      })
+    }
+
+    const { error: itemsError } = await admin.from('venta_items').insert(itemsVentaParaInsertar)
     if (itemsError) throw new Error('Error al guardar items: ' + itemsError.message)
 
     const { error: pagoVentaError } = await admin.from('venta_pagos').insert({
@@ -203,7 +231,10 @@ async function procesarNotificacion(request: NextRequest) {
     if (pagoVentaError) throw new Error('Error al guardar pago: ' + pagoVentaError.message)
 
     // Descontar stock — mismo mecanismo que Compras y el POS (trigger
-    // fn_aplicar_item_stock vía movimiento_stock_items)
+    // fn_aplicar_item_stock vía movimiento_stock_items). Sigue iterando
+    // `items` (productos reales) — nunca `itemsVentaParaInsertar` — para
+    // que el artículo sintético de envío jamás genere un movimiento de
+    // stock.
     const { data: movStock, error: movStockError } = await admin
       .from('movimientos_stock')
       .insert({
