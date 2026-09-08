@@ -92,7 +92,6 @@ export default function CheckoutPage() {
   // usa este camino, no en el flujo normal por CP.
   const [buscarPorLocalidad, setBuscarPorLocalidad] = useState(false)
   const [provinciaLocalidadesData, setProvinciaLocalidadesData] = useState<Record<string, LocalidadConCP[]> | null>(null)
-  const [textoBusquedaLocalidad, setTextoBusquedaLocalidad] = useState('')
 
   useEffect(() => {
     if (buscarPorLocalidad && !provinciaLocalidadesData) {
@@ -104,16 +103,13 @@ export default function CheckoutPage() {
 
   const opcionesLocalidadBusqueda = caProvincia ? provinciaLocalidadesData?.[caProvincia] ?? [] : []
 
-  function seleccionarLocalidadBuscada(valor: string) {
-    setTextoBusquedaLocalidad(valor)
-    const match = valor.match(/\(CP (\d{4})\)$/)
-    if (!match) return
-    const cpEncontrado = match[1]
-    const existe = opcionesLocalidadBusqueda.some(l => `${l.localidad} (CP ${l.cp})` === valor)
-    if (!existe) return
-    setCaCp(cpEncontrado) // dispara el autocompletado normal de provincia/localidad
+  function seleccionarLocalidadBuscada(valorCombinado: string) {
+    // valorCombinado viene como "Localidad|CP" desde el <option value>
+    const [localidad, cp] = valorCombinado.split('|')
+    if (!localidad || !cp) return
+    setCaCp(cp) // dispara el autocompletado normal de provincia/localidad
+    setCaLocalidad(localidad)
     setBuscarPorLocalidad(false)
-    setTextoBusquedaLocalidad('')
   }
 
   useEffect(() => {
@@ -504,24 +500,25 @@ export default function CheckoutPage() {
               {!buscarPorLocalidad ? (
                 <>
                   <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-medium text-gray-500">Código Postal *</label>
-                      <button
-                        type="button"
-                        onClick={() => setBuscarPorLocalidad(true)}
-                        className="text-xs text-[#00a19a] hover:underline"
-                      >
-                        No sé mi código postal
-                      </button>
+                    <label className="text-xs font-medium text-gray-500">Código Postal *</label>
+                    <div className="flex items-center gap-3 mt-1">
+                      <input
+                        value={caCp}
+                        onChange={e => setCaCp(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                        inputMode="numeric"
+                        placeholder="Ej: 1425"
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
+                        required
+                      />
+                      <label className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={buscarPorLocalidad}
+                          onChange={() => setBuscarPorLocalidad(true)}
+                        />
+                        No sé mi CP
+                      </label>
                     </div>
-                    <input
-                      value={caCp}
-                      onChange={e => setCaCp(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                      inputMode="numeric"
-                      placeholder="Ej: 1425"
-                      className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
-                      required
-                    />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -573,20 +570,21 @@ export default function CheckoutPage() {
                 <div className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-medium text-gray-500">Buscar por localidad</p>
-                    <button
-                      type="button"
-                      onClick={() => { setBuscarPorLocalidad(false); setTextoBusquedaLocalidad('') }}
-                      className="text-xs text-[#00a19a] hover:underline"
-                    >
-                      Ya sé mi código postal
-                    </button>
+                    <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!buscarPorLocalidad}
+                        onChange={() => setBuscarPorLocalidad(false)}
+                      />
+                      Ya sé mi CP
+                    </label>
                   </div>
 
                   <div>
                     <label className="text-xs font-medium text-gray-500">Provincia *</label>
                     <select
                       value={caProvincia}
-                      onChange={e => { setCaProvincia(e.target.value); setTextoBusquedaLocalidad('') }}
+                      onChange={e => setCaProvincia(e.target.value)}
                       className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
                       required
                     >
@@ -600,20 +598,22 @@ export default function CheckoutPage() {
                   {caProvincia && (
                     <div>
                       <label className="text-xs font-medium text-gray-500">Localidad *</label>
-                      <input
-                        list="localidades-busqueda"
-                        value={textoBusquedaLocalidad}
+                      <select
+                        defaultValue=""
                         onChange={e => seleccionarLocalidadBuscada(e.target.value)}
-                        placeholder={provinciaLocalidadesData ? 'Empezá a escribir el nombre...' : 'Cargando localidades...'}
                         disabled={!provinciaLocalidadesData}
-                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] disabled:bg-gray-100"
-                      />
-                      <datalist id="localidades-busqueda">
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white disabled:bg-gray-100"
+                      >
+                        <option value="">
+                          {provinciaLocalidadesData ? 'Elegí tu localidad' : 'Cargando localidades...'}
+                        </option>
                         {opcionesLocalidadBusqueda.map(l => (
-                          <option key={`${l.localidad}-${l.cp}`} value={`${l.localidad} (CP ${l.cp})`} />
+                          <option key={`${l.localidad}-${l.cp}`} value={`${l.localidad}|${l.cp}`}>
+                            {l.localidad}
+                          </option>
                         ))}
-                      </datalist>
-                      <p className="text-xs text-gray-400 mt-1">Elegí tu localidad de la lista para completar el código postal.</p>
+                      </select>
+                      <p className="text-xs text-gray-400 mt-1">Al elegirla, completamos el código postal solos.</p>
                     </div>
                   )}
                 </div>
