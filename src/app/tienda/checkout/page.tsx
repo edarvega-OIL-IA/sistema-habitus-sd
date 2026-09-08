@@ -1,17 +1,12 @@
 // Ruta destino: C:\Users\Usuario\Documents\sistema-habitus-sd\src\app\tienda\checkout\page.tsx
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Package, AlertTriangle, Loader2, Truck, Store } from 'lucide-react'
 import { useCarrito } from '@/components/tienda/CarritoContext'
 import { PROVINCIAS_MICORREO } from '@/lib/correoargentino/micorreo'
-
-interface DatosCP {
-  provincia: string | null
-  localidades: string[]
-}
 
 interface LocalidadConCP {
   localidad: string
@@ -65,52 +60,73 @@ export default function CheckoutPage() {
   const [caCalle, setCaCalle] = useState('')
   const [caNumero, setCaNumero] = useState('')
   const [caLocalidad, setCaLocalidad] = useState('')
-  const [caProvincia, setCaProvincia] = useState('')
+  const [caProvincia, setCaProvincia] = useState('Río Negro')
   const [caCp, setCaCp] = useState('')
   const [opcionesEnvioCA, setOpcionesEnvioCA] = useState<OpcionEnvioCA[]>([])
   const [envioProductoElegido, setEnvioProductoElegido] = useState<'CP' | 'EP' | null>(null)
   const [cotizandoEnvioCA, setCotizandoEnvioCA] = useState(false)
   const [errorCotizacionCA, setErrorCotizacionCA] = useState<string | null>(null)
 
-  // Base CP → Provincia/Localidad (generada desde la base oficial de
-  // Correo Argentino). Se carga bajo demanda (dynamic import) recién al
-  // elegir esta opción de envío — son ~485KB que no tiene sentido cargar
-  // si el cliente nunca la usa.
-  const [cpDatos, setCpDatos] = useState<Record<string, DatosCP> | null>(null)
-
-  useEffect(() => {
-    if (metodoEnvio === 'envio_correo_argentino' && !cpDatos) {
-      import('@/lib/correoargentino/cp-datos.json').then(mod => {
-        setCpDatos((mod.default ?? mod) as unknown as Record<string, DatosCP>)
-      })
-    }
-  }, [metodoEnvio, cpDatos])
-
-  // Camino alternativo para quien no sabe su código postal: Provincia →
-  // buscar Localidad por nombre → se completa el CP solo. Base separada
-  // (organizada al revés, por provincia) — se carga recién si el cliente
-  // usa este camino, no en el flujo normal por CP.
-  const [buscarPorLocalidad, setBuscarPorLocalidad] = useState(false)
+  // Base Provincia → Localidades con su CP, generada desde la base oficial
+  // de Correo Argentino (23.190 pares). Es la ÚNICA fuente para el
+  // desplegable de Localidad — se activa siempre al elegir/tener una
+  // Provincia, sepa el cliente su CP o no. Se carga bajo demanda (dynamic
+  // import) recién al elegir esta opción de envío, ~960KB que no tiene
+  // sentido cargar si el cliente nunca la usa.
   const [provinciaLocalidadesData, setProvinciaLocalidadesData] = useState<Record<string, LocalidadConCP[]> | null>(null)
 
   useEffect(() => {
-    if (buscarPorLocalidad && !provinciaLocalidadesData) {
+    if (metodoEnvio === 'envio_correo_argentino' && !provinciaLocalidadesData) {
       import('@/lib/correoargentino/provincia-localidades.json').then(mod => {
         setProvinciaLocalidadesData((mod.default ?? mod) as unknown as Record<string, LocalidadConCP[]>)
       })
     }
-  }, [buscarPorLocalidad, provinciaLocalidadesData])
+  }, [metodoEnvio, provinciaLocalidadesData])
 
-  const opcionesLocalidadBusqueda = caProvincia ? provinciaLocalidadesData?.[caProvincia] ?? [] : []
+  const opcionesLocalidad = caProvincia ? provinciaLocalidadesData?.[caProvincia] ?? [] : []
 
-  function seleccionarLocalidadBuscada(valorCombinado: string) {
-    // valorCombinado viene como "Localidad|CP" desde el <option value>
+  // Índice inverso CP → provincia(s), derivado en memoria de la misma
+  // base — evita mantener un segundo archivo solo para esto. Se usa
+  // únicamente como conveniencia: si el cliente escribe el CP a mano,
+  // detecta la provincia cuando es inequívoca en esa provincia.
+  const cpAProvincias = useMemo(() => {
+    if (!provinciaLocalidadesData) return null
+    const mapa: Record<string, Set<string>> = {}
+    for (const [prov, lista] of Object.entries(provinciaLocalidadesData)) {
+      for (const { cp } of lista) {
+        if (!mapa[cp]) mapa[cp] = new Set()
+        mapa[cp].add(prov)
+      }
+    }
+    return mapa
+  }, [provinciaLocalidadesData])
+
+  // El cliente elige una Localidad del desplegable → completa el CP solo.
+  function seleccionarLocalidad(valorCombinado: string) {
     const [localidad, cp] = valorCombinado.split('|')
-    if (!localidad || !cp) return
-    setCaCp(cp) // dispara el autocompletado normal de provincia/localidad
+    if (!localidad || !cp) {
+      setCaLocalidad('')
+      return
+    }
     setCaLocalidad(localidad)
-    setBuscarPorLocalidad(false)
+    setCaCp(cp)
   }
+
+  // El cliente escribe el CP a mano → si es inequívoco, ajusta la
+  // Provincia (Río Negro es solo el valor inicial, no una traba) y, si
+  // hay una única Localidad de esa provincia con ese CP exacto, la
+  // autoselecciona — si hay varias, el cliente elige del desplegable.
+  useEffect(() => {
+    if (metodoEnvio !== 'envio_correo_argentino') return
+    if (!/^\d{4}$/.test(caCp) || !cpAProvincias) return
+    const provincias = cpAProvincias[caCp]
+    if (!provincias || provincias.size !== 1) return
+    const provinciaDetectada = [...provincias][0]
+    setCaProvincia(provinciaDetectada)
+    const coincidencias = (provinciaLocalidadesData?.[provinciaDetectada] ?? []).filter(l => l.cp === caCp)
+    if (coincidencias.length === 1) setCaLocalidad(coincidencias[0].localidad)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caCp, metodoEnvio, cpAProvincias])
 
   useEffect(() => {
     fetch('/api/tienda/configuracion-envios')
@@ -123,22 +139,6 @@ export default function CheckoutPage() {
         // (comportamiento previo a esta fase, sin bloquear la compra)
       })
   }, [])
-
-  // Al resolver el CP: autocompleta la provincia cuando es inequívoca
-  // (2.255 de 2.352 CP) y arma las opciones de Localidad reales para ese
-  // CP. Si hay una sola localidad posible, se autoselecciona; si hay
-  // varias (caso frecuente — muchos pueblos comparten CP), el cliente
-  // elige entre nombres reales en vez de escribir a ciegas.
-  const datosCpActual = /^\d{4}$/.test(caCp) ? cpDatos?.[caCp] : undefined
-
-  useEffect(() => {
-    if (metodoEnvio !== 'envio_correo_argentino') return
-    if (!datosCpActual) return
-    if (datosCpActual.provincia) setCaProvincia(datosCpActual.provincia)
-    if (datosCpActual.localidades.length === 1) setCaLocalidad(datosCpActual.localidades[0])
-    else setCaLocalidad('') // fuerza a elegir de nuevo si cambió el CP
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [caCp, metodoEnvio, cpDatos])
 
   // Re-cotiza automáticamente al completar un CP de 4 dígitos válido —
   // debounce de 600ms para no pegarle a la API en cada tecla.
@@ -497,127 +497,58 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              {!buscarPorLocalidad ? (
-                <>
-                  <div>
-                    <label className="text-xs font-medium text-gray-500">Código Postal *</label>
-                    <div className="flex items-center gap-3 mt-1">
-                      <input
-                        value={caCp}
-                        onChange={e => setCaCp(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                        inputMode="numeric"
-                        placeholder="Ej: 1425"
-                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
-                        required
-                      />
-                      <label className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={buscarPorLocalidad}
-                          onChange={() => setBuscarPorLocalidad(true)}
-                        />
-                        No sé mi CP
-                      </label>
-                    </div>
-                  </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Código Postal *</label>
+                <input
+                  value={caCp}
+                  onChange={e => setCaCp(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  inputMode="numeric"
+                  placeholder="Si no lo sabés, completalo con Provincia y Localidad"
+                  className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
+                  required
+                />
+              </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-medium text-gray-500">Provincia *</label>
-                      <select
-                        value={caProvincia}
-                        onChange={e => setCaProvincia(e.target.value)}
-                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
-                        required
-                      >
-                        <option value="">Elegí una provincia</option>
-                        {PROVINCIAS_MICORREO.map(p => (
-                          <option key={p.codigo} value={p.nombre}>{p.nombre}</option>
-                        ))}
-                      </select>
-                      {/^\d{4}$/.test(caCp) && cpDatos && !datosCpActual?.provincia && (
-                        <p className="text-xs text-gray-400 mt-1">No pudimos detectarla — verificala.</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-medium text-gray-500">Localidad *</label>
-                      {datosCpActual && datosCpActual.localidades.length > 0 ? (
-                        <select
-                          value={caLocalidad}
-                          onChange={e => setCaLocalidad(e.target.value)}
-                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
-                          required
-                        >
-                          <option value="">Elegí tu localidad</option>
-                          {datosCpActual.localidades.map(loc => (
-                            <option key={loc} value={loc}>{loc}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          value={caLocalidad}
-                          onChange={e => setCaLocalidad(e.target.value)}
-                          placeholder="Nombre de tu localidad"
-                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
-                          required
-                        />
-                      )}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-medium text-gray-500">Buscar por localidad</p>
-                    <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={!buscarPorLocalidad}
-                        onChange={() => setBuscarPorLocalidad(false)}
-                      />
-                      Ya sé mi CP
-                    </label>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-medium text-gray-500">Provincia *</label>
-                    <select
-                      value={caProvincia}
-                      onChange={e => setCaProvincia(e.target.value)}
-                      className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
-                      required
-                    >
-                      <option value="">Elegí una provincia</option>
-                      {PROVINCIAS_MICORREO.map(p => (
-                        <option key={p.codigo} value={p.nombre}>{p.nombre}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {caProvincia && (
-                    <div>
-                      <label className="text-xs font-medium text-gray-500">Localidad *</label>
-                      <select
-                        defaultValue=""
-                        onChange={e => seleccionarLocalidadBuscada(e.target.value)}
-                        disabled={!provinciaLocalidadesData}
-                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white disabled:bg-gray-100"
-                      >
-                        <option value="">
-                          {provinciaLocalidadesData ? 'Elegí tu localidad' : 'Cargando localidades...'}
-                        </option>
-                        {opcionesLocalidadBusqueda.map(l => (
-                          <option key={`${l.localidad}-${l.cp}`} value={`${l.localidad}|${l.cp}`}>
-                            {l.localidad}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="text-xs text-gray-400 mt-1">Al elegirla, completamos el código postal solos.</p>
-                    </div>
-                  )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Provincia *</label>
+                  <select
+                    value={caProvincia}
+                    onChange={e => { setCaProvincia(e.target.value); setCaLocalidad(''); setCaCp('') }}
+                    className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
+                    required
+                  >
+                    <option value="">Elegí una provincia</option>
+                    {PROVINCIAS_MICORREO.map(p => (
+                      <option key={p.codigo} value={p.nombre}>{p.nombre}</option>
+                    ))}
+                  </select>
                 </div>
-              )}
+
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Localidad *</label>
+                  <select
+                    value={caLocalidad && opcionesLocalidad.some(l => l.localidad === caLocalidad) ? `${caLocalidad}|${caCp}` : ''}
+                    onChange={e => seleccionarLocalidad(e.target.value)}
+                    disabled={!caProvincia || !provinciaLocalidadesData}
+                    className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white disabled:bg-gray-100"
+                    required
+                  >
+                    <option value="">
+                      {!caProvincia ? 'Elegí una provincia primero' : !provinciaLocalidadesData ? 'Cargando localidades...' : 'Elegí tu localidad'}
+                    </option>
+                    {opcionesLocalidad.map(l => (
+                      <option key={`${l.localidad}-${l.cp}`} value={`${l.localidad}|${l.cp}`}>
+                        {l.localidad}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400">
+                Al elegir tu localidad completamos el código postal — si ya lo sabés, podés escribirlo directo arriba.
+              </p>
+
               {/* Estado de la cotización en vivo */}
               {cotizandoEnvioCA && (
                 <p className="text-xs text-gray-400 flex items-center gap-1.5">
