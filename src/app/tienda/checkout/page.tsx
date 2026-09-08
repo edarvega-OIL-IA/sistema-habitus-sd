@@ -7,7 +7,11 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft, Package, AlertTriangle, Loader2, Truck, Store } from 'lucide-react'
 import { useCarrito } from '@/components/tienda/CarritoContext'
 import { PROVINCIAS_MICORREO } from '@/lib/correoargentino/micorreo'
-import cpProvinciaMap from '@/lib/correoargentino/cp-provincia.json'
+
+interface DatosCP {
+  provincia: string | null
+  localidades: string[]
+}
 
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
 
@@ -63,6 +67,20 @@ export default function CheckoutPage() {
   const [cotizandoEnvioCA, setCotizandoEnvioCA] = useState(false)
   const [errorCotizacionCA, setErrorCotizacionCA] = useState<string | null>(null)
 
+  // Base CP → Provincia/Localidad (generada desde la base oficial de
+  // Correo Argentino). Se carga bajo demanda (dynamic import) recién al
+  // elegir esta opción de envío — son ~485KB que no tiene sentido cargar
+  // si el cliente nunca la usa.
+  const [cpDatos, setCpDatos] = useState<Record<string, DatosCP> | null>(null)
+
+  useEffect(() => {
+    if (metodoEnvio === 'envio_correo_argentino' && !cpDatos) {
+      import('@/lib/correoargentino/cp-datos.json').then(mod => {
+        setCpDatos((mod.default ?? mod) as unknown as Record<string, DatosCP>)
+      })
+    }
+  }, [metodoEnvio, cpDatos])
+
   useEffect(() => {
     fetch('/api/tienda/configuracion-envios')
       .then(res => res.json())
@@ -75,19 +93,21 @@ export default function CheckoutPage() {
       })
   }, [])
 
-  // Autocompleta la provincia cuando el CP tiene una única provincia
-  // posible según la base de localidades del Correo Argentino (2.255 de
-  // 2.352 CP son inequívocos). Para el resto (zonas de frontera real,
-  // ej. nuestro propio CP 8303 comparte rango con Neuquén aunque Cinco
-  // Saltos es Río Negro) no se adivina — el cliente elige a mano, como ya
-  // hace hoy. Nunca bloquea ni sobreescribe si el CP no está en la base.
+  // Al resolver el CP: autocompleta la provincia cuando es inequívoca
+  // (2.255 de 2.352 CP) y arma las opciones de Localidad reales para ese
+  // CP. Si hay una sola localidad posible, se autoselecciona; si hay
+  // varias (caso frecuente — muchos pueblos comparten CP), el cliente
+  // elige entre nombres reales en vez de escribir a ciegas.
+  const datosCpActual = /^\d{4}$/.test(caCp) ? cpDatos?.[caCp] : undefined
+
   useEffect(() => {
     if (metodoEnvio !== 'envio_correo_argentino') return
-    if (!/^\d{4}$/.test(caCp)) return
-    const provinciaDetectada = (cpProvinciaMap as Record<string, string>)[caCp]
-    if (provinciaDetectada) setCaProvincia(provinciaDetectada)
+    if (!datosCpActual) return
+    if (datosCpActual.provincia) setCaProvincia(datosCpActual.provincia)
+    if (datosCpActual.localidades.length === 1) setCaLocalidad(datosCpActual.localidades[0])
+    else setCaLocalidad('') // fuerza a elegir de nuevo si cambió el CP
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [caCp, metodoEnvio])
+  }, [caCp, metodoEnvio, cpDatos])
 
   // Re-cotiza automáticamente al completar un CP de 4 dígitos válido —
   // debounce de 600ms para no pegarle a la API en cada tecla.
@@ -446,47 +466,61 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
-                  <label className="text-xs font-medium text-gray-500">Localidad *</label>
-                  <input
-                    value={caLocalidad}
-                    onChange={e => setCaLocalidad(e.target.value)}
-                    className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500">Código Postal *</label>
-                  <input
-                    value={caCp}
-                    onChange={e => setCaCp(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    inputMode="numeric"
-                    placeholder="Ej: 1425"
-                    className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
-                    required
-                  />
-                </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500">Código Postal *</label>
+                <input
+                  value={caCp}
+                  onChange={e => setCaCp(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  inputMode="numeric"
+                  placeholder="Ej: 1425"
+                  className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
+                  required
+                />
               </div>
 
-              <div>
-                <label className="text-xs font-medium text-gray-500">Provincia *</label>
-                <select
-                  value={caProvincia}
-                  onChange={e => setCaProvincia(e.target.value)}
-                  className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
-                  required
-                >
-                  <option value="">Elegí una provincia</option>
-                  {PROVINCIAS_MICORREO.map(p => (
-                    <option key={p.codigo} value={p.nombre}>{p.nombre}</option>
-                  ))}
-                </select>
-                {/^\d{4}$/.test(caCp) && !(cpProvinciaMap as Record<string, string>)[caCp] && (
-                  <p className="text-xs text-gray-400 mt-1">
-                    No pudimos detectar la provincia automáticamente para ese código postal — verificala antes de continuar.
-                  </p>
-                )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Provincia *</label>
+                  <select
+                    value={caProvincia}
+                    onChange={e => setCaProvincia(e.target.value)}
+                    className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
+                    required
+                  >
+                    <option value="">Elegí una provincia</option>
+                    {PROVINCIAS_MICORREO.map(p => (
+                      <option key={p.codigo} value={p.nombre}>{p.nombre}</option>
+                    ))}
+                  </select>
+                  {/^\d{4}$/.test(caCp) && cpDatos && !datosCpActual?.provincia && (
+                    <p className="text-xs text-gray-400 mt-1">No pudimos detectarla — verificala.</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Localidad *</label>
+                  {datosCpActual && datosCpActual.localidades.length > 0 ? (
+                    <select
+                      value={caLocalidad}
+                      onChange={e => setCaLocalidad(e.target.value)}
+                      className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
+                      required
+                    >
+                      <option value="">Elegí tu localidad</option>
+                      {datosCpActual.localidades.map(loc => (
+                        <option key={loc} value={loc}>{loc}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={caLocalidad}
+                      onChange={e => setCaLocalidad(e.target.value)}
+                      placeholder="Nombre de tu localidad"
+                      className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
+                      required
+                    />
+                  )}
+                </div>
               </div>
 
               {/* Estado de la cotización en vivo */}
