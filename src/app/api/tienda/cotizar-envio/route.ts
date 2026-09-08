@@ -2,7 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { cotizarEnvio } from '@/lib/correoargentino/micorreo'
-import { CORREO_ARGENTINO_CP_ORIGEN, CORREO_ARGENTINO_CAJA_ESTANDAR, PESO_DEFECTO_GRAMOS } from '@/lib/config'
+import { calcularPesoCarritoGramos } from '@/lib/correoargentino/pesoCarrito'
+import { CORREO_ARGENTINO_CP_ORIGEN, CORREO_ARGENTINO_CAJA_ESTANDAR } from '@/lib/config'
 
 interface ItemCarrito {
   articuloId: number
@@ -23,35 +24,9 @@ export async function POST(request: NextRequest) {
   const admin = createAdminClient()
 
   try {
-    // ── Peso real del carrito — nunca confiar en nada que mande el ──────
-    // navegador. Se suma peso_kg × cantidad de cada artículo; los que no
-    // tengan peso_kg cargado usan el piso de PESO_DEFECTO_GRAMOS (ver
-    // lib/config.ts — regularizar esto es tarea pendiente, no bloqueante).
-    const articuloIds = items.map(i => i.articuloId)
-    const { data: articulos, error: artError } = await admin
-      .from('articulos')
-      .select('id, peso_kg')
-      .in('id', articuloIds)
+    const { pesoTotalGramos, algunPesoEstimado } = await calcularPesoCarritoGramos(admin, items)
 
-    if (artError) throw new Error('Error al leer artículos: ' + artError.message)
-
-    const pesoMap = new Map((articulos || []).map((a: any) => [a.id, a.peso_kg]))
-    let pesoTotalGramos = 0
-    let algunPesoEstimado = false
-
-    for (const item of items) {
-      const pesoKg = pesoMap.get(item.articuloId)
-      if (pesoKg && pesoKg > 0) {
-        pesoTotalGramos += pesoKg * 1000 * item.cantidad
-      } else {
-        algunPesoEstimado = true
-        pesoTotalGramos += PESO_DEFECTO_GRAMOS * item.cantidad
-      }
-    }
-
-    pesoTotalGramos = Math.round(pesoTotalGramos)
-
-    // Límites documentados de la API MiCorreo: 1g a 25000g por envío.
+    // Límite documentado de la API MiCorreo: 1g a 25000g por envío.
     if (pesoTotalGramos > 25000) {
       return NextResponse.json(
         { error: 'El pedido supera el peso máximo permitido para un solo envío (25kg). Contactanos para coordinarlo.' },

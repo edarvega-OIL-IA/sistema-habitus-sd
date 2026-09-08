@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { MINIMOS_POR_RUBRO } from '@/lib/tienda/config'
 import { matchOCrearClienteWeb } from '@/lib/tienda/clientes'
+import { cotizarEnvio } from '@/lib/correoargentino/micorreo'
+import { calcularPesoCarritoGramos } from '@/lib/correoargentino/pesoCarrito'
+import { CORREO_ARGENTINO_CP_ORIGEN, CORREO_ARGENTINO_CAJA_ESTANDAR } from '@/lib/config'
 
 const SUCURSAL_ID = 1 // única sucursal existente hoy
 
@@ -27,8 +30,20 @@ interface DireccionEnvio {
   cp: string
 }
 
-const METODOS_ENVIO_VALIDOS = ['retiro_local', 'envio_cinco_saltos'] as const
+const METODOS_ENVIO_VALIDOS = ['retiro_local', 'envio_cinco_saltos', 'envio_correo_argentino'] as const
 type MetodoEnvio = (typeof METODOS_ENVIO_VALIDOS)[number]
+
+const PRODUCTOS_MICORREO_VALIDOS = ['CP', 'EP'] as const
+const TIPOS_ENTREGA_MICORREO_VALIDOS = ['D', 'S'] as const
+
+const NOMBRES_PRODUCTO_MICORREO: Record<string, string> = {
+  CP: 'Correo Argentino Clásico',
+  EP: 'Correo Argentino Expreso',
+}
+const NOMBRES_ENTREGA_MICORREO: Record<string, string> = {
+  D: 'a domicilio',
+  S: 'a sucursal',
+}
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
@@ -41,6 +56,9 @@ export async function POST(request: NextRequest) {
     observaciones,
     metodoEnvio = 'retiro_local',
     direccion,
+    envioProducto,
+    envioTipoEntrega,
+    envioAgenciaCodigo,
   } = body as {
     items: ItemCarrito[]
     medioElegido: 'mercado_pago' | 'retiro_efectivo'
@@ -48,6 +66,9 @@ export async function POST(request: NextRequest) {
     observaciones?: string
     metodoEnvio?: MetodoEnvio
     direccion?: DireccionEnvio
+    envioProducto?: 'CP' | 'EP'
+    envioTipoEntrega?: 'D' | 'S'
+    envioAgenciaCodigo?: string
   }
 
   if (!items || items.length === 0)
@@ -58,10 +79,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nombre y teléfono son obligatorios' }, { status: 400 })
   if (!METODOS_ENVIO_VALIDOS.includes(metodoEnvio))
     return NextResponse.json({ error: 'Método de envío inválido' }, { status: 400 })
+
+  // ── Envío a Cinco Saltos (tarifa fija) — validaciones ya existentes ──
   if (metodoEnvio === 'envio_cinco_saltos' && (!direccion?.calle?.trim() || !direccion?.numero?.trim()))
     return NextResponse.json({ error: 'Falta la dirección de entrega' }, { status: 400 })
   if (metodoEnvio === 'envio_cinco_saltos' && medioElegido !== 'mercado_pago')
     return NextResponse.json({ error: 'El envío a domicilio se paga por adelantado con Mercado Pago' }, { status: 400 })
+
+  // ── Envío Correo Argentino (MiCorreo) — validaciones ──────────────────
+  if (metodoEnvio === 'envio_correo_argentino') {
+    if (medioElegido !== 'mercado_pago')
+      return NextResponse.json({ error: 'El envío por Correo Argentino se paga por adelantado con Mercado Pago' }, { status: 400 })
+    if (!envioProducto || !PRODUCTOS_MICORREO_VALIDOS.includes(envioProducto))
+      return NextResponse.json({ error: 'Elegí un tipo de envío (Clásico o Expreso)' }, { status: 400 })
+    if (!envioTipoEntrega || !TIPOS_ENTREGA_MICORREO_VALIDOS.includes(envioTipoEntrega))
+      return NextResponse.json({ error: 'Elegí domicilio o sucursal' }, { status: 400 })
+    if (!direccion?.cp?.trim())
+      return NextResponse.json({ error: 'Falta el código postal de destino' }, { status: 400 })
+    if (envioTipoEntrega === 'D' && (!direccion?.calle?.trim() || !direccion?.numero?.trim() || !direccion?.localidad?.trim() || !direccion?.provincia?.trim()))
+      return NextResponse.json({ error: 'Falta la dirección completa de entrega' }, { status: 400 })
+    if (envioTipoEntrega === 'S' && !envioAgenciaCodigo?.trim())
+      return NextResponse.json({ error: 'Elegí una sucursal de retiro' }, { status: 400 })
+  }
 
   const admin = createAdminClient()
 
@@ -158,11 +197,15 @@ export async function POST(request: NextRequest) {
 
     const subtotalMercaderia = lineas.reduce((sum, l) => sum + l.subtotal, 0)
 
-    // ── Costo de envío — SIEMPRE recalculado server-side contra la config ──
-    // vigente en configuracion_envios. Nunca se confía en un monto que
-    // mande el navegador (podría estar desactualizado, o directamente
-    // manipulado).
+    // ── Costo de envío — SIEMPRE recalculado server-side. Nunca se confía ──
+    // en un monto que mande el navegador (podría estar desactualizado, o
+    // directamente manipulado).
     let costoEnvio = 0
+    let envioProductoFinal: string | null = null
+    let envioTipoEntregaFinal: string | null = null
+    let envioAgenciaCodigoFinal: string | null = null
+    let envioProductoNombre: string | null = null
+
     if (metodoEnvio === 'envio_cinco_saltos') {
       const { data: config, error: configError } = await admin
         .from('configuracion_envios')
@@ -177,6 +220,53 @@ export async function POST(request: NextRequest) {
           { status: 409 }
         )
       costoEnvio = config.tarifa_cinco_saltos
+    } else if (metodoEnvio === 'envio_correo_argentino') {
+      // Re-cotiza contra MiCorreo en este mismo momento — el precio que vio
+      // el cliente en pantalla fue solo una vista previa, nunca la fuente
+      // de verdad del monto a cobrar.
+      const { pesoTotalGramos } = await calcularPesoCarritoGramos(admin, items)
+
+      if (pesoTotalGramos > 25000)
+        return NextResponse.json(
+          { error: 'El pedido supera el peso máximo permitido para un solo envío (25kg). Contactanos para coordinarlo.' },
+          { status: 409 }
+        )
+
+      let cotizacion
+      try {
+        cotizacion = await cotizarEnvio({
+          postalCodeOrigin: CORREO_ARGENTINO_CP_ORIGEN,
+          postalCodeDestination: direccion!.cp.trim(),
+          deliveredType: envioTipoEntrega,
+          dimensions: {
+            weight: Math.max(pesoTotalGramos, 1),
+            height: CORREO_ARGENTINO_CAJA_ESTANDAR.alto,
+            width: CORREO_ARGENTINO_CAJA_ESTANDAR.ancho,
+            length: CORREO_ARGENTINO_CAJA_ESTANDAR.largo,
+          },
+        })
+      } catch (err: any) {
+        console.error('Error al re-cotizar envío MiCorreo en checkout:', err.message)
+        return NextResponse.json(
+          { error: 'No se pudo confirmar el costo de envío. Volvé a intentar en un momento.' },
+          { status: 502 }
+        )
+      }
+
+      const opcionElegida = cotizacion.rates.find(
+        r => r.productType === envioProducto && r.deliveredType === envioTipoEntrega
+      )
+      if (!opcionElegida)
+        return NextResponse.json(
+          { error: 'La opción de envío elegida ya no está disponible. Volvé a cotizar.' },
+          { status: 409 }
+        )
+
+      costoEnvio = opcionElegida.price
+      envioProductoFinal = envioProducto!
+      envioTipoEntregaFinal = envioTipoEntrega!
+      envioAgenciaCodigoFinal = envioTipoEntrega === 'S' ? envioAgenciaCodigo!.trim() : null
+      envioProductoNombre = NOMBRES_PRODUCTO_MICORREO[envioProducto!]
     }
 
     const total = subtotalMercaderia + costoEnvio
@@ -199,6 +289,9 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Crear el pedido ──────────────────────────────────────────────────
+    const incluyeDireccion = metodoEnvio === 'envio_cinco_saltos' || (metodoEnvio === 'envio_correo_argentino' && envioTipoEntrega === 'D')
+    const incluyeCpSolo = metodoEnvio === 'envio_correo_argentino' && envioTipoEntrega === 'S'
+
     const { data: pedido, error: pedidoError } = await admin
       .from('pedidos_web')
       .insert({
@@ -216,7 +309,10 @@ export async function POST(request: NextRequest) {
         observaciones: observaciones?.trim() ? observaciones.trim().slice(0, 300) : null,
         metodo_envio: metodoEnvio,
         costo_envio: costoEnvio,
-        ...(metodoEnvio === 'envio_cinco_saltos' && direccion
+        envio_producto: envioProductoFinal,
+        envio_tipo_entrega: envioTipoEntregaFinal,
+        envio_agencia_codigo: envioAgenciaCodigoFinal,
+        ...(incluyeDireccion && direccion
           ? {
               direccion_calle: direccion.calle.trim(),
               direccion_numero: direccion.numero.trim(),
@@ -224,6 +320,9 @@ export async function POST(request: NextRequest) {
               direccion_provincia: direccion.provincia,
               direccion_cp: direccion.cp,
             }
+          : {}),
+        ...(incluyeCpSolo && direccion
+          ? { direccion_cp: direccion.cp.trim() }
           : {}),
       })
       .select('id')
@@ -244,8 +343,12 @@ export async function POST(request: NextRequest) {
       currency_id: 'ARS',
     }))
     if (costoEnvio > 0) {
+      const tituloEnvio =
+        metodoEnvio === 'envio_correo_argentino'
+          ? `Envío ${envioProductoNombre} — ${NOMBRES_ENTREGA_MICORREO[envioTipoEntregaFinal!]}`
+          : 'Envío a domicilio — Cinco Saltos'
       itemsPreference.push({
-        title: 'Envío a domicilio — Cinco Saltos',
+        title: tituloEnvio,
         quantity: 1,
         unit_price: costoEnvio,
         currency_id: 'ARS',
