@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft, Package, AlertTriangle, Loader2, Truck, Store } from 'lucide-react'
 import { useCarrito } from '@/components/tienda/CarritoContext'
 import { PROVINCIAS_MICORREO } from '@/lib/correoargentino/micorreo'
+import cpProvinciaMap from '@/lib/correoargentino/cp-provincia.json'
 
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
 
@@ -73,6 +74,20 @@ export default function CheckoutPage() {
         // (comportamiento previo a esta fase, sin bloquear la compra)
       })
   }, [])
+
+  // Autocompleta la provincia cuando el CP tiene una única provincia
+  // posible según la base de localidades del Correo Argentino (2.255 de
+  // 2.352 CP son inequívocos). Para el resto (zonas de frontera real,
+  // ej. nuestro propio CP 8303 comparte rango con Neuquén aunque Cinco
+  // Saltos es Río Negro) no se adivina — el cliente elige a mano, como ya
+  // hace hoy. Nunca bloquea ni sobreescribe si el CP no está en la base.
+  useEffect(() => {
+    if (metodoEnvio !== 'envio_correo_argentino') return
+    if (!/^\d{4}$/.test(caCp)) return
+    const provinciaDetectada = (cpProvinciaMap as Record<string, string>)[caCp]
+    if (provinciaDetectada) setCaProvincia(provinciaDetectada)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caCp, metodoEnvio])
 
   // Re-cotiza automáticamente al completar un CP de 4 dígitos válido —
   // debounce de 600ms para no pegarle a la API en cada tecla.
@@ -467,6 +482,11 @@ export default function CheckoutPage() {
                     <option key={p.codigo} value={p.nombre}>{p.nombre}</option>
                   ))}
                 </select>
+                {/^\d{4}$/.test(caCp) && !(cpProvinciaMap as Record<string, string>)[caCp] && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    No pudimos detectar la provincia automáticamente para ese código postal — verificala antes de continuar.
+                  </p>
+                )}
               </div>
 
               {/* Estado de la cotización en vivo */}
