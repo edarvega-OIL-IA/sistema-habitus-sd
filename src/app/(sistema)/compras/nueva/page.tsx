@@ -82,6 +82,7 @@ export default function ComprasNuevaPage() {
   const [fleteMontoTexto, setFleteMontoTexto] = useState<string | null>(null)
   const [precioTexto, setPrecioTexto] = useState<Record<number, string>>({})
   const [descMontoTexto, setDescMontoTexto] = useState<Record<number, string>>({})
+  const [descPctTexto, setDescPctTexto] = useState<Record<number, string>>({})
 
   // Buscador
   const [busqueda, setBusqueda] = useState('')
@@ -193,6 +194,15 @@ export default function ComprasNuevaPage() {
       return next
     })
     setDescMontoTexto(prev => {
+      const next: Record<number, string> = {}
+      Object.entries(prev).forEach(([k, v]) => {
+        const i = Number(k)
+        if (i < index) next[i] = v
+        else if (i > index) next[i - 1] = v
+      })
+      return next
+    })
+    setDescPctTexto(prev => {
       const next: Record<number, string> = {}
       Object.entries(prev).forEach(([k, v]) => {
         const i = Number(k)
@@ -519,6 +529,18 @@ export default function ComprasNuevaPage() {
     if (!n) return ''
     return n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
   }
+  // Desc. %: se guarda con toda la precisión que dé el cálculo (la columna
+  // no tiene escala fija), pero en pantalla se redondea a 3 decimales para
+  // que no se vea "7,69230769..." — mismo criterio que fmtInput con precio.
+  function parsearPct(v: string): number {
+    const s = (v || '').trim().replace(',', '.')
+    const n = parseFloat(s)
+    return isNaN(n) ? 0 : n
+  }
+  function fmtPct(n: number): string {
+    if (!n) return '0'
+    return (Math.round(n * 1000) / 1000).toLocaleString('es-AR', { maximumFractionDigits: 3 })
+  }
   const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   return (
@@ -781,9 +803,17 @@ export default function ComprasNuevaPage() {
                           className="w-full px-2 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-1 focus:ring-[#00a19a]" />
                       </td>
                       <td className="px-3 py-2">
-                        <input type="number" min="0" max="100" step="0.01" value={item.descuento_pct}
+                        <input type="text" inputMode="decimal"
+                          value={descPctTexto[index] !== undefined ? descPctTexto[index] : fmtPct(item.descuento_pct)}
                           onFocus={e => e.target.select()}
-                          onChange={e => actualizarItem(index, 'descuento_pct', parseFloat(e.target.value) || 0)}
+                          onChange={e => {
+                            const raw = e.target.value
+                            setDescPctTexto(prev => ({ ...prev, [index]: raw }))
+                            actualizarItem(index, 'descuento_pct', parsearPct(raw))
+                          }}
+                          onBlur={() => setDescPctTexto(prev => {
+                            const next = { ...prev }; delete next[index]; return next
+                          })}
                           className="w-full px-2 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-1 focus:ring-[#00a19a]" />
                       </td>
                       <td className="px-3 py-2">
