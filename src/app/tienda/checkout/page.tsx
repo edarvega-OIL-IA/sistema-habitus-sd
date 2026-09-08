@@ -6,16 +6,26 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Package, AlertTriangle, Loader2, Truck, Store } from 'lucide-react'
 import { useCarrito } from '@/components/tienda/CarritoContext'
+import { PROVINCIAS_MICORREO } from '@/lib/correoargentino/micorreo'
 
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
 
-type MetodoEnvio = 'retiro_local' | 'envio_cinco_saltos'
+type MetodoEnvio = 'retiro_local' | 'envio_cinco_saltos' | 'envio_correo_argentino'
 
 interface ConfigEnvios {
   tarifaCincoSaltos: number
   cincoSaltosActivo: boolean
   aclaracionesTexto: string | null
   aclaracionesActivo: boolean
+}
+
+interface OpcionEnvioCA {
+  deliveredType: 'D' | 'S'
+  productType: 'CP' | 'EP'
+  productName: string
+  price: number
+  deliveryTimeMin?: string
+  deliveryTimeMax?: string
 }
 
 export default function CheckoutPage() {
@@ -39,6 +49,19 @@ export default function CheckoutPage() {
   const [direccionCalle, setDireccionCalle] = useState('')
   const [direccionNumero, setDireccionNumero] = useState('')
 
+  // Correo Argentino (MiCorreo) — solo domicilio por ahora, retiro en
+  // sucursal queda para una iteración siguiente (necesita selector de
+  // agencias, endpoint /agencies todavía no integrado).
+  const [caCalle, setCaCalle] = useState('')
+  const [caNumero, setCaNumero] = useState('')
+  const [caLocalidad, setCaLocalidad] = useState('')
+  const [caProvincia, setCaProvincia] = useState('')
+  const [caCp, setCaCp] = useState('')
+  const [opcionesEnvioCA, setOpcionesEnvioCA] = useState<OpcionEnvioCA[]>([])
+  const [envioProductoElegido, setEnvioProductoElegido] = useState<'CP' | 'EP' | null>(null)
+  const [cotizandoEnvioCA, setCotizandoEnvioCA] = useState(false)
+  const [errorCotizacionCA, setErrorCotizacionCA] = useState<string | null>(null)
+
   useEffect(() => {
     fetch('/api/tienda/configuracion-envios')
       .then(res => res.json())
@@ -51,14 +74,67 @@ export default function CheckoutPage() {
       })
   }, [])
 
+  // Re-cotiza automáticamente al completar un CP de 4 dígitos válido —
+  // debounce de 600ms para no pegarle a la API en cada tecla.
+  useEffect(() => {
+    if (metodoEnvio !== 'envio_correo_argentino') return
+    if (!/^\d{4}$/.test(caCp)) {
+      setOpcionesEnvioCA([])
+      setEnvioProductoElegido(null)
+      return
+    }
+    const timer = setTimeout(() => cotizarCorreoArgentino(caCp), 600)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caCp, metodoEnvio])
+
+  async function cotizarCorreoArgentino(cpDestino: string) {
+    setCotizandoEnvioCA(true)
+    setErrorCotizacionCA(null)
+    try {
+      const res = await fetch('/api/tienda/cotizar-envio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: items.map(i => ({ articuloId: i.articuloId, cantidad: i.cantidad })),
+          cp: cpDestino,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setErrorCotizacionCA(data.error || 'No se pudo cotizar el envío')
+        setOpcionesEnvioCA([])
+        return
+      }
+      // Solo domicilio (D) — sucursal queda pendiente para una iteración siguiente
+      const opcionesDomicilio: OpcionEnvioCA[] = (data.opciones || []).filter(
+        (o: OpcionEnvioCA) => o.deliveredType === 'D'
+      )
+      setOpcionesEnvioCA(opcionesDomicilio)
+      setEnvioProductoElegido(null) // obliga a re-elegir si cambió la cotización
+    } catch {
+      setErrorCotizacionCA('Error de conexión al cotizar el envío')
+      setOpcionesEnvioCA([])
+    } finally {
+      setCotizandoEnvioCA(false)
+    }
+  }
+
   function elegirMetodoEnvio(metodo: MetodoEnvio) {
     setMetodoEnvio(metodo)
     // El envío a domicilio siempre se paga por adelantado — el pago en
     // efectivo al retirar solo tiene sentido cuando el cliente viene al local.
-    if (metodo === 'envio_cinco_saltos') setMedioElegido('mercado_pago')
+    if (metodo === 'envio_cinco_saltos' || metodo === 'envio_correo_argentino') setMedioElegido('mercado_pago')
   }
 
-  const costoEnvio = metodoEnvio === 'envio_cinco_saltos' && configEnvios ? configEnvios.tarifaCincoSaltos : 0
+  const opcionElegidaCA = opcionesEnvioCA.find(o => o.productType === envioProductoElegido) || null
+
+  const costoEnvio =
+    metodoEnvio === 'envio_cinco_saltos' && configEnvios
+      ? configEnvios.tarifaCincoSaltos
+      : metodoEnvio === 'envio_correo_argentino' && opcionElegidaCA
+        ? opcionElegidaCA.price
+        : 0
   const totalConEnvio = totalPrecio + costoEnvio
 
   if (cargado && items.length === 0) {
@@ -92,6 +168,21 @@ export default function CheckoutPage() {
       return
     }
 
+    if (metodoEnvio === 'envio_correo_argentino') {
+      if (!caCalle.trim() || !caNumero.trim() || !caLocalidad.trim() || !caProvincia || !/^\d{4}$/.test(caCp)) {
+        setError('Completá la dirección completa de envío')
+        return
+      }
+      if (!envioProductoElegido) {
+        setError('Elegí una opción de envío (Clásico o Expreso) antes de continuar')
+        return
+      }
+      if (medioElegido !== 'mercado_pago') {
+        setError('El envío por Correo Argentino se paga por adelantado con Mercado Pago')
+        return
+      }
+    }
+
     setEnviando(true)
     try {
       const res = await fetch('/api/tienda/checkout', {
@@ -116,6 +207,17 @@ export default function CheckoutPage() {
               localidad: 'Cinco Saltos',
               provincia: 'Río Negro',
               cp: '8303',
+            },
+          }),
+          ...(metodoEnvio === 'envio_correo_argentino' && {
+            envioProducto: envioProductoElegido,
+            envioTipoEntrega: 'D',
+            direccion: {
+              calle: caCalle.trim(),
+              numero: caNumero.trim(),
+              localidad: caLocalidad.trim(),
+              provincia: caProvincia,
+              cp: caCp.trim(),
             },
           }),
         }),
@@ -253,6 +355,17 @@ export default function CheckoutPage() {
                   <span>Envío en Cinco Saltos <span className="text-gray-400">— {fmt(configEnvios.tarifaCincoSaltos)}</span></span>
                 </label>
               )}
+
+              <label className={`flex items-center gap-2 border rounded-lg px-3 py-2 cursor-pointer text-sm ${metodoEnvio === 'envio_correo_argentino' ? 'border-[#00a19a] bg-[#00a19a]/5' : 'border-gray-300'}`}>
+                <input
+                  type="radio"
+                  name="metodoEnvio"
+                  checked={metodoEnvio === 'envio_correo_argentino'}
+                  onChange={() => elegirMetodoEnvio('envio_correo_argentino')}
+                />
+                <Truck className="w-4 h-4 text-gray-400 shrink-0" />
+                <span>Envío a domicilio — <span className="text-gray-400">todo el país (Correo Argentino)</span></span>
+              </label>
             </div>
 
             {configEnvios?.aclaracionesActivo && configEnvios.aclaracionesTexto && (
@@ -260,7 +373,7 @@ export default function CheckoutPage() {
             )}
           </div>
 
-          {/* Dirección — solo si eligió envío */}
+          {/* Dirección — solo si eligió envío en Cinco Saltos */}
           {metodoEnvio === 'envio_cinco_saltos' && (
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-2">
@@ -281,6 +394,115 @@ export default function CheckoutPage() {
                   required
                 />
               </div>
+            </div>
+          )}
+
+          {/* Dirección + cotización en vivo — Correo Argentino */}
+          {metodoEnvio === 'envio_correo_argentino' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="text-xs font-medium text-gray-500">Calle *</label>
+                  <input
+                    value={caCalle}
+                    onChange={e => setCaCalle(e.target.value)}
+                    className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Número *</label>
+                  <input
+                    value={caNumero}
+                    onChange={e => setCaNumero(e.target.value)}
+                    className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="text-xs font-medium text-gray-500">Localidad *</label>
+                  <input
+                    value={caLocalidad}
+                    onChange={e => setCaLocalidad(e.target.value)}
+                    className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Código Postal *</label>
+                  <input
+                    value={caCp}
+                    onChange={e => setCaCp(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    inputMode="numeric"
+                    placeholder="Ej: 1425"
+                    className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-500">Provincia *</label>
+                <select
+                  value={caProvincia}
+                  onChange={e => setCaProvincia(e.target.value)}
+                  className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
+                  required
+                >
+                  <option value="">Elegí una provincia</option>
+                  {PROVINCIAS_MICORREO.map(p => (
+                    <option key={p.codigo} value={p.nombre}>{p.nombre}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Estado de la cotización en vivo */}
+              {cotizandoEnvioCA && (
+                <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Cotizando envío...
+                </p>
+              )}
+
+              {!cotizandoEnvioCA && errorCotizacionCA && (
+                <p className="text-xs text-red-600">{errorCotizacionCA}</p>
+              )}
+
+              {!cotizandoEnvioCA && opcionesEnvioCA.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-2">Elegí el tipo de envío</p>
+                  <div className="space-y-2">
+                    {opcionesEnvioCA.map(op => (
+                      <label
+                        key={op.productType}
+                        className={`flex items-center justify-between gap-2 border rounded-lg px-3 py-2 cursor-pointer text-sm ${envioProductoElegido === op.productType ? 'border-[#00a19a] bg-[#00a19a]/5' : 'border-gray-300'}`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="envioProductoCA"
+                            checked={envioProductoElegido === op.productType}
+                            onChange={() => setEnvioProductoElegido(op.productType)}
+                          />
+                          <span>
+                            {op.productType === 'EP' ? 'Expreso' : 'Clásico'}
+                            {op.deliveryTimeMin && op.deliveryTimeMax && (
+                              <span className="text-gray-400"> — {op.deliveryTimeMin} a {op.deliveryTimeMax} días hábiles</span>
+                            )}
+                          </span>
+                        </span>
+                        <span className="font-semibold text-[#3c3c3b]">{fmt(op.price)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!cotizandoEnvioCA && !errorCotizacionCA && opcionesEnvioCA.length === 0 && /^\d{4}$/.test(caCp) && (
+                <p className="text-xs text-gray-400">No se encontraron opciones de envío para ese código postal.</p>
+              )}
             </div>
           )}
 
@@ -308,7 +530,7 @@ export default function CheckoutPage() {
                 </label>
               )}
             </div>
-            {metodoEnvio === 'envio_cinco_saltos' && (
+            {(metodoEnvio === 'envio_cinco_saltos' || metodoEnvio === 'envio_correo_argentino') && (
               <p className="text-xs text-gray-400 mt-2">El envío a domicilio se abona por adelantado.</p>
             )}
           </div>

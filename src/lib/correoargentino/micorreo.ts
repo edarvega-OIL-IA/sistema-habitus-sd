@@ -44,6 +44,39 @@ interface RateResponse {
 }
 
 /**
+ * Tabla de referencia oficial MiCorreo — código de provincia requerido en
+ * `address.provinceCode` para /shipping/import. Se exporta acá (no en el
+ * componente de checkout) porque el webhook la va a necesitar de nuevo
+ * cuando se dé de alta el envío real, después del pago aprobado.
+ */
+export const PROVINCIAS_MICORREO = [
+  { codigo: "A", nombre: "Salta" },
+  { codigo: "B", nombre: "Buenos Aires" },
+  { codigo: "C", nombre: "Ciudad Autónoma de Buenos Aires" },
+  { codigo: "D", nombre: "San Luis" },
+  { codigo: "E", nombre: "Entre Ríos" },
+  { codigo: "F", nombre: "La Rioja" },
+  { codigo: "G", nombre: "Santiago del Estero" },
+  { codigo: "H", nombre: "Chaco" },
+  { codigo: "J", nombre: "San Juan" },
+  { codigo: "K", nombre: "Catamarca" },
+  { codigo: "L", nombre: "La Pampa" },
+  { codigo: "M", nombre: "Mendoza" },
+  { codigo: "N", nombre: "Misiones" },
+  { codigo: "P", nombre: "Formosa" },
+  { codigo: "Q", nombre: "Neuquén" },
+  { codigo: "R", nombre: "Río Negro" },
+  { codigo: "S", nombre: "Santa Fe" },
+  { codigo: "T", nombre: "Tucumán" },
+  { codigo: "U", nombre: "Chubut" },
+  { codigo: "V", nombre: "Tierra del Fuego" },
+  { codigo: "W", nombre: "Corrientes" },
+  { codigo: "X", nombre: "Córdoba" },
+  { codigo: "Y", nombre: "Jujuy" },
+  { codigo: "Z", nombre: "Santa Cruz" },
+] as const;
+
+/**
  * Obtiene un token JWT de la API MiCorreo mediante HTTP Basic Auth.
  * El token es de corta duración (ver campo `expires`) — no se cachea acá,
  * se debe pedir uno nuevo antes de cada operación o llevar cache propio
