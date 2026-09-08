@@ -13,6 +13,11 @@ interface DatosCP {
   localidades: string[]
 }
 
+interface LocalidadConCP {
+  localidad: string
+  cp: string
+}
+
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
 
 type MetodoEnvio = 'retiro_local' | 'envio_cinco_saltos' | 'envio_correo_argentino'
@@ -80,6 +85,36 @@ export default function CheckoutPage() {
       })
     }
   }, [metodoEnvio, cpDatos])
+
+  // Camino alternativo para quien no sabe su código postal: Provincia →
+  // buscar Localidad por nombre → se completa el CP solo. Base separada
+  // (organizada al revés, por provincia) — se carga recién si el cliente
+  // usa este camino, no en el flujo normal por CP.
+  const [buscarPorLocalidad, setBuscarPorLocalidad] = useState(false)
+  const [provinciaLocalidadesData, setProvinciaLocalidadesData] = useState<Record<string, LocalidadConCP[]> | null>(null)
+  const [textoBusquedaLocalidad, setTextoBusquedaLocalidad] = useState('')
+
+  useEffect(() => {
+    if (buscarPorLocalidad && !provinciaLocalidadesData) {
+      import('@/lib/correoargentino/provincia-localidades.json').then(mod => {
+        setProvinciaLocalidadesData((mod.default ?? mod) as unknown as Record<string, LocalidadConCP[]>)
+      })
+    }
+  }, [buscarPorLocalidad, provinciaLocalidadesData])
+
+  const opcionesLocalidadBusqueda = caProvincia ? provinciaLocalidadesData?.[caProvincia] ?? [] : []
+
+  function seleccionarLocalidadBuscada(valor: string) {
+    setTextoBusquedaLocalidad(valor)
+    const match = valor.match(/\(CP (\d{4})\)$/)
+    if (!match) return
+    const cpEncontrado = match[1]
+    const existe = opcionesLocalidadBusqueda.some(l => `${l.localidad} (CP ${l.cp})` === valor)
+    if (!existe) return
+    setCaCp(cpEncontrado) // dispara el autocompletado normal de provincia/localidad
+    setBuscarPorLocalidad(false)
+    setTextoBusquedaLocalidad('')
+  }
 
   useEffect(() => {
     fetch('/api/tienda/configuracion-envios')
@@ -466,63 +501,123 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs font-medium text-gray-500">Código Postal *</label>
-                <input
-                  value={caCp}
-                  onChange={e => setCaCp(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  inputMode="numeric"
-                  placeholder="Ej: 1425"
-                  className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-500">Provincia *</label>
-                  <select
-                    value={caProvincia}
-                    onChange={e => setCaProvincia(e.target.value)}
-                    className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
-                    required
-                  >
-                    <option value="">Elegí una provincia</option>
-                    {PROVINCIAS_MICORREO.map(p => (
-                      <option key={p.codigo} value={p.nombre}>{p.nombre}</option>
-                    ))}
-                  </select>
-                  {/^\d{4}$/.test(caCp) && cpDatos && !datosCpActual?.provincia && (
-                    <p className="text-xs text-gray-400 mt-1">No pudimos detectarla — verificala.</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-xs font-medium text-gray-500">Localidad *</label>
-                  {datosCpActual && datosCpActual.localidades.length > 0 ? (
-                    <select
-                      value={caLocalidad}
-                      onChange={e => setCaLocalidad(e.target.value)}
-                      className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
-                      required
-                    >
-                      <option value="">Elegí tu localidad</option>
-                      {datosCpActual.localidades.map(loc => (
-                        <option key={loc} value={loc}>{loc}</option>
-                      ))}
-                    </select>
-                  ) : (
+              {!buscarPorLocalidad ? (
+                <>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-gray-500">Código Postal *</label>
+                      <button
+                        type="button"
+                        onClick={() => setBuscarPorLocalidad(true)}
+                        className="text-xs text-[#00a19a] hover:underline"
+                      >
+                        No sé mi código postal
+                      </button>
+                    </div>
                     <input
-                      value={caLocalidad}
-                      onChange={e => setCaLocalidad(e.target.value)}
-                      placeholder="Nombre de tu localidad"
+                      value={caCp}
+                      onChange={e => setCaCp(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      inputMode="numeric"
+                      placeholder="Ej: 1425"
                       className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
                       required
                     />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Provincia *</label>
+                      <select
+                        value={caProvincia}
+                        onChange={e => setCaProvincia(e.target.value)}
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
+                        required
+                      >
+                        <option value="">Elegí una provincia</option>
+                        {PROVINCIAS_MICORREO.map(p => (
+                          <option key={p.codigo} value={p.nombre}>{p.nombre}</option>
+                        ))}
+                      </select>
+                      {/^\d{4}$/.test(caCp) && cpDatos && !datosCpActual?.provincia && (
+                        <p className="text-xs text-gray-400 mt-1">No pudimos detectarla — verificala.</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Localidad *</label>
+                      {datosCpActual && datosCpActual.localidades.length > 0 ? (
+                        <select
+                          value={caLocalidad}
+                          onChange={e => setCaLocalidad(e.target.value)}
+                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
+                          required
+                        >
+                          <option value="">Elegí tu localidad</option>
+                          {datosCpActual.localidades.map(loc => (
+                            <option key={loc} value={loc}>{loc}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          value={caLocalidad}
+                          onChange={e => setCaLocalidad(e.target.value)}
+                          placeholder="Nombre de tu localidad"
+                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
+                          required
+                        />
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-gray-500">Buscar por localidad</p>
+                    <button
+                      type="button"
+                      onClick={() => { setBuscarPorLocalidad(false); setTextoBusquedaLocalidad('') }}
+                      className="text-xs text-[#00a19a] hover:underline"
+                    >
+                      Ya sé mi código postal
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Provincia *</label>
+                    <select
+                      value={caProvincia}
+                      onChange={e => { setCaProvincia(e.target.value); setTextoBusquedaLocalidad('') }}
+                      className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] bg-white"
+                      required
+                    >
+                      <option value="">Elegí una provincia</option>
+                      {PROVINCIAS_MICORREO.map(p => (
+                        <option key={p.codigo} value={p.nombre}>{p.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {caProvincia && (
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Localidad *</label>
+                      <input
+                        list="localidades-busqueda"
+                        value={textoBusquedaLocalidad}
+                        onChange={e => seleccionarLocalidadBuscada(e.target.value)}
+                        placeholder={provinciaLocalidadesData ? 'Empezá a escribir el nombre...' : 'Cargando localidades...'}
+                        disabled={!provinciaLocalidadesData}
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a] disabled:bg-gray-100"
+                      />
+                      <datalist id="localidades-busqueda">
+                        {opcionesLocalidadBusqueda.map(l => (
+                          <option key={`${l.localidad}-${l.cp}`} value={`${l.localidad} (CP ${l.cp})`} />
+                        ))}
+                      </datalist>
+                      <p className="text-xs text-gray-400 mt-1">Elegí tu localidad de la lista para completar el código postal.</p>
+                    </div>
                   )}
                 </div>
-              </div>
-
+              )}
               {/* Estado de la cotización en vivo */}
               {cotizandoEnvioCA && (
                 <p className="text-xs text-gray-400 flex items-center gap-1.5">
