@@ -24,7 +24,7 @@ interface ItemOrden {
   precio_local: number | null; precio_web: number | null
   precio_mayorista: number | null; precio_oferta_web: number | null
   cant_facturada: number; cant_recibida: number
-  precio_unitario: number; descuento_pct: number; subtotal: number
+  precio_unitario: number; descuento_pct: number; descuento_monto: number; subtotal: number
 }
 
 const MEDIOS_PAGO = [
@@ -92,6 +92,7 @@ export default function ComprasEditarPage() {
   const [montoComprobanteTexto, setMontoComprobanteTexto] = useState<string | null>(null)
   const [fleteMontoTexto, setFleteMontoTexto] = useState<string | null>(null)
   const [precioTexto, setPrecioTexto] = useState<Record<number, string>>({})
+  const [descMontoTexto, setDescMontoTexto] = useState<Record<number, string>>({})
 
   // Buscador
   const [busqueda, setBusqueda] = useState('')
@@ -204,6 +205,10 @@ export default function ComprasEditarPage() {
           cant_recibida: it.cantidad_recibida,
           precio_unitario: precioConIva,
           descuento_pct: it.descuento_pct || 0,
+          // No existe columna descuento_monto en BD — se deriva del % guardado
+          // solo para mostrarlo en pantalla; el subtotal real sigue siendo el
+          // que ya está guardado (it.subtotal), no uno recalculado acá.
+          descuento_monto: it.cantidad_facturada * precioConIva * ((it.descuento_pct || 0) / 100),
           subtotal: it.subtotal,
         }
       })
@@ -270,7 +275,7 @@ export default function ComprasEditarPage() {
       precio_local: art.precio_local, precio_web: art.precio_web,
       precio_mayorista: art.precio_mayorista, precio_oferta_web: art.precio_oferta_web,
       cant_facturada: 1, cant_recibida: 1,
-      precio_unitario: precio, descuento_pct: 0, subtotal: precio,
+      precio_unitario: precio, descuento_pct: 0, descuento_monto: 0, subtotal: precio,
     }])
     setBusqueda(''); setResultados([])
     setTimeout(() => cantRef.current?.focus(), 50)
@@ -282,7 +287,19 @@ export default function ComprasEditarPage() {
       next[index] = { ...next[index], [campo]: valor }
       if (campo === 'cant_facturada') next[index].cant_recibida = valor
       const it = next[index]
-      next[index].subtotal = it.cant_facturada * it.precio_unitario * (1 - it.descuento_pct / 100)
+      const base = it.cant_facturada * it.precio_unitario
+      // Desc. % y Desc. $ se sincronizan de ida y vuelta; el subtotal sale
+      // siempre del monto en $ (nunca recalculado desde el %), para no
+      // arrastrar el redondeo que tenía "cantidad × precio × (1 - %/100)".
+      if (campo === 'descuento_monto') {
+        next[index].descuento_pct = base > 0 ? Math.min(100, (valor / base) * 100) : 0
+      } else if (campo === 'descuento_pct') {
+        next[index].descuento_monto = base * (valor / 100)
+      } else {
+        // Cambió cantidad o precio: recalcular el $ desde el % vigente
+        next[index].descuento_monto = base * (it.descuento_pct / 100)
+      }
+      next[index].subtotal = base - next[index].descuento_monto
       return next
     })
   }
@@ -290,6 +307,15 @@ export default function ComprasEditarPage() {
   function eliminarItem(index: number) {
     setItems(prev => prev.filter((_, i) => i !== index))
     setPrecioTexto(prev => {
+      const next: Record<number, string> = {}
+      Object.entries(prev).forEach(([k, v]) => {
+        const i = Number(k)
+        if (i < index) next[i] = v
+        else if (i > index) next[i - 1] = v
+      })
+      return next
+    })
+    setDescMontoTexto(prev => {
       const next: Record<number, string> = {}
       Object.entries(prev).forEach(([k, v]) => {
         const i = Number(k)
@@ -1042,6 +1068,7 @@ export default function ComprasEditarPage() {
                   <th className="text-center px-3 py-2 text-xs text-gray-600 font-semibold w-20">Cant. Recib.</th>
                   <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-36">Precio Unit. (c/IVA)</th>
                   <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-28">Desc. %</th>
+                  <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-24">Desc. $</th>
                   <th className="text-right px-3 py-2 text-xs text-gray-600 font-semibold w-32">Subtotal</th>
                   {distribuirFlete && fleteMonto > 0 && (
                     <th className="text-right px-3 py-2 text-xs text-gray-500 font-semibold w-32">Costo c/flete (c/IVA)</th>
@@ -1088,6 +1115,20 @@ export default function ComprasEditarPage() {
                         <input type="number" min="0" max="100" step="0.01" value={item.descuento_pct}
                           disabled={esAnulada} onFocus={e => e.target.select()}
                           onChange={e => actualizarItem(index, 'descuento_pct', parseFloat(e.target.value) || 0)}
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-1 focus:ring-[#00a19a] disabled:bg-gray-50" />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input type="text" inputMode="decimal"
+                          value={descMontoTexto[index] !== undefined ? descMontoTexto[index] : fmtInput(item.descuento_monto)}
+                          disabled={esAnulada} onFocus={e => e.target.select()}
+                          onChange={e => {
+                            const raw = e.target.value
+                            setDescMontoTexto(prev => ({ ...prev, [index]: raw }))
+                            actualizarItem(index, 'descuento_monto', parsearMonto(raw))
+                          }}
+                          onBlur={() => setDescMontoTexto(prev => {
+                            const next = { ...prev }; delete next[index]; return next
+                          })}
                           className="w-full px-2 py-1 border border-gray-300 rounded text-right text-sm focus:outline-none focus:ring-1 focus:ring-[#00a19a] disabled:bg-gray-50" />
                       </td>
                       <td className="px-3 py-2 text-right font-semibold text-[#3c3c3b]">{fmt(item.subtotal)}</td>
