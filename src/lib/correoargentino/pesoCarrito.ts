@@ -24,7 +24,7 @@ export async function calcularPesoCarritoGramos(
 
   if (error) throw new Error('Error al leer peso de artículos: ' + error.message)
 
-  const pesoMap = new Map((articulos || []).map((a: any) => [a.id, a.peso_kg]))
+  const pesoMap = new Map<number, number | null>((articulos || []).map((a: any) => [a.id, a.peso_kg]))
   let pesoTotalGramos = 0
   let algunPesoEstimado = false
 
