@@ -38,3 +38,34 @@ export const RECUPERA_IVA_COMPRAS = false
  * generar un movimiento de stock).
  */
 export const ARTICULO_ENVIO_ID = 1385
+
+/**
+ * Datos fijos para cotizar envíos por la API MiCorreo (Correo Argentino).
+ *
+ * CORREO_ARGENTINO_CP_ORIGEN: código postal del local (Av. Roca 54, Cinco
+ * Saltos), punto de partida de todo envío.
+ *
+ * CORREO_ARGENTINO_CAJA_ESTANDAR: el endpoint /rates exige peso Y
+ * dimensiones, pero hoy los artículos no tienen medidas cargadas
+ * individualmente (decisión 08/09/2026: ir con una caja fija razonable para
+ * suplementos — frascos/doypacks chicos y medianos — mientras no haya
+ * volumen de ventas que justifique afinar esto por artículo). El PESO sí
+ * varía según lo que lleve cada pedido real (ver
+ * lib/correoargentino/pesoCarrito.ts); las dimensiones quedan fijas.
+ */
+export const CORREO_ARGENTINO_CP_ORIGEN = '8303'
+
+export const CORREO_ARGENTINO_CAJA_ESTANDAR = {
+  alto: 15, // cm
+  ancho: 20, // cm
+  largo: 30, // cm
+}
+
+/**
+ * Piso de peso (gramos) para cualquier artículo sin `peso_kg` cargado —
+ * evita que un carrito con artículos sin ese dato pida una cotización con
+ * peso 0 o irreal. Decisión 08/09/2026: ir regularizando `peso_kg` por
+ * artículo con el tiempo; mientras tanto, este valor es una estimación
+ * conservadora, no un dato real.
+ */
+export const PESO_DEFECTO_GRAMOS = 200
