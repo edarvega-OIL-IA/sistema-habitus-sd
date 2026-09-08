@@ -1148,7 +1148,7 @@ export default function ComprasEditarPage() {
                       </td>
                       <td className="px-3 py-2">
                         <input type="text" inputMode="decimal"
-                          value={descMontoTexto[index] !== undefined ? descMontoTexto[index] : fmtInput(item.descuento_monto)}
+                          value={descMontoTexto[index] !== undefined ? descMontoTexto[index] : (fmtInput(item.descuento_monto) || '0')}
                           disabled={esAnulada} onFocus={e => e.target.select()}
                           onChange={e => {
                             const raw = e.target.value
