@@ -148,3 +148,84 @@ export async function cotizarEnvio(params: RateRequest): Promise<RateResponse> {
 
   return data as RateResponse;
 }
+
+interface DireccionMiCorreo {
+  streetName: string;
+  streetNumber: string;
+  floor?: string;
+  apartment?: string;
+  city: string;
+  provinceCode: string;
+  postalCode: string;
+}
+
+export interface ImportarEnvioParams {
+  extOrderId: string; // identificador propio — usamos "pedido-{id}"
+  orderNumber?: string;
+  sender: {
+    name: string;
+    phone?: string;
+    cellPhone?: string;
+    email?: string;
+    originAddress: DireccionMiCorreo;
+  };
+  recipient: {
+    name: string;
+    phone?: string;
+    cellPhone?: string;
+    email: string; // obligatorio según la API
+  };
+  shipping: {
+    deliveryType: "D" | "S";
+    agency?: string; // obligatorio solo si deliveryType='S'
+    address: DireccionMiCorreo; // obligatoria solo si deliveryType='D'
+    weight: number; // gramos
+    declaredValue: number;
+    height: number; // cm
+    length: number; // cm
+    width: number; // cm
+  };
+}
+
+interface ImportarEnvioResponse {
+  createdAt: string;
+}
+
+/**
+ * Da de alta un envío real en MiCorreo — llamar SOLO después de un pago
+ * aprobado (mismo criterio que fiscalizar o crear el cliente: nunca antes
+ * de tener plata confirmada). La API no devuelve número de seguimiento acá
+ * — solo `createdAt`; el tracking real se consigue por otro medio (a
+ * confirmar con Correo Argentino).
+ */
+export async function importarEnvio(params: ImportarEnvioParams): Promise<ImportarEnvioResponse> {
+  const customerId = process.env.MICORREO_CUSTOMER_ID;
+
+  if (!customerId) {
+    throw new Error("Falta MICORREO_CUSTOMER_ID en las variables de entorno");
+  }
+
+  const { token } = await obtenerToken();
+
+  const respuesta = await fetch(`${BASE_URL}/shipping/import`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      customerId,
+      ...params,
+    }),
+  });
+
+  const data = await respuesta.json();
+
+  if (!respuesta.ok) {
+    throw new Error(
+      `Error al importar envío MiCorreo (${respuesta.status}): ${JSON.stringify(data)}`
+    );
+  }
+
+  return data as ImportarEnvioResponse;
+}

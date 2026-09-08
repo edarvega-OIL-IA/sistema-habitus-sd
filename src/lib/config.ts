@@ -69,3 +69,21 @@ export const CORREO_ARGENTINO_CAJA_ESTANDAR = {
  * conservadora, no un dato real.
  */
 export const PESO_DEFECTO_GRAMOS = 200
+
+/**
+ * Datos del remitente para el alta de envíos en MiCorreo (/shipping/import).
+ * Teléfono y mail confirmados por Ariel el 08/09/2026 — el mail es el mismo
+ * que se usó para gestionar las credenciales con Olga (Correo Argentino).
+ */
+export const REMITENTE_MICORREO = {
+  name: 'Hábitus SD',
+  phone: '+54 9 2993 24-4332',
+  email: 'habitus.sd@gmail.com',
+  originAddress: {
+    streetName: 'Av. Roca',
+    streetNumber: '54',
+    city: 'Cinco Saltos',
+    provinceCode: 'R', // Río Negro
+    postalCode: CORREO_ARGENTINO_CP_ORIGEN,
+  },
+}

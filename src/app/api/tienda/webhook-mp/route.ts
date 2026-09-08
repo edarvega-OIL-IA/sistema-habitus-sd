@@ -3,7 +3,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { fiscalizarVenta } from '@/lib/tusfacturas/fiscalizar'
 import { matchOCrearClienteWeb } from '@/lib/tienda/clientes'
-import { ARTICULO_ENVIO_ID } from '@/lib/config'
+import { ARTICULO_ENVIO_ID, CORREO_ARGENTINO_CAJA_ESTANDAR, REMITENTE_MICORREO } from '@/lib/config'
+import { importarEnvio, PROVINCIAS_MICORREO } from '@/lib/correoargentino/micorreo'
+import { calcularPesoCarritoGramos } from '@/lib/correoargentino/pesoCarrito'
+
+const PROVINCIA_CODIGO_MAP = new Map(PROVINCIAS_MICORREO.map(p => [p.nombre, p.codigo]))
 
 // Cliente por defecto de toda venta web — mismo criterio que el POS
 // automático (api/ventas/route.ts): Consumidor Final fijo. El DNI/CUIT
@@ -356,6 +360,75 @@ async function procesarNotificacion(request: NextRequest) {
             ms_duracion_fiscalizacion: msDuracionFiscal,
           })
           .eq('id', logId)
+      }
+    }
+
+    // ── Alta real del envío en MiCorreo (solo pedidos con Correo ────────
+    // Argentino) — recién acá, con el pago ya aprobado y la venta ya
+    // creada. Try/catch propio, igual que la fiscalización: un error acá
+    // nunca debe afectar nada de lo que ya se confirmó arriba. Si falla,
+    // el pedido queda con codigo_seguimiento vacío para revisión manual —
+    // no hay pantalla de reintento automático para esto todavía.
+    if (pedido.metodo_envio === 'envio_correo_argentino') {
+      try {
+        const provinciaCodigo = PROVINCIA_CODIGO_MAP.get(pedido.direccion_provincia || '')
+        if (!provinciaCodigo) {
+          throw new Error(`Provincia no reconocida: "${pedido.direccion_provincia}"`)
+        }
+        if (!pedido.cliente_email) {
+          throw new Error('El pedido no tiene email de destinatario (obligatorio para MiCorreo)')
+        }
+
+        const { pesoTotalGramos } = await calcularPesoCarritoGramos(
+          admin,
+          items.map((i: any) => ({ articuloId: i.articulo_id, cantidad: i.cantidad }))
+        )
+
+        const extOrderId = `pedido-${pedido.id}`
+
+        await importarEnvio({
+          extOrderId,
+          orderNumber: String(numeracion),
+          sender: {
+            name: REMITENTE_MICORREO.name,
+            phone: REMITENTE_MICORREO.phone,
+            email: REMITENTE_MICORREO.email,
+            originAddress: REMITENTE_MICORREO.originAddress,
+          },
+          recipient: {
+            name: pedido.cliente_nombre,
+            phone: pedido.cliente_telefono,
+            email: pedido.cliente_email,
+          },
+          shipping: {
+            deliveryType: (pedido.envio_tipo_entrega as 'D' | 'S') || 'D',
+            address: {
+              streetName: pedido.direccion_calle,
+              streetNumber: pedido.direccion_numero,
+              city: pedido.direccion_localidad,
+              provinceCode: provinciaCodigo,
+              postalCode: pedido.direccion_cp,
+            },
+            weight: Math.max(pesoTotalGramos, 1),
+            declaredValue: pedido.total - (pedido.costo_envio || 0),
+            height: CORREO_ARGENTINO_CAJA_ESTANDAR.alto,
+            width: CORREO_ARGENTINO_CAJA_ESTANDAR.ancho,
+            length: CORREO_ARGENTINO_CAJA_ESTANDAR.largo,
+          },
+        })
+
+        // La API no devuelve número de seguimiento real, solo confirma el
+        // alta — guardamos extOrderId como referencia cruzada con MiCorreo,
+        // no es el código de tracking que ve el cliente (ver ESTADO-PROYECTO.md).
+        await admin
+          .from('pedidos_web')
+          .update({ codigo_seguimiento: extOrderId })
+          .eq('id', pedidoId)
+      } catch (envioError: any) {
+        console.error('Error al importar envío MiCorreo para pedido', pedidoId, ':', envioError.message)
+        // No bloquea el resto del webhook — el pago, la venta, el stock y
+        // la fiscalización ya quedaron confirmados arriba. Revisión manual
+        // pendiente para este caso puntual.
       }
     }
 

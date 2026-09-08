@@ -88,6 +88,8 @@ export async function POST(request: NextRequest) {
 
   // ── Envío Correo Argentino (MiCorreo) — validaciones ──────────────────
   if (metodoEnvio === 'envio_correo_argentino') {
+    if (!cliente?.email?.trim())
+      return NextResponse.json({ error: 'El email es obligatorio para el envío por Correo Argentino' }, { status: 400 })
     if (medioElegido !== 'mercado_pago')
       return NextResponse.json({ error: 'El envío por Correo Argentino se paga por adelantado con Mercado Pago' }, { status: 400 })
     if (!envioProducto || !PRODUCTOS_MICORREO_VALIDOS.includes(envioProducto))

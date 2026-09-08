@@ -169,6 +169,10 @@ export default function CheckoutPage() {
     }
 
     if (metodoEnvio === 'envio_correo_argentino') {
+      if (!email.trim()) {
+        setError('El email es obligatorio para el envío por Correo Argentino')
+        return
+      }
       if (!caCalle.trim() || !caNumero.trim() || !caLocalidad.trim() || !caProvincia || !/^\d{4}$/.test(caCp)) {
         setError('Completá la dirección completa de envío')
         return
@@ -300,11 +304,17 @@ export default function CheckoutPage() {
           </div>
 
           <div>
-            <label className="text-xs font-medium text-gray-500">Email (opcional)</label>
+            <label className="text-xs font-medium text-gray-500">
+              Email {metodoEnvio === 'envio_correo_argentino' ? '*' : '(opcional)'}
+            </label>
+            {metodoEnvio === 'envio_correo_argentino' && (
+              <p className="text-xs text-gray-400 mt-0.5">Obligatorio para el envío por Correo Argentino.</p>
+            )}
             <input
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
+              required={metodoEnvio === 'envio_correo_argentino'}
               className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#00a19a]"
             />
           </div>
