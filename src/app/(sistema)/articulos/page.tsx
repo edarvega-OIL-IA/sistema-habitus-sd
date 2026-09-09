@@ -371,8 +371,9 @@ export default function ArticulosPage() {
                   const stock = a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_actual ?? 0
                   const stockMin = a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_min ?? 0
                   const bajoMinimo = stockMin > 0 && stock <= stockMin
+                  const stockNegativo = stock < 0
                   return (
-                    <tr key={a.id} className={`transition-colors ${bajoMinimo ? 'bg-orange-50 hover:bg-orange-100' : 'hover:bg-gray-50'}`}>
+                    <tr key={a.id} className={`transition-colors ${stockNegativo ? 'bg-red-50 hover:bg-red-100' : bajoMinimo ? 'bg-orange-50 hover:bg-orange-100' : 'hover:bg-gray-50'}`}>
                       <td className="px-4 py-3 text-[#3c3c3b] font-medium">{a.nombre}</td>
                       <td className="px-4 py-3 text-[#00a19a] text-xs">{(a.rubros as any)?.nombre || '—'}</td>
                       <td className="px-4 py-3 text-gray-600 text-xs">{(a.marcas as any)?.nombre || '—'}</td>
@@ -382,8 +383,8 @@ export default function ArticulosPage() {
                         {a.precio_local ? fmtPrecio(a.precio_local) : '—'}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span className={`text-xs font-semibold ${bajoMinimo ? 'text-orange-600' : stock > 0 ? 'text-[#3c3c3b]' : 'text-gray-300'}`}>
-                          {stock > 0 ? stock : '—'}
+                        <span className={`text-xs font-semibold ${stockNegativo ? 'text-red-600' : bajoMinimo ? 'text-orange-600' : stock > 0 ? 'text-[#3c3c3b]' : 'text-gray-300'}`}>
+                          {stock !== 0 ? stock : '—'}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
