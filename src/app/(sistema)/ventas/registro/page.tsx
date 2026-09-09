@@ -59,6 +59,7 @@ export default function RegistroVentasPage() {
   const [turnoFiltro, setTurnoFiltro] = useState('todos')
   const [canalFiltro, setCanalFiltro] = useState<'todos' | 'local' | 'web'>('todos')
   const [cierreActivoId, setCierreActivoId] = useState<number | null>(null)
+  const [esAdmin, setEsAdmin] = useState(false)
 
   useEffect(() => {
     // Filtro de turno prefijado por URL (ej. desde las tarjetas del Dashboard:
@@ -83,9 +84,25 @@ export default function RegistroVentasPage() {
       }
     }
 
+    // Admin puede editar ítems de cualquier venta Guardada, sin importar el
+    // turno — mismo criterio ya usado en movimientos/[id]/page.tsx y en el
+    // gate de api/fiscalizacion/route.ts (usuarios.rol_id === 1 = Admin).
+    async function detectarRol() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data: perfil } = await supabase
+        .from('usuarios')
+        .select('rol_id')
+        .eq('id', user.id)
+        .maybeSingle()
+      if (perfil?.rol_id === 1) setEsAdmin(true)
+    }
+
     if (turnoParam !== null) setTurnoFiltro(turnoParam)
     if (canalParam === 'local' || canalParam === 'web') setCanalFiltro(canalParam)
     detectarTurno()
+    detectarRol()
     cargarVentas()
   }, [])
 
@@ -613,12 +630,12 @@ export default function RegistroVentasPage() {
                           PDF
                         </button>
                       )}
-                      {v.estado_venta_id === 2 && v.cierre_turno_id !== null && v.cierre_turno_id === cierreActivoId && (
+                      {v.estado_venta_id === 2 && ((v.cierre_turno_id !== null && v.cierre_turno_id === cierreActivoId) || esAdmin) && (
                         <>
                           <button
                             onClick={e => { e.stopPropagation(); setEditando({ id: v.id, numero_venta: v.numero_venta, descuento_pct: v.descuento_pct }) }}
                             className="text-gray-300 hover:text-[#00a19a] transition-colors"
-                            title="Editar ítems (solo Guardada, turno activo)"
+                            title={esAdmin ? 'Editar ítems (Admin — cualquier turno)' : 'Editar ítems (solo Guardada, turno activo)'}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
