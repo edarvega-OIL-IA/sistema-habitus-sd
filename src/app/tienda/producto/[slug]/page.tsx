@@ -36,6 +36,29 @@ interface ArticuloCatalogo {
 
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
 
+// Glosa legal fija que se agrega al final de (casi) todas las descripciones
+// cargadas manualmente. Se resalta en negrita sin tocar el dato en sí
+// (articulos.descripcion sigue siendo texto plano) — si en algún momento
+// cambia la redacción exacta de la glosa, hay que actualizarla acá también.
+const GLOSA_DIETARIA =
+  'Este producto es un suplemento dietario, no es un medicamento. Consulte a su médico y/o farmacéutico.'
+
+function renderDescripcion(texto: string) {
+  const idx = texto.indexOf(GLOSA_DIETARIA)
+  if (idx === -1) return texto
+
+  const antes = texto.slice(0, idx)
+  const despues = texto.slice(idx + GLOSA_DIETARIA.length)
+
+  return (
+    <>
+      {antes}
+      <strong>{GLOSA_DIETARIA}</strong>
+      {despues}
+    </>
+  )
+}
+
 async function buscarProducto(slug: string) {
   const id = idDesdeSlugProducto(slug)
   if (id === null) return null
@@ -259,7 +282,9 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
             {descripcionAMostrar && (
               <div className="mt-6 pt-6 border-t border-border-gray">
                 <h2 className="text-sm font-semibold text-charcoal mb-2">Descripción</h2>
-                <p className="text-sm text-medium-gray whitespace-pre-line leading-relaxed">{descripcionAMostrar}</p>
+                <p className="text-sm text-medium-gray whitespace-pre-line leading-relaxed">
+                  {renderDescripcion(descripcionAMostrar)}
+                </p>
               </div>
             )}
 
