@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 22/08/2026 — Sesión disparada por una duda operativa real de Ariel (una caja suya apareció abierta cuando no debía) que terminó destapando y resolviendo un bug real de permisos en `reaperturas_caja` y un bug real en la función `reabrir_ultimo_cierre()`. Ver Bloque 19 para el detalle completo.
-**Estado general:** 🟢 En producción. Módulo de Caja/reaperturas auditado a fondo y con dos bugs reales corregidos el mismo día que se detectaron, antes de que causaran un problema real de conciliación. Presupuesto #1 sigue esperando respuesta de la Municipalidad.
-**Próxima acción concreta:** seguir la respuesta de la Muni al Presupuesto #1 — cuando aprueben, probar el circuito completo real (Aprobado → Enviar a borrador de venta → confirmar venta con Cuenta Corriente → entregar con Factura + Remito → Registrar cobro a los 15 días). El bug de stock huérfano del webhook de MP (Bloque 17, 3 casos confirmados) sigue sin diagnosticar — prioridad alta apenas aparezca un caso fresco.
+**Última actualización:** 10/09/2026 — Sesión larga de dos partes: (1) carga completa de descripciones de producto en las fichas de la tienda (los ~19 rubros del catálogo, ver Bloque 21) y (2) trabajo de mantenimiento sobre datos reales — reconciliación de facturación de agosto contra AFIP/TusFacturasAPP (todo cuadró), desactivación de un punto de venta viejo sin uso, fix de un bug de ordenamiento en el filtro de rubros de la tienda, y un reporte de Ventas nuevo (por medio de pago). Ver Bloque 21 para el detalle completo.
+**Estado general:** 🟢 En producción. Catálogo de la tienda con descripción real en el 100% de las fichas de producto visibles (fallback por sabor hermano verificado con consulta cruzada, sin huecos). Facturación de agosto verificada contra AFIP: 127 comprobantes, $5.142.000, numeración sana, sin comprobantes sin fiscalizar.
+**Próxima acción concreta:** no hay ninguna tarea abierta puntual de esta sesión — el catálogo de descripciones quedó cerrado y verificado, y la reconciliación fiscal de agosto no arrojó ningún hallazgo pendiente. Seguir con lo que ya estaba en agenda: Presupuesto #1 esperando respuesta de la Municipalidad, y el bug de stock huérfano del webhook de MP (Bloque 17) sigue sin diagnosticar — prioridad alta apenas aparezca un caso fresco.
 
 ---
 
@@ -1132,4 +1132,120 @@ Antes de tener el código real de la función a la vista, se planteó como duda 
 
 **De paso se corrigió un error real en `CLAUDE_CODE_PROMPT.md`:** una versión previa del documento describía esta tabla con columnas `snapshot_antes`/`snapshot_despues` (JSONB) — no existen, son las 5 columnas numéricas sueltas mencionadas arriba. Corregido con la fuente de verdad real (el código de la función), no con una suposición.
 
+---
 
+## Sesión 07-08/09/2026 — Nota de Crédito probada en real, fix de bonificación negativa, campo Desc. $ en OC, integración completa de Correo Argentino (MiCorreo)
+
+**Aclaración pendiente del Bloque 18 ya resuelta:** el circuito de Nota de Crédito sí existe y quedó **probado de punta a punta con una venta real** (ver Bloque 20.1) — la duda que había quedado abierta sobre si el gap de esquema seguía bloqueándolo ya no aplica.
+
+### Bloque 20.1 — Primera Nota de Crédito real (venta #1675 → #1677)
+
+Caso real: Agustín facturó por error "Glicinato De Magnesio - Gold Nutrition" en vez de "Innovanaturals" en la venta #1675 (Factura C n° 214, CAE confirmado). Se decidió probarlo con Agustín operando para que fuera aprendiendo.
+
+**Bug encontrado al primer intento:** nunca se había configurado `numeracion_comprobantes` para Nota de Crédito (`tipo_comprobante_id=3`) bajo el PV 0004 — el botón tiraba "Error al obtener numeración de NC: No existe numeración configurada para punto_venta_id=3 y tipo_comprobante_id=3". Corregido con:
+```sql
+INSERT INTO numeracion_comprobantes (punto_venta_id, tipo_comprobante_id, ultimo_numero)
+VALUES (3, 3, 0);
+```
+
+**Segundo bug, más interesante:** al reintentar, ARCA rechazó con "El proximo numero de comprobante deberia ser 00004-00000003 en lugar de 00004-00000001" — señal de que ya existían Notas de Crédito reales emitidas antes bajo este punto de venta (probablemente manuales, por el portal de TusFacturasAPP) que el sistema desconocía. Corregido a mano, alineando el sistema con lo que ARCA ya tenía registrado:
+```sql
+UPDATE comprobantes SET numero = 3, estado_fiscal_id = 1, mensaje_error = NULL WHERE id = 249;
+UPDATE numeracion_comprobantes SET ultimo_numero = 3 WHERE punto_venta_id = 3 AND tipo_comprobante_id = 3;
+```
+
+**Resultado final, verificado con datos reales:** venta #1675 quedó Anulada ($87.600), el sistema generó automáticamente la venta de reemplazo #1677 con el artículo correcto (Innovanaturals, $23.000 — precio real distinto a Gold Nutrition, de ahí que el total nuevo diera $88.600) y la fiscalizó normal. Stock verificado antes/después: Gold Nutrition volvió de -1 a 0, Innovanaturals bajó de 5 a 4 — ambos coinciden exactamente con lo esperado. La decisión pendiente sobre "devolución vs. aplicar a nueva venta" (Bloque previo) no hizo falta resolverla en este caso — al ser Mercado Pago con montos casi iguales, el sistema simplemente generó una venta nueva con su propio cobro; queda pendiente para el primer caso real en **efectivo** con diferencia de monto.
+
+### Bloque 20.2 — Bug real de fondo: bonificación negativa en Factura C para ventas con envío
+
+Al revisar el código de `webhook-mp/route.ts` en el marco de la integración de MiCorreo (ver 20.4), se encontró que **toda venta web con `costo_envio > 0` desde que existe el envío a Cinco Saltos** generaba una `bonificacion` **negativa** en el request a TusFacturasAPP: `mapearVentaAFacturaC` calcula `bonificacion = subtotalDetalle - venta.total`, y como el envío nunca se insertaba en `venta_items` (solo vivía en `ventas.costo_envio`), el cálculo daba `(mercadería) - (mercadería + envío) = -costo_envio`. El total que recibe ARCA siempre fue correcto (WSFEv1 solo mira `total`, nunca el detalle), así que **no fue un problema fiscal retroactivo** — pero sí un PDF de factura con una "bonificación" que en realidad era un recargo disfrazado, y sin ninguna línea que explicara el cobro de envío.
+
+**Fix:** artículo sintético "Envío a domicilio" creado en producción (`id=1385`, `disponible_web=false`/`disponible_local=false`/`visible_en_tienda=false`, sin stock asociado, `tasa_iva_id=6` 0%, `unidad_medida_id=4` Unidad). Constante `ARTICULO_ENVIO_ID=1385` en `lib/config.ts`. En `webhook-mp/route.ts`, se agrega esta línea a `venta_items` (cantidad 1, precio = `costo_envio`, `costo_unitario = precio_unitario` — no 0, para que el envío no infle artificialmente la Utilidad Bruta de Reportes como si fuera 100% margen) **solo** al armar el array que se inserta en `venta_items` — el loop que descuenta stock sigue leyendo el array original de productos, nunca esta línea, así que el artículo sintético jamás genera movimiento de stock. Corrige de una sola vez el caso ya existente (Cinco Saltos) y el nuevo (MiCorreo).
+
+### Bloque 20.3 — Campo "Desc. $" en Órdenes de Compra
+
+Motivo real: proveedor de "Creatina Micronizada - 200 gr - Neutro - One Fit" regala 1 unidad cada 12 compradas — había que cargar 13 unidades pagando 12, y el único campo existente (Desc. %) obligaba a calcular el % a mano con calculadora aparte, con redondeo perceptible ($110.402,76 en vez de $110.400,00 exactos).
+
+Agregado en `compras/nueva/page.tsx` y `compras/[id]/page.tsx` (las dos pantallas, mismo patrón que ya se sabía duplicado desde el bug de `descuento_pct` del 28/07): campo "Desc. $" sincronizado en ambos sentidos con "Desc. %" — escribir en uno recalcula el otro, y el `subtotal` sale siempre exacto del monto en $ (nunca de `cantidad × precio × (1 - %/100)`, que era la fuente del redondeo). **No hizo falta tocar la base de datos** — `descuento_pct` y `subtotal` siguen siendo las únicas columnas que se guardan; el $ vive solo en pantalla.
+
+Ajuste adicional pedido después de la primera prueba: "Desc. %" se muestra redondeado a 3 decimales en pantalla (ej. `7,692`) pero guarda el valor completo sin truncar (confirmado por SELECT: `descuento_pct` es `NUMERIC` sin precisión/escala fija) — mismo patrón "texto mientras se edita, redondeado al salir" que ya usaban los campos de plata. "Desc. $" muestra `0` en vez de vacío cuando el valor es cero (ajuste visual pedido).
+
+### Bloque 20.4 — Integración completa de Correo Argentino (API MiCorreo)
+
+**Contexto de credenciales:** hubo un enredo real de cuentas de Correo Argentino — Ariel le pasó por WhatsApp a la ejecutiva Olga Norambuena el mail viejo `edarvega@gmail.com` (N° Cliente 0001364313, asociado a Empretienda/su hijo Enzo) en vez de `habitus.sd@gmail.com` (N° Cliente 0001960203, el correcto). Se corrigió por escrito con Olga, quien reasignó el alta al número correcto. Credenciales recibidas: usuario `EVEGAAPI`, confirmadas contra producción devolviendo `customerId: "0001960203"` en la respuesta real de `/rates` — validación cruzada de que quedaron bien atadas a Hábitus SD.
+
+**Decisión de alcance:** se integra solo **envío a domicilio** (tipo `D`) por ahora — "retiro en sucursal de Correo Argentino" (tipo `S`) queda pendiente para una iteración futura, porque requiere el endpoint `/agencies` (no integrado) más un selector de sucursal, una pieza de UI en sí misma.
+
+**Base CP↔Provincia↔Localidad — hallazgo importante:** se probó primero una tabla de rangos de CP por provincia (descartada: el propio CP de Cinco Saltos, 8303, cae en un rango "de Neuquén" pero es Río Negro — confirma que el sistema postal argentino tiene zonas de frontera genuinamente ambiguas, no es un capricho). La solución real: se generó una base completa desde el repositorio público `androdron/localidades_AR` (que a su vez extrae datos directamente de la base oficial de Correo Argentino, `correoargentino.com.ar/formularios/cpa`) — 23.238 localidades reales, `cp;localidad;provincia`. De esos, **2.255 de 2.352 CP (96%)** resuelven a una única provincia sin ambigüedad real; los 97 restantes son fronteras genuinamente compartidas y no se adivinan. Solo **720 de 2.352 CP (30%)** tienen una única localidad — el resto tiene pueblos reales distintos compartiendo CP, razón por la que Localidad quedó como desplegable con las opciones reales, no autocompletado de texto libre.
+
+**Diseño final del checkout (`tienda/checkout/page.tsx`):** un solo bloque unificado — Código Postal (opcional escribirlo), Provincia (`<select>`, default **Río Negro**) y Localidad (`<select>`, siempre activado por la Provincia elegida, nunca por el CP). Elegir una Localidad completa el CP solo; escribir el CP directo detecta la Provincia si es inequívoca y autoselecciona la Localidad si hay una sola coincidencia exacta para ese CP. Un único archivo de datos, `lib/correoargentino/provincia-localidades.json` (962KB, 23.190 pares localidad+CP agrupados por provincia), cargado con `import()` dinámico recién al elegir esta opción de envío — nunca pesa en el resto del checkout. El CP→provincia se deriva en memoria de esta misma base (sin un segundo archivo).
+
+**Cotización en vivo:** nuevo endpoint `api/tienda/cotizar-envio/route.ts` — suma `peso_kg × cantidad` de cada artículo del carrito (piso de 200g para los que no tengan `peso_kg` cargado, tarea de regularización pendiente para más adelante) y cotiza contra `/rates` con una caja estándar fija (30×20×15cm, decisión consciente: no hay datos de dimensiones por artículo todavía). Devuelve Clásico y Expreso a domicilio con precio y plazo real. El checkout dispara esta cotización automáticamente con debounce de 600ms al completar un CP válido.
+
+**Checkout (`api/tienda/checkout/route.ts`):** nueva opción `metodoEnvio='envio_correo_argentino'` (ya existía en el `CHECK` de `pedidos_web.metodo_envio`, sin usar hasta ahora). Siempre exige Mercado Pago (mismo criterio que Cinco Saltos), email obligatorio (frontend + validación server-side — la API de MiCorreo lo exige para el destinatario). **Vuelve a cotizar contra MiCorreo en el momento de confirmar** — nunca confía en el precio mostrado en pantalla — y busca la combinación exacta elegida en la respuesta fresca; si ya no está disponible, rechaza pidiendo recotizar. Columnas nuevas en `pedidos_web`: `envio_producto` (`'CP'|'EP'`), `envio_tipo_entrega` (`'D'|'S'`), `envio_agencia_codigo` (nullable, sin uso real todavía).
+
+**Webhook (`api/tienda/webhook-mp/route.ts`):** tras el pago aprobado, la venta creada y fiscalizada, si `metodo_envio='envio_correo_argentino'` se llama a `importarEnvio()` (nueva función en `lib/correoargentino/micorreo.ts`, POST `/shipping/import`) con remitente fijo (Hábitus SD, constante `REMITENTE_MICORREO` en `lib/config.ts`) y destinatario/dirección real del pedido — mapeando el nombre de provincia guardado al código MiCorreo vía `PROVINCIAS_MICORREO`. Aislado en su propio `try/catch`: si MiCorreo falla, el pago/venta/stock/fiscalización ya quedaron confirmados igual, y el pedido queda para revisión manual (no hay pantalla de reintento automático todavía). **Limitación real de la API confirmada leyendo la documentación:** `/shipping/import` no devuelve número de seguimiento, solo `createdAt` — se guarda `codigo_seguimiento = "pedido-{id}"` como referencia cruzada con MiCorreo, **no es el código de tracking real** que ve el cliente. Tampoco existe ningún endpoint en esta API para generar/descargar una etiqueta imprimible — sería un paso del portal web de MiCorreo, a confirmar con Olga si surge la necesidad.
+
+**Aún no probado con un pedido real** — la primera prueba real del alta en MiCorreo va a ser la primera compra real de un cliente por este método. Pendiente: revisar logs de Vercel (retención ~20 min) apenas se detecte esa primera venta, y confirmar si `codigo_seguimiento` quedó cargado en `pedidos_web` para esa venta puntual.
+
+**Próxima acción concreta a retomar:** apenas ocurra la primera venta real con envío por Correo Argentino, revisar en caliente los logs de Vercel y el estado de `pedidos_web`/`comprobantes` de esa venta puntual. Sin eso, el resto del roadmap de MiCorreo (retiro en sucursal con selector de agencias, regularizar `peso_kg` por artículo, tracking real si Correo Argentino lo habilita por otro medio) queda para cuando haya señal de uso real.
+
+
+
+
+---
+
+## Sesión 10/09/2026 — Carga completa de descripciones de producto + reconciliación fiscal de agosto + reporte de medios de pago
+
+### Bloque 21.1 — Carga de descripciones de producto: los ~19 rubros del catálogo, completo
+
+Trabajo iniciado en una sesión anterior (rubro Colágenos) y terminado en esta: se completó la carga de `articulos.descripcion` para **todos** los rubros de la tienda — Aminoácidos, Barras de proteína, Bebidas Isotónicas, Colágenos, Creatinas, Energía, Foods, Geles, Glutamina, Multivitamínicos, Óxido Nítrico, Pre-entrenamiento, Pro Hormonal, Proteínas, Proteínas Vegetales, Quemadores, Sales, Salud y bienestar, Shakers.
+
+**Metodología (la misma en los ~19 rubros):** por cada rubro, `SELECT` de solo lectura agrupado por `nombre_base + marca_id` → cruzar contra el backup de Empretienda (`Exportacion-productos-05-08-26.xlsx`, 369 filas) buscando por nombre/marca/peso (nunca confiar solo en el SKU — hay casos confirmados de SKU compartido entre sabores distintos y de marcas distintas con nombre de producto parecido) → lo que no está en el export, buscarlo en la web oficial de cada marca (o pedírselo a Ariel si la marca no tiene sitio, o si la página oficial no carga bien por JS) → armar el `UPDATE` en un bloque SQL único por rubro (texto plano en el chat, nunca `.sql` descargable) → verificar con un `SELECT` de confirmación.
+
+**Ventaja clave que redujo el trabajo:** la página de detalle de producto (`tienda/producto/[slug]/page.tsx`) tiene fallback entre variantes hermanas — si un sabor no tiene `descripcion` propia, usa la de cualquier hermano con mismo `nombre_base + marca_id`. Alcanzó con cargar **una descripción por familia**, no una por sabor. Verificado al cierre con esta consulta, que filtra a los sabores hermanos ya cubiertos por el fallback y devuelve solo lo que de verdad falta:
+
+```sql
+SELECT r.nombre AS rubro,
+       COUNT(*) AS total_articulos,
+       COUNT(*) FILTER (WHERE a.descripcion IS NULL) AS sin_descripcion,
+       STRING_AGG(a.nombre, ', ') FILTER (
+         WHERE a.descripcion IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM articulos b
+           WHERE b.nombre_base = a.nombre_base AND b.marca_id = a.marca_id AND b.descripcion IS NOT NULL
+         )
+       ) AS familias_realmente_sin_cubrir
+FROM articulos a JOIN rubros r ON r.id = a.rubro_id
+WHERE a.activo = true AND a.disponible_web = true
+GROUP BY r.nombre ORDER BY r.nombre;
+```
+Resultado final: `familias_realmente_sin_cubrir` en `null` en los 19 rubros — catálogo 100% cubierto.
+
+**Template de descripción definido en esta sesión** (reemplaza el estilo de párrafo largo calcado del export original): párrafo corto de intro + bullets con emoji (💪🏋️🔄⚡🥤) redactados siempre en palabras propias de Hábitus (nunca copiados de la web de otra marca, por derechos de autor) + sección "Presentación" + "Modo de uso" + "Composición"/"Ingredientes" cuando corresponde + la glosa legal fija al final ("Este producto es un suplemento dietario, no es un medicamento. Consulte a su médico y/o farmacéutico."). Se sacó del template la sección "Sabores disponibles en Hábitus" por ser redundante con el selector de sabores que ya se ve en la ficha (y generaba mantenimiento manual cada vez que cambiaba el stock de sabores). Para productos con fórmula activa (geles, pre-entrenos, quemadores) la Composición es más importante y se detalla dosis exacta; para los que contienen cafeína, un bullet bien visible al inicio: "✅ CON CAFEÍNA (dosis)" / "❌ SIN CAFEÍNA".
+
+**Correcciones de matcheo encontradas en el camino** (quedan documentadas por si se repite el patrón en rubros nuevos):
+- Nutremax "Collagen BD" (id 998): al principio pareció un mismatch de marca porque el texto interno del export decía "COLLAGEN BD" en vez de "Nutremax" — resultó ser el nombre comercial real del producto, confirmado en la web oficial.
+- Star Nutrition Doypack "Whey Protein" (rubro Proteínas): el export tenía una descripción reciclada de otro producto de la misma marca ("Platinum Whey Protein"), con el sabor equivocado en el título interno — se descartó y se redactó una propia.
+- Rubro Óxido Nítrico: única vez en la sesión que se saltó el paso de revisar el export antes de ir a la web — 3 de 4 familias sí estaban ahí pero con datos de dosis desactualizados respecto a la web oficial de cada marca (ej. Óxido Nítrico ENA: export decía porción de 7 g, web oficial 5 g). Lección para la próxima: revisar el export siempre, sin excepción, y ante conflicto preferir la web oficial de la marca por ser más reciente.
+
+### Bloque 21.2 — Fix: orden alfabético de rubros en el filtro de la tienda
+
+Bug detectado por Ariel: en el sidebar de filtros de `/tienda`, "Óxido Nítrico" aparecía al final de la lista de categorías en vez de después de "Multivitamínicos". Causa real: `src/app/tienda/page.tsx` armaba la lista de rubros (y de marcas) con `.sort()` de JavaScript sin comparador, que ordena por código UTF-16 de cada carácter — una mayúscula acentuada como "Ó" queda después de la Z. Fix de una línea en cada caso: `.sort((a, b) => a.localeCompare(b, 'es'))`. Aplicado tanto a `rubros` como a `marcas` (mismo bug potencial en ambos). Verificado en producción, visible correctamente.
+
+### Bloque 21.3 — Reconciliación de facturación de agosto contra AFIP/TusFacturasAPP
+
+Ariel bajó del portal de TusFacturasAPP el "Listado de Ventas" (Libro IVA Digital) de agosto 2026 y preguntó si servía para revisar algo del sistema. Se cruzó contra la base real:
+
+- **Coincide exacto:** 127 Facturas C emitidas en agosto, $5.142.000 total, numeración correlativa 00004-00000048 a 00004-00000174 sin huecos — tanto en el export de AFIP/TusFacturas como en la tabla `comprobantes` del sistema.
+- **Sin comprobantes de agosto sin CAE** — no quedó ninguna venta fiscalizada a medias o pendiente.
+- **`numeracion_comprobantes` sana** para las dos filas realmente en uso: Factura C (`punto_venta_id=3` = "Sistema propio (Electrónico)", AFIP PDV 4) con `ultimo_numero=225` = último número real emitido; Nota de Crédito con `ultimo_numero=3` = último real emitido.
+- **Hallazgo menor, resuelto:** la fila de `numeracion_comprobantes` para `punto_venta_id=1` ("Principal (Electrónico)", AFIP PDV 3 — el que usaba **Cover**, el sistema viejo, antes de la migración) tenía `ultimo_numero=393` reservado sin que exista un solo comprobante real emitido desde Sistema Habitus SD con esa combinación. No era ningún bug — simplemente quedó activo sin uso desde la migración. Se desactivó:
+```sql
+UPDATE puntos_venta SET activo = false WHERE id = 1;
+```
+Conclusión sobre las compras: como monotributista, `RECUPERA_IVA_COMPRAS = false` (ya seteado a propósito) — cargar compras en TusFacturasAPP no da ningún crédito fiscal, y el Libro de IVA Digital de Compras en general no aplica a monotributistas (a confirmar con el contador si hiciera falta certeza). Si en algún momento se quieren cargar compras para llevar costo/margen, el lugar correcto ya existe: el módulo de **Compras (Órdenes de Compra)** del propio sistema, no TusFacturasAPP.
+
+### Bloque 21.4 — Nuevo: Reporte de Ventas por medio de pago
+
+Pedido de Ariel: al reporte de Ventas (`Reportes → Ventas`, que ya tenía las pestañas "Por rubro" / "Por artículo") le faltaba el detalle de dinero por medio de pago (Efectivo/Tarjeta/Transferencia/QR), con los mismos filtros de fecha (Día/Mes/Año/Libre/Todos) que ya tenía. Agregada tercera pestaña **"Por medio de pago"** en `src/app/(sistema)/reportes/ventas/page.tsx`: agrupa `venta_pagos` por `medio_pago_id` (sumando `monto`, contando pagos) sobre el mismo conjunto de ventas del período filtrado, usando `medios_pago` para los nombres. Columnas propias para esta vista (sin Utilidad/Margen, que no aplican a un medio de pago): Medio de pago · Cantidad de pagos · Monto · % del total. **Limitación conocida, aceptada por Ariel:** el filtro de Rubros queda visible en esta pestaña pero no tiene efecto (un pago no pertenece a un rubro) — se puede ocultar más adelante si molesta. Probado en producción, funcionando correctamente.
