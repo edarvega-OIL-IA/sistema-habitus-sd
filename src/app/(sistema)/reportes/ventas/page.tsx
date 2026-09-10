@@ -20,7 +20,14 @@ interface Rubro {
   nombre: string
 }
 
-type Vista = 'rubro' | 'articulo'
+interface FilaPago {
+  id: number
+  nombre: string
+  cantidad: number
+  monto: number
+}
+
+type Vista = 'rubro' | 'articulo' | 'pago'
 type CampoOrden = 'nombre' | 'unidades' | 'monto' | 'utilidad'
 type ModoPeriodo = 'dia' | 'mes' | 'anio' | 'libre' | 'todos'
 
@@ -123,6 +130,7 @@ export default function ReporteVentasPage() {
   const [ordenDesc, setOrdenDesc] = useState(true)
 
   const [filasArticuloTodas, setFilasArticuloTodas] = useState<ItemAgregado[]>([])
+  const [filasPagoTodas, setFilasPagoTodas] = useState<FilaPago[]>([])
 
   useEffect(() => { cargar() }, [desde, hasta])
 
@@ -207,6 +215,44 @@ export default function ReporteVentasPage() {
       })
 
       setFilasArticuloTodas(filas)
+
+      // --- Medios de pago ---
+      const { data: mediosPagoData, error: mediosPagoError } = await supabase
+        .from('medios_pago')
+        .select('id, nombre')
+
+      if (mediosPagoError) throw mediosPagoError
+
+      const medioPagoNombreMap = new Map<number, string>()
+      ;(mediosPagoData || []).forEach(m => medioPagoNombreMap.set(m.id, m.nombre))
+
+      const porMedioPagoMap = new Map<number, { cantidad: number; monto: number }>()
+
+      if (ventaIds.length > 0) {
+        for (const lote of partirEnLotes(ventaIds, 500)) {
+          const { data: pagosData, error: pagosError } = await supabase
+            .from('venta_pagos')
+            .select('medio_pago_id, monto')
+            .in('venta_id', lote)
+
+          if (pagosError) throw pagosError
+
+          ;(pagosData || []).forEach(p => {
+            const prev = porMedioPagoMap.get(p.medio_pago_id) || { cantidad: 0, monto: 0 }
+            prev.cantidad += 1
+            prev.monto += p.monto
+            porMedioPagoMap.set(p.medio_pago_id, prev)
+          })
+        }
+      }
+
+      const filasPago: FilaPago[] = []
+      porMedioPagoMap.forEach((valores, medioPagoId) => {
+        const nombre = medioPagoNombreMap.get(medioPagoId) || `Medio de pago #${medioPagoId}`
+        filasPago.push({ id: medioPagoId, nombre, cantidad: valores.cantidad, monto: valores.monto })
+      })
+
+      setFilasPagoTodas(filasPago)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : JSON.stringify(err))
     } finally {
@@ -260,6 +306,28 @@ export default function ReporteVentasPage() {
       return acc
     }, { unidades: 0, monto: 0, costo: 0 })
   }, [filasFiltradas])
+
+  // Medios de pago no tienen costo/utilidad — orden propio, solo por nombre,
+  // cantidad (reutiliza 'unidades') o monto.
+  const filasPagoFiltradas = useMemo(() => {
+    return [...filasPagoTodas].sort((a, b) => {
+      let va: number | string
+      let vb: number | string
+      if (campoOrden === 'nombre') { va = a.nombre; vb = b.nombre }
+      else if (campoOrden === 'unidades') { va = a.cantidad; vb = b.cantidad }
+      else { va = a.monto; vb = b.monto }
+      if (typeof va === 'string') return ordenDesc ? (vb as string).localeCompare(va) : va.localeCompare(vb as string)
+      return ordenDesc ? (vb as number) - (va as number) : (va as number) - (vb as number)
+    })
+  }, [filasPagoTodas, campoOrden, ordenDesc])
+
+  const totalesPago = useMemo(() => {
+    return filasPagoFiltradas.reduce((acc, f) => {
+      acc.cantidad += f.cantidad
+      acc.monto += f.monto
+      return acc
+    }, { cantidad: 0, monto: 0 })
+  }, [filasPagoFiltradas])
 
   function toggleOrden(campo: CampoOrden) {
     if (campoOrden === campo) {
@@ -415,6 +483,12 @@ export default function ReporteVentasPage() {
               >
                 Por artículo
               </button>
+              <button
+                onClick={() => setVista('pago')}
+                className={`px-3 py-1.5 text-xs rounded-md transition-colors ${vista === 'pago' ? 'bg-white text-[#3c3c3b] shadow-sm' : 'text-gray-500'}`}
+              >
+                Por medio de pago
+              </button>
             </div>
           </div>
 
@@ -441,6 +515,63 @@ export default function ReporteVentasPage() {
         <div className="mx-auto max-w-xl mt-8 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
           {error}
         </div>
+      ) : vista === 'pago' ? (
+        filasPagoFiltradas.length === 0 ? (
+          <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-400">
+            No hay pagos registrados con los filtros elegidos.
+          </div>
+        ) : (
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th
+                    onClick={() => toggleOrden('nombre')}
+                    className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none whitespace-nowrap"
+                  >
+                    Medio de pago{flecha('nombre')}
+                  </th>
+                  <th
+                    onClick={() => toggleOrden('unidades')}
+                    className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none whitespace-nowrap"
+                  >
+                    Cantidad de pagos{flecha('unidades')}
+                  </th>
+                  <th
+                    onClick={() => toggleOrden('monto')}
+                    className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none whitespace-nowrap"
+                  >
+                    Monto{flecha('monto')}
+                  </th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                    % del total
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filasPagoFiltradas.map(f => {
+                  const pctTotal = totalesPago.monto > 0 ? (f.monto / totalesPago.monto) * 100 : 0
+                  return (
+                    <tr key={f.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                      <td className="px-4 py-2.5 text-[#3c3c3b]">{f.nombre}</td>
+                      <td className="px-4 py-2.5 text-right text-[#3c3c3b]">{f.cantidad.toLocaleString('es-AR')}</td>
+                      <td className="px-4 py-2.5 text-right text-[#3c3c3b]">{fmt(f.monto)}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-400">{pctTotal.toFixed(1)}%</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-gray-50 font-semibold border-t-2 border-gray-200">
+                  <td className="px-4 py-3 text-[#3c3c3b]">Total</td>
+                  <td className="px-4 py-3 text-right text-[#3c3c3b]">{totalesPago.cantidad.toLocaleString('es-AR')}</td>
+                  <td className="px-4 py-3 text-right text-[#3c3c3b]">{fmt(totalesPago.monto)}</td>
+                  <td className="px-4 py-3 text-right text-gray-400">100.0%</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )
       ) : filasFiltradas.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-400">
           No hay ventas registradas con los filtros elegidos.
