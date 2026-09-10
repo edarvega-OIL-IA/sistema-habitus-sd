@@ -111,11 +111,16 @@ export default async function TiendaPage({
   const articulos: ArticuloCatalogo[] = data || []
   const grupos = agrupar(articulos)
 
-  const rubros = [...new Set(articulos.map(a => a.rubro).filter((r): r is string => !!r))].sort()
+  // .sort() sin comparador ordena por código UTF-16: las mayúsculas acentuadas
+  // (ej. "Ó" en "Óxido Nítrico") quedan después de la Z en vez de junto a la O.
+  // localeCompare con locale 'es' ordena como espera un hablante de español.
+  const rubros = [...new Set(articulos.map(a => a.rubro).filter((r): r is string => !!r))]
+    .sort((a, b) => a.localeCompare(b, 'es'))
   // Marca es un filtro que cruza todos los rubros (igual que en Empretienda:
   // /productos?marca=X mezcla categorías) — por eso la lista sale de TODO el
   // catálogo, no solo del rubro elegido, para poder combinar ambos filtros.
-  const marcas = [...new Set(articulos.map(a => a.marca).filter((m): m is string => !!m))].sort()
+  const marcas = [...new Set(articulos.map(a => a.marca).filter((m): m is string => !!m))]
+    .sort((a, b) => a.localeCompare(b, 'es'))
 
   let gruposFiltrados = grupos.filter(g => {
     if (rubrosSeleccionados.length > 0 && (!g.rubro || !rubrosSeleccionados.includes(g.rubro))) return false
