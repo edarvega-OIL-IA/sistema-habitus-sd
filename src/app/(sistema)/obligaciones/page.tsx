@@ -25,6 +25,8 @@ interface Obligacion {
   fecha_pago: string | null
   numero_comprobante: string | null
   observaciones: string | null
+  medio_pago_id: number | null
+  movimiento_id: number | null
   creado_en: string
 }
 
@@ -59,6 +61,7 @@ export default function ObligacionesPage() {
   const [modalCargo, setModalCargo] = useState<Acreedor | null>(null)
   const [modalPago, setModalPago] = useState<Acreedor | null>(null)
   const [modalEditarCargo, setModalEditarCargo] = useState<Obligacion | null>(null)
+  const [modalEditarPago, setModalEditarPago] = useState<Obligacion | null>(null)
   const [guardando, setGuardando] = useState(false)
   const [sucursalId, setSucursalId] = useState<number>(1)
   const [usuarioId, setUsuarioId] = useState<string | null>(null)
@@ -80,7 +83,7 @@ export default function ObligacionesPage() {
     const [acreedoresRes, obligacionesRes, conceptosRes, mediosRes, acreedorConceptosRes] = await Promise.all([
       supabase.from('acreedores').select('id, nombre, categoria_gasto_id, categorias_gasto ( nombre )').eq('activo', true).order('nombre'),
       supabase.from('obligaciones')
-        .select('id, acreedor_id, concepto_gasto_id, tipo, monto, periodo, fecha_vencimiento, fecha_pago, numero_comprobante, observaciones, creado_en, conceptos_gasto ( nombre )')
+        .select('id, acreedor_id, concepto_gasto_id, tipo, monto, periodo, fecha_vencimiento, fecha_pago, numero_comprobante, observaciones, medio_pago_id, movimiento_id, creado_en, conceptos_gasto ( nombre )')
         .eq('anulado', false),
       supabase.from('conceptos_gasto').select('id, nombre, categoria_gasto_id, tipo').order('nombre'),
       supabase.from('medios_pago').select('id, nombre').eq('activo', true).order('id'),
@@ -277,8 +280,13 @@ export default function ObligacionesPage() {
                             <td className="py-1.5 text-right text-[#00a19a]">{o.tipo === 'Pago' ? `$${fmtMonto(o.monto)}` : ''}</td>
                             <td className="py-1.5 text-right font-medium">${fmtMonto(o.saldoCorrido)}</td>
                             <td className="py-1.5 text-right">
-                              {o.tipo === 'Cargo' && (
+                              {o.tipo === 'Cargo' ? (
                                 <button type="button" onClick={() => setModalEditarCargo(o)} title="Editar cargo"
+                                  className="text-gray-300 hover:text-[#00a19a] transition-colors">
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              ) : (
+                                <button type="button" onClick={() => setModalEditarPago(o)} title="Editar pago"
                                   className="text-gray-300 hover:text-[#00a19a] transition-colors">
                                   <Pencil className="w-3.5 h-3.5" />
                                 </button>
@@ -468,6 +476,112 @@ export default function ObligacionesPage() {
               return
             }
             setModalEditarCargo(null)
+            await cargarDatos()
+            setExpandido(prev => new Set(prev).add(acreedor.id))
+          }}
+        />
+      )}
+
+      {modalEditarPago && (
+        <ModalEditarPago
+          pago={modalEditarPago}
+          saldoDisponible={saldoDe(modalEditarPago.acreedor_id) + modalEditarPago.monto}
+          conceptos={conceptos.filter(c => (conceptosPorAcreedor.get(modalEditarPago.acreedor_id) || []).includes(c.id))}
+          mediosPago={mediosPago}
+          guardando={guardando}
+          onCerrar={() => setModalEditarPago(null)}
+          onGuardar={async (payload) => {
+            const acreedor = acreedores.find(a => a.id === modalEditarPago.acreedor_id)
+            if (!acreedor) { alert('No se encontró el acreedor de este pago'); return }
+
+            setGuardando(true)
+            const supabase = createClient()
+
+            // Mismo espíritu que "Editar cargo": nunca se pisa el registro
+            // original con un UPDATE — se anula (queda en el historial,
+            // auditable) y se crea uno nuevo con los datos corregidos. Como
+            // un Pago está atado a un Egreso real en `movimientos`, acá se
+            // anulan y recrean los dos, no solo la obligación.
+            const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+            const notaAnulacion = `[Corregido el ${fmtFecha(hoy)} — reemplazado por un pago editado]`
+
+            const { error: anularOblError } = await supabase
+              .from('obligaciones')
+              .update({
+                anulado: true,
+                observaciones: modalEditarPago.observaciones
+                  ? `${modalEditarPago.observaciones} ${notaAnulacion}`
+                  : notaAnulacion,
+              })
+              .eq('id', modalEditarPago.id)
+
+            if (anularOblError) {
+              setGuardando(false)
+              alert('Error al anular el pago original: ' + anularOblError.message)
+              return
+            }
+
+            if (modalEditarPago.movimiento_id) {
+              const { error: anularMovError } = await supabase
+                .from('movimientos')
+                .update({ anulado: true, observaciones: notaAnulacion })
+                .eq('id', modalEditarPago.movimiento_id)
+
+              if (anularMovError) {
+                setGuardando(false)
+                alert('El pago se anuló pero falló al anular el movimiento vinculado — avisar antes de reintentar: ' + anularMovError.message)
+                return
+              }
+            }
+
+            const fechaPago = payload.fecha_pago
+            const mesContable = fechaPago.slice(0, 7) + '-01'
+
+            const { data: cierreActivo } = await supabase
+              .from('cierres_turno').select('id')
+              .eq('sucursal_id', sucursalId).eq('estado_cierre_turno_id', 1).maybeSingle()
+
+            const { data: mov, error: movError } = await supabase.from('movimientos').insert({
+              sucursal_id: sucursalId,
+              tipo: 'Egreso',
+              categoria_gasto_id: acreedor.categoria_gasto_id,
+              concepto_gasto_id: payload.concepto_gasto_id,
+              monto: payload.monto,
+              medio_pago_id: payload.medio_pago_id,
+              fecha_utc: fechaPago,
+              mes_contable: mesContable,
+              observaciones: payload.observaciones || `Pago a ${acreedor.nombre} (corregido)`,
+              usuario_id: usuarioId,
+              cierre_turno_id: cierreActivo?.id || null,
+              origen_tipo: null,
+              anulado: false,
+            }).select('id').single()
+
+            if (movError || !mov) {
+              setGuardando(false)
+              alert('El pago y el movimiento original se anularon pero falló al crear el corregido — avisar antes de reintentar: ' + movError?.message)
+              return
+            }
+
+            const { error: insertOblError } = await supabase.from('obligaciones').insert({
+              acreedor_id: acreedor.id,
+              categoria_gasto_id: acreedor.categoria_gasto_id,
+              concepto_gasto_id: payload.concepto_gasto_id,
+              tipo: 'Pago',
+              monto: payload.monto,
+              fecha_pago: fechaPago,
+              medio_pago_id: payload.medio_pago_id,
+              movimiento_id: mov.id,
+              observaciones: payload.observaciones || null,
+              usuario_id: usuarioId,
+            })
+
+            setGuardando(false)
+            if (insertOblError) {
+              alert('Se creó el movimiento corregido pero falló al enlazarlo acá: ' + insertOblError.message)
+              return
+            }
+            setModalEditarPago(null)
             await cargarDatos()
             setExpandido(prev => new Set(prev).add(acreedor.id))
           }}
@@ -796,6 +910,12 @@ function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, g
     if (modo === 'existente' && !movimientoElegidoId) { alert('Elegí el movimiento a vincular'); return }
     if (modo === 'nuevo' && !medioPagoId) { alert('Elegí un medio de pago'); return }
     if (monto <= 0) { alert('El monto debe ser mayor a 0'); return }
+    if (saldoPendiente > 0 && monto > saldoPendiente) {
+      const continuar = window.confirm(
+        `El monto ingresado ($${fmtMonto(monto)}) supera el saldo pendiente ($${fmtMonto(saldoPendiente)}).\n\n¿Confirmás que el monto es correcto?`
+      )
+      if (!continuar) return
+    }
     onGuardar({
       concepto_gasto_id: Number(conceptoId), monto, fecha_pago: fecha,
       medio_pago_id: Number(medioPagoId), observaciones: obs,
@@ -859,6 +979,11 @@ function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, g
             <input type="text" inputMode="decimal" value={montoTexto !== null ? montoTexto : fmtInput(monto)}
               onFocus={e => e.target.select()} onChange={e => handleMontoChange(e.target.value)} onBlur={() => setMontoTexto(null)}
               disabled={modo === 'existente'} className={inputClass + (modo === 'existente' ? ' bg-gray-100' : '')} />
+            {saldoPendiente > 0 && monto > saldoPendiente && (
+              <p className="mt-1 text-xs text-amber-600">
+                ⚠ Supera el saldo pendiente (${fmtMonto(saldoPendiente)}) — revisá que esté bien antes de guardar.
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -893,6 +1018,123 @@ function ModalRegistrarPago({ acreedor, saldoPendiente, conceptos, mediosPago, g
           <button type="button" onClick={guardar} disabled={guardando}
             className="px-4 py-2 bg-[#00a19a] text-white rounded text-sm hover:bg-[#008f89] disabled:opacity-50">
             {guardando ? 'Guardando...' : 'Registrar pago'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
+interface ModalEditarPagoProps {
+  pago: Obligacion
+  saldoDisponible: number
+  conceptos: Concepto[]
+  mediosPago: { id: number; nombre: string }[]
+  guardando: boolean
+  onCerrar: () => void
+  onGuardar: (payload: {
+    concepto_gasto_id: number; monto: number; fecha_pago: string; medio_pago_id: number; observaciones: string
+  }) => void
+}
+
+function ModalEditarPago({ pago, saldoDisponible, conceptos, mediosPago, guardando, onCerrar, onGuardar }: ModalEditarPagoProps) {
+  const [conceptoId, setConceptoId] = useState<number | ''>(pago.concepto_gasto_id)
+  const [monto, setMonto] = useState(pago.monto)
+  const [montoTexto, setMontoTexto] = useState<string | null>(null)
+  const [fecha, setFecha] = useState(pago.fecha_pago || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }))
+  const [errFecha, setErrFecha] = useState(false)
+  const [medioPagoId, setMedioPagoId] = useState<number | ''>(pago.medio_pago_id || '')
+  const [obs, setObs] = useState(pago.observaciones || '')
+
+  function parsearMonto(v: string): number {
+    const s = v.trim()
+    if (!s) return 0
+    const n = parseFloat(s.replace(/\./g, '').replace(',', '.'))
+    return isNaN(n) ? 0 : n
+  }
+  function fmtInput(n: number): string {
+    return n ? n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
+  }
+  function handleMontoChange(raw: string) {
+    setMontoTexto(raw)
+    setMonto(parsearMonto(raw))
+  }
+
+  function guardar() {
+    if (!conceptoId) { alert('Elegí un concepto'); return }
+    if (!medioPagoId) { alert('Elegí un medio de pago'); return }
+    if (monto <= 0) { alert('El monto debe ser mayor a 0'); return }
+    if (saldoDisponible > 0 && monto > saldoDisponible) {
+      const continuar = window.confirm(
+        `El monto ingresado ($${fmtMonto(monto)}) supera el saldo que este pago puede cubrir ($${fmtMonto(saldoDisponible)}).\n\n¿Confirmás que el monto es correcto?`
+      )
+      if (!continuar) return
+    }
+    onGuardar({ concepto_gasto_id: Number(conceptoId), monto, fecha_pago: fecha, medio_pago_id: Number(medioPagoId), observaciones: obs })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg border border-gray-200 w-full max-w-md">
+        <div className="p-4 border-b border-gray-200">
+          <h2 className="text-base font-semibold text-[#3c3c3b]">Editar pago</h2>
+          <p className="text-xs text-gray-500 mt-1">
+            Esto anula el pago y el movimiento de Egreso originales (quedan en el historial, no se borran) y crea ambos de nuevo con los datos corregidos.
+          </p>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Concepto</label>
+            <select value={conceptoId} onChange={e => setConceptoId(e.target.value ? Number(e.target.value) : '')} className={inputClass}>
+              <option value="">Seleccionar concepto</option>
+              {conceptos.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Monto</label>
+            <input type="text" inputMode="decimal" value={montoTexto !== null ? montoTexto : fmtInput(monto)}
+              onFocus={e => e.target.select()} onChange={e => handleMontoChange(e.target.value)} onBlur={() => setMontoTexto(null)}
+              className={inputClass} />
+            {saldoDisponible > 0 && monto > saldoDisponible && (
+              <p className="mt-1 text-xs text-amber-600">
+                ⚠ Supera el saldo que este pago puede cubrir (${fmtMonto(saldoDisponible)}) — revisá que esté bien antes de guardar.
+              </p>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Fecha de pago</label>
+              <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
+                min={FECHA_MIN} max={fechaMax()}
+                onBlur={e => {
+                  if (fechaFueraDeRango(e.target.value)) { setFecha(''); setErrFecha(true) }
+                  else setErrFecha(false)
+                }}
+                className={errFecha && !fecha ? inputClass.replace('border-gray-300', 'border-red-500') : inputClass} />
+              {errFecha && !fecha && (
+                <p className="mt-1 text-xs text-red-600">Fecha fuera de rango, revisá el año</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Medio de pago</label>
+              <select value={medioPagoId} onChange={e => setMedioPagoId(e.target.value ? Number(e.target.value) : '')} className={inputClass}>
+                <option value="">Seleccionar</option>
+                {mediosPago.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Observaciones</label>
+            <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2} className={inputClass} />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 p-4 border-t border-gray-200">
+          <button type="button" onClick={onCerrar} className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50">Cancelar</button>
+          <button type="button" onClick={guardar} disabled={guardando}
+            className="px-4 py-2 bg-[#00a19a] text-white rounded text-sm hover:bg-[#008f89] disabled:opacity-50">
+            {guardando ? 'Guardando...' : 'Guardar corrección'}
           </button>
         </div>
       </div>
