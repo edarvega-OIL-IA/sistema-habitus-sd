@@ -49,7 +49,7 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
       {
         articuloId: seleccionada.id,
         nombreBase: titulo,
-        sabor: seleccionada.sabor,
+        sabor: seleccionada.sabor || seleccionada.atributo_valor,
         marca,
         rubro,
         precio: seleccionada.precio,
@@ -89,15 +89,17 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
         </Link>
 
         {tieneVariantes ? (
-          <div role="radiogroup" aria-label="Sabores disponibles" className="flex flex-wrap gap-1 mt-2">
-            {variantes.map(v => (
+          <div role="radiogroup" aria-label="Variantes disponibles" className="flex flex-wrap gap-1 mt-2">
+            {variantes.map(v => {
+              const etiqueta = v.sabor || v.atributo_valor
+              return (
               <button
                 key={v.id}
                 type="button"
                 role="radio"
                 aria-checked={v.id === seleccionadaId}
                 onClick={() => cambiarSabor(v.id)}
-                title={v.stock <= 0 ? `${v.sabor} — sin stock` : v.sabor || ''}
+                title={v.stock <= 0 ? `${etiqueta || 'Variante'} — sin stock` : etiqueta || ''}
                 className={`relative px-2 py-0.5 rounded-full text-xs font-medium border transition-colors before:content-[''] before:absolute before:inset-0 before:-m-2 before:pointer-events-none ${
                   v.id === seleccionadaId
                     ? 'bg-offer-teal text-white border-offer-teal ring-2 ring-offer-teal ring-offset-1'
@@ -106,10 +108,11 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
                     : 'bg-white text-gray-600 border-gray-300 hover:border-offer-teal focus:ring-2 focus:ring-offer-teal focus:ring-offset-1'
                 }`}
               >
-                {v.sabor || 'Sabor'}
+                {etiqueta || 'Variante'}
                 {v.id === seleccionadaId && <span className="sr-only"> (seleccionado)</span>}
               </button>
-            ))}
+              )
+            })}
           </div>
         ) : (
           seleccionada.atributo_valor && <p className="text-xs text-medium-gray mt-0.5">{seleccionada.atributo_valor}</p>
