@@ -28,6 +28,7 @@ interface ArticuloCatalogo {
   marca_id: number | null
   marca: string | null
   peso_kg: number | null
+  atributo_nombre: string | null
   atributo_valor: string | null
   sabor: string | null
   stock: number
@@ -35,6 +36,13 @@ interface ArticuloCatalogo {
 }
 
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
+
+// Texto a mostrar por variante: prioriza el sabor (sabor_id) y, si no tiene,
+// cae al atributo genérico (atributo_valor — hoy se usa para color en
+// accesorios como shakers y botellas, pero sirve para cualquier atributo).
+function etiquetaVariante(v: { sabor: string | null; atributo_valor: string | null }): string | null {
+  return v.sabor || v.atributo_valor || null
+}
 
 // Glosa legal fija que se agrega al final de (casi) todas las descripciones
 // cargadas manualmente. Se resalta en negrita sin tocar el dato en sí
@@ -88,7 +96,7 @@ async function buscarProducto(slug: string) {
     if (data && data.length > 0) variantes = data
   }
 
-  variantes = [...variantes].sort((a, b) => (a.sabor || 'zzz').localeCompare(b.sabor || 'zzz'))
+  variantes = [...variantes].sort((a, b) => (etiquetaVariante(a) || 'zzz').localeCompare(etiquetaVariante(b) || 'zzz'))
 
   return { producto: producto as ArticuloCatalogo, variantes: variantes as ArticuloCatalogo[] }
 }
@@ -220,20 +228,21 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
             {producto.marca && <p className="text-xs text-medium-gray uppercase tracking-wide">{producto.marca}</p>}
             <h1 className="text-xl sm:text-2xl font-semibold text-charcoal leading-snug mt-1">{titulo}</h1>
 
-            {/* Selector de sabor — links reales, cada uno con su propia URL indexable */}
+            {/* Selector de variante — links reales, cada uno con su propia URL indexable */}
             {tieneVariantes && (
               <div className="mt-4">
                 <p className="text-xs font-medium text-medium-gray mb-1.5">
-                  {producto.atributo_valor !== null ? 'Sabor' : 'Variante'}
+                  {producto.atributo_nombre || (variantes.some(v => v.sabor) ? 'Sabor' : 'Variante')}
                 </p>
                 <div role="group" aria-label="Variantes disponibles" className="flex flex-wrap gap-1.5">
                   {variantes.map(v => {
                     const esActual = v.id === producto.id
+                    const etiqueta = etiquetaVariante(v)
                     return (
                       <Link
                         key={v.id}
                         href={`/tienda/producto/${armarSlugProducto(v.id, titulo)}`}
-                        title={v.stock <= 0 ? `${v.sabor} — sin stock` : v.sabor || ''}
+                        title={v.stock <= 0 ? `${etiqueta || 'Variante'} — sin stock` : etiqueta || ''}
                         className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                           esActual
                             ? 'bg-offer-teal text-white border-offer-teal'
@@ -242,7 +251,7 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
                             : 'bg-white text-gray-600 border-gray-300 hover:border-offer-teal'
                         }`}
                       >
-                        {v.sabor || 'Sabor'}
+                        {etiqueta || 'Variante'}
                       </Link>
                     )
                   })}
@@ -270,7 +279,7 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
               <DetalleAgregar
                 articuloId={producto.id}
                 titulo={titulo}
-                sabor={producto.sabor}
+                sabor={producto.sabor || producto.atributo_valor}
                 marca={producto.marca}
                 rubro={producto.rubro}
                 precio={producto.precio}
