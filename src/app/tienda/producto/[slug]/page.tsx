@@ -9,8 +9,9 @@ import { createClient } from '@/lib/supabase/server'
 import { idDesdeSlugProducto, armarSlugProducto } from '@/lib/slug'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { Package, ChevronRight, ChevronLeft } from 'lucide-react'
+import { ChevronRight, ChevronLeft } from 'lucide-react'
 import DetalleAgregar from '@/components/tienda/DetalleAgregar'
+import GaleriaProducto from '@/components/tienda/GaleriaProducto'
 import CarritoBoton from '@/components/tienda/CarritoBoton'
 import { Mail, Phone, MapPin } from 'lucide-react'
 import type { Metadata } from 'next'
@@ -80,6 +81,12 @@ async function buscarProducto(slug: string) {
 
   if (!producto) return null
 
+  const { data: imagenes } = await supabase
+    .from('articulo_imagenes')
+    .select('url, alt_text, orden, es_principal')
+    .eq('articulo_id', producto.id)
+    .order('orden', { ascending: true })
+
   // Mismo criterio de agrupación que el listado (tienda/page.tsx): variantes
   // = mismo nombre_base + misma marca. Si no tiene nombre_base, es un
   // artículo suelto sin sabores para elegir.
@@ -98,7 +105,13 @@ async function buscarProducto(slug: string) {
 
   variantes = [...variantes].sort((a, b) => (etiquetaVariante(a) || 'zzz').localeCompare(etiquetaVariante(b) || 'zzz'))
 
-  return { producto: producto as ArticuloCatalogo, variantes: variantes as ArticuloCatalogo[] }
+  const fotos = imagenes && imagenes.length > 0
+    ? imagenes.map(img => ({ url: img.url, alt: img.alt_text || '' }))
+    : producto.imagen_url
+    ? [{ url: producto.imagen_url, alt: '' }]
+    : []
+
+  return { producto: producto as ArticuloCatalogo, variantes: variantes as ArticuloCatalogo[], fotos }
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
@@ -128,7 +141,7 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
   const resultado = await buscarProducto(slug)
   if (!resultado) notFound()
 
-  const { producto, variantes } = resultado
+  const { producto, variantes, fotos } = resultado
   const titulo = producto.nombre_base || producto.nombre
   const tieneVariantes = variantes.length > 1
   const sinStock = producto.stock <= 0
@@ -203,25 +216,8 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
         </nav>
 
         <div className="bg-white border border-border-gray rounded-xl overflow-hidden grid grid-cols-1 md:grid-cols-2 gap-0">
-          {/* Imagen */}
-          <div className="aspect-square bg-surface-light flex items-center justify-center relative">
-            {producto.imagen_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={producto.imagen_url} alt={titulo} className="w-full h-full object-cover" />
-            ) : (
-              <Package className="w-16 h-16 text-gray-300" />
-            )}
-            {producto.en_oferta && !sinStock && (
-              <span className="absolute top-3 left-3 bg-offer-teal text-white text-xs font-semibold px-2.5 py-1 rounded-full">
-                OFERTA
-              </span>
-            )}
-            {sinStock && (
-              <span className="absolute top-3 left-3 bg-gray-500 text-white text-xs font-semibold px-2.5 py-1 rounded-full">
-                SIN STOCK
-              </span>
-            )}
-          </div>
+          {/* Galería de fotos */}
+          <GaleriaProducto titulo={titulo} fotos={fotos} enOferta={producto.en_oferta} sinStock={sinStock} />
 
           {/* Datos */}
           <div className="p-6 flex flex-col">
