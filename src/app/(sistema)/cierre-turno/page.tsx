@@ -69,13 +69,7 @@ interface MovimientoEgreso {
   concepto: string
   monto: number
   fecha_utc: string
-}
-
-interface RetiroCaja {
-  id: number
-  monto: number
-  concepto: string | null
-  fecha_utc: string
+  observaciones?: string | null
 }
 
 interface HistorialCierre {
@@ -116,7 +110,7 @@ export default function CierreTurnoPage() {
   const [ventasEfectivo, setVentasEfectivo] = useState<VentaEfectivo[]>([])
   const [ingresosEfectivo, setIngresosEfectivo] = useState<VentaEfectivo[]>([])
   const [egresosEfectivo, setEgresosEfectivo] = useState<MovimientoEgreso[]>([])
-  const [retiros, setRetiros] = useState<RetiroCaja[]>([])
+
 
   // Formulario abrir turno
   const [turnoSeleccionado, setTurnoSeleccionado] = useState<string>('')
@@ -232,22 +226,11 @@ export default function CierreTurnoPage() {
 
     if (data) {
       await cargarDetallesTurno(data.creado_en)
-      await cargarRetirosTurno(data.id)
     } else {
       setVentasEfectivo([])
       setIngresosEfectivo([])
       setEgresosEfectivo([])
-      setRetiros([])
     }
-  }
-
-  async function cargarRetirosTurno(cierreTurnoId: number) {
-    const { data } = await supabase
-      .from('retiros_caja')
-      .select('id, monto, concepto, fecha_utc')
-      .eq('cierre_turno_id', cierreTurnoId)
-      .order('fecha_utc', { ascending: true })
-    setRetiros((data as any[]) || [])
   }
 
   async function cargarDetallesTurno(fechaApertura: string) {
@@ -276,7 +259,7 @@ export default function CierreTurnoPage() {
 
     const { data: egresosData } = await supabase
       .from('movimientos')
-      .select(`id, monto, fecha_utc, creado_en, conceptos_gasto ( nombre )`)
+      .select(`id, monto, fecha_utc, creado_en, observaciones, conceptos_gasto ( nombre )`)
       .eq('sucursal_id', sucursalId)
       .eq('tipo', 'Egreso')
       .eq('medio_pago_id', 1)
@@ -285,12 +268,17 @@ export default function CierreTurnoPage() {
       .order('creado_en', { ascending: true })
 
     if (egresosData) {
-      setEgresosEfectivo((egresosData as any[]).map(e => ({
-        id: e.id,
-        concepto: e.conceptos_gasto?.nombre || 'Egreso',
-        monto: e.monto,
-        fecha_utc: e.creado_en,
-      })))
+      setEgresosEfectivo((egresosData as any[]).map(e => {
+        const concepto = e.conceptos_gasto?.nombre || 'Egreso'
+        // Un Retiro de caja guarda a quién se le entregó el dinero en
+        // `observaciones` — se muestra igual que antes ("Retiro → Fulano").
+        return {
+          id: e.id,
+          concepto: concepto === 'Retiro' && e.observaciones ? `${concepto} → ${e.observaciones}` : concepto,
+          monto: e.monto,
+          fecha_utc: e.creado_en,
+        }
+      }))
     }
 
     const { data: ingresosData } = await supabase
@@ -492,7 +480,7 @@ export default function CierreTurnoPage() {
       setMontoRetiro('')
       setReceptorRetiro('')
       setVista('principal')
-      await cargarRetirosTurno(turnoAbierto.id)
+      await cargarDetallesTurno(turnoAbierto.creado_en)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -503,10 +491,11 @@ export default function CierreTurnoPage() {
   // Cálculos
   const totalVentasEfectivo = ventasEfectivo.reduce((s, v) => s + v.total_efectivo, 0)
   const totalIngresosEfectivo = ingresosEfectivo.reduce((s, v) => s + v.total_efectivo, 0)
+  // Incluye los retiros de caja: son movimientos de tipo Egreso, concepto
+  // "Retiro" — no se restan aparte para no contarlos dos veces.
   const totalEgresos = egresosEfectivo.reduce((s, e) => s + e.monto, 0)
-  const totalRetiros = retiros.reduce((s, r) => s + r.monto, 0)
   const apertura = turnoAbierto?.apertura ?? 0
-  const esperadoEnCaja = apertura + totalVentasEfectivo + totalIngresosEfectivo - totalEgresos - totalRetiros
+  const esperadoEnCaja = apertura + totalVentasEfectivo + totalIngresosEfectivo - totalEgresos
   const efectivoNum = parseFloat(efectivoContado.replace(/\./g, '').replace(',', '.')) || 0
   const diferencia = efectivoNum - esperadoEnCaja
 
@@ -1027,7 +1016,7 @@ export default function CierreTurnoPage() {
                 <p className="text-xs text-red-600">Egresos + Retiros</p>
               </div>
               <p className="text-lg font-bold text-red-700">{fmt(totalEgresos + totalRetiros)}</p>
-              <p className="text-xs text-red-600 mt-0.5">{egresosEfectivo.length + retiros.length} registros</p>
+              <p className="text-xs text-red-600 mt-0.5">{egresosEfectivo.length} registros</p>
             </div>
             <div className="bg-[#3c3c3b] rounded-lg p-4">
               <p className="text-xs text-white/70 mb-1">Esperado en caja</p>
@@ -1088,8 +1077,8 @@ export default function CierreTurnoPage() {
             </div>
           )}
 
-          {/* Detalle egresos + retiros */}
-          {(egresosEfectivo.length > 0 || retiros.length > 0) && (
+          {/* Detalle de egresos (incluye retiros de caja) */}
+          {egresosEfectivo.length > 0 && (
             <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
                 <h2 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Egresos y retiros de efectivo</h2>
@@ -1108,15 +1097,6 @@ export default function CierreTurnoPage() {
                       <td className="px-4 py-2 text-gray-700">{e.concepto}</td>
                       <td className="px-4 py-2 text-gray-500">{fmtFecha(e.fecha_utc)}</td>
                       <td className="px-4 py-2 text-right font-medium text-red-700">{fmt(e.monto)}</td>
-                    </tr>
-                  ))}
-                  {retiros.map(r => (
-                    <tr key={`r-${r.id}`} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 text-gray-700">
-                        Retiro{r.concepto ? ` → ${r.concepto}` : ''}
-                      </td>
-                      <td className="px-4 py-2 text-gray-500">{fmtFecha(r.fecha_utc)}</td>
-                      <td className="px-4 py-2 text-right font-medium text-red-700">{fmt(r.monto)}</td>
                     </tr>
                   ))}
                 </tbody>
