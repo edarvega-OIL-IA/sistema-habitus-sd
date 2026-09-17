@@ -401,7 +401,6 @@ export default function CierreTurnoPage() {
       setTurnoAbierto(null)
       setVentasEfectivo([])
       setEgresosEfectivo([])
-      setRetiros([])
       setEfectivoContado('')
       setObservacionesCierre('')
       await cargarHistorialCierres()
