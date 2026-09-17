@@ -646,12 +646,8 @@ export default function CierreTurnoPage() {
                 <span className="font-medium text-green-700">{fmt(totalVentasEfectivo)}</span>
               </div>
               <div className="flex justify-between py-2 border-b border-gray-100">
-                <span className="text-red-600">− Egresos efectivo</span>
+                <span className="text-red-600">− Egresos y retiros de efectivo</span>
                 <span className="font-medium text-red-700">{fmt(totalEgresos)}</span>
-              </div>
-              <div className="flex justify-between py-2 border-b border-gray-100">
-                <span className="text-red-600">− Retiros de caja</span>
-                <span className="font-medium text-red-700">{fmt(totalRetiros)}</span>
               </div>
             </div>
             <div className="flex justify-between py-2 mt-1">
@@ -1014,7 +1010,7 @@ export default function CierreTurnoPage() {
                 <TrendingDown className="w-3 h-3 text-red-600" />
                 <p className="text-xs text-red-600">Egresos + Retiros</p>
               </div>
-              <p className="text-lg font-bold text-red-700">{fmt(totalEgresos + totalRetiros)}</p>
+              <p className="text-lg font-bold text-red-700">{fmt(totalEgresos)}</p>
               <p className="text-xs text-red-600 mt-0.5">{egresosEfectivo.length} registros</p>
             </div>
             <div className="bg-[#3c3c3b] rounded-lg p-4">
