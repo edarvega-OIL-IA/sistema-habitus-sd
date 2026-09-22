@@ -79,6 +79,18 @@ function precioMinimo(g: GrupoProducto): number {
   return Math.min(...g.variantes.map(v => v.precio))
 }
 
+// Fisher-Yates: barajado uniforme de verdad (a diferencia de usar
+// Math.random() como comparador de .sort(), que da resultados sesgados
+// según el algoritmo de ordenamiento del motor).
+function barajar<T>(arr: T[]): T[] {
+  const copia = [...arr]
+  for (let i = copia.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[copia[i], copia[j]] = [copia[j], copia[i]]
+  }
+  return copia
+}
+
 // Banners de categoría — se muestran en el carrusel de dos filas contrapuestas
 // (ver CarruselCategorias). Cada uno enlaza a /tienda?rubro=X. Las de
 // "Cafeínas" se dejaron afuera para no generar ambigüedad de nombre con el
@@ -136,28 +148,38 @@ export default async function TiendaPage({
     return true
   })
 
-  // Ordenamiento con dos niveles: primero con stock / sin stock, luego el
-  // criterio elegido (nombre/precio). Los SIN STOCK siempre van al final,
-  // sin importar qué opción tenga seleccionada "Ordenar por".
-  gruposFiltrados = [...gruposFiltrados].sort((a, b) => {
-    const stockA = a.variantes.some(v => v.stock > 0) ? 1 : 0
-    const stockB = b.variantes.some(v => v.stock > 0) ? 1 : 0
+  // Sin orden explícito ("Relevancia", o el dropdown recién cargado): orden
+  // aleatorio, distinto en cada visita/recarga, para dar sensación de
+  // catálogo vivo en vez de mostrar siempre lo mismo primero. Los SIN STOCK
+  // siguen yendo al final en los dos casos. Si el usuario elige un criterio
+  // puntual del dropdown (nombre o precio), ese se respeta tal cual.
+  const ordenExplicito = ordenParam && ordenParam !== 'relevancia'
 
-    // Primer nivel: productos con stock primero
-    if (stockA !== stockB) return stockB - stockA
+  if (!ordenExplicito) {
+    const conStock = gruposFiltrados.filter(g => g.variantes.some(v => v.stock > 0))
+    const sinStock = gruposFiltrados.filter(g => !g.variantes.some(v => v.stock > 0))
+    gruposFiltrados = [...barajar(conStock), ...barajar(sinStock)]
+  } else {
+    gruposFiltrados = [...gruposFiltrados].sort((a, b) => {
+      const stockA = a.variantes.some(v => v.stock > 0) ? 1 : 0
+      const stockB = b.variantes.some(v => v.stock > 0) ? 1 : 0
 
-    // Segundo nivel: criterio del dropdown
-    if (ordenParam === 'precio_asc') {
-      return precioMinimo(a) - precioMinimo(b)
-    } else if (ordenParam === 'precio_desc') {
-      return precioMinimo(b) - precioMinimo(a)
-    } else if (ordenParam === 'nombre_desc') {
-      return b.titulo.localeCompare(a.titulo)
-    } else {
-      // Por defecto ('relevancia' o 'nombre_asc'): alfabético por título (nombre_base o nombre)
-      return a.titulo.localeCompare(b.titulo)
-    }
-  })
+      // Primer nivel: productos con stock primero
+      if (stockA !== stockB) return stockB - stockA
+
+      // Segundo nivel: criterio del dropdown
+      if (ordenParam === 'precio_asc') {
+        return precioMinimo(a) - precioMinimo(b)
+      } else if (ordenParam === 'precio_desc') {
+        return precioMinimo(b) - precioMinimo(a)
+      } else if (ordenParam === 'nombre_desc') {
+        return b.titulo.localeCompare(a.titulo)
+      } else {
+        // 'nombre_asc'
+        return a.titulo.localeCompare(b.titulo)
+      }
+    })
+  }
 
   return (
     <div className="min-h-screen bg-surface-subtle">
