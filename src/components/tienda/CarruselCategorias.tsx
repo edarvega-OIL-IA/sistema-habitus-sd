@@ -59,7 +59,7 @@ export default function CarruselCategorias({ categorias }: Props) {
         }
       `}</style>
       <div
-        className="space-y-3 overflow-hidden"
+        className="space-y-8 overflow-hidden"
         onMouseEnter={() => setPausado(true)}
         onMouseLeave={() => setPausado(false)}
         onTouchStart={() => setPausado(true)}
@@ -85,7 +85,7 @@ function FilaCarrusel({
   // copia termina de salir, la segunda ya está ocupando su lugar exacto,
   // sin salto visible al reiniciar la animación.
   const tira = [...categorias, ...categorias]
-  const duracionSeg = Math.max(categorias.length * 4, 16)
+  const duracionSeg = Math.max(categorias.length * 9, 40)
 
   return (
     <div className="flex gap-3 w-max animate-carrusel"
