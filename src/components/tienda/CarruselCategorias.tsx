@@ -1,7 +1,7 @@
 // Ruta destino: C:\Users\Usuario\Documents\sistema-habitus-sd\src\components\tienda\CarruselCategorias.tsx
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 
 interface Categoria {
@@ -14,8 +14,10 @@ interface Props {
 }
 
 export default function CarruselCategorias({ categorias }: Props) {
-  const [pausado, setPausado] = useState(false)
   const [reducirMovimiento, setReducirMovimiento] = useState(false)
+  // Ref en vez de estado: se lee dentro de un loop de animación en cada
+  // cuadro, y no necesita disparar un re-render de React al cambiar.
+  const pausadoRef = useRef(false)
 
   // Respeta la preferencia de accesibilidad del sistema operativo/navegador
   // (gente con problemas vestibulares configura esto para evitar mareos).
@@ -46,54 +48,121 @@ export default function CarruselCategorias({ categorias }: Props) {
   }
 
   return (
-    <>
-      <style>{`
-        @keyframes carrusel-categorias {
-          from { transform: translateX(0); }
-          to { transform: translateX(-50%); }
-        }
-        .animate-carrusel {
-          animation-name: carrusel-categorias;
-          animation-timing-function: linear;
-          animation-iteration-count: infinite;
-        }
-      `}</style>
-      <div
-        className="space-y-8 overflow-hidden"
-        onMouseEnter={() => setPausado(true)}
-        onMouseLeave={() => setPausado(false)}
-        onTouchStart={() => setPausado(true)}
-        onTouchEnd={() => setPausado(false)}
-      >
-        <FilaCarrusel categorias={filaArriba} direccion="izquierda" pausado={pausado} />
-        <FilaCarrusel categorias={filaAbajo} direccion="derecha" pausado={pausado} />
-      </div>
-    </>
+    <div
+      className="space-y-8 overflow-hidden"
+      onMouseEnter={() => { pausadoRef.current = true }}
+      onMouseLeave={() => { pausadoRef.current = false }}
+    >
+      <FilaCarrusel categorias={filaArriba} direccion="izquierda" pausadoRef={pausadoRef} />
+      <FilaCarrusel categorias={filaAbajo} direccion="derecha" pausadoRef={pausadoRef} />
+    </div>
   )
 }
 
 function FilaCarrusel({
   categorias,
   direccion,
-  pausado,
+  pausadoRef,
 }: {
   categorias: Categoria[]
   direccion: 'izquierda' | 'derecha'
-  pausado: boolean
+  pausadoRef: React.RefObject<boolean>
 }) {
-  // Se duplica la tira para que el loop sea continuo: cuando la primera
-  // copia termina de salir, la segunda ya está ocupando su lugar exacto,
-  // sin salto visible al reiniciar la animación.
-  const tira = [...categorias, ...categorias]
+  const trackRef = useRef<HTMLDivElement>(null)
+  const posRef = useRef(0) // posición actual, siempre en (-loopWidth, 0]
+  const loopWidthRef = useRef(0)
+  const draggingRef = useRef(false)
+  const dragStartXRef = useRef(0)
+  const dragStartPosRef = useRef(0)
+  const dragDistanciaRef = useRef(0)
+
   const duracionSeg = Math.max(categorias.length * 9, 40)
+  // Tira triplicada (no solo duplicada): un arrastre manual rápido puede
+  // recorrer más distancia de una sola vez que el auto-scroll solo, y así
+  // queda margen antes de que se vea la costura del loop.
+  const tira = [...categorias, ...categorias, ...categorias]
+
+  // Mide el ancho real de UNA copia de la tira (para el loop infinito).
+  // Se mide en el DOM en vez de calcularlo a mano porque el ancho de cada
+  // banner cambia según el breakpoint (clases responsive de Tailwind).
+  useEffect(() => {
+    function medir() {
+      if (trackRef.current) loopWidthRef.current = trackRef.current.scrollWidth / 3
+    }
+    medir()
+    window.addEventListener('resize', medir)
+    return () => window.removeEventListener('resize', medir)
+  }, [categorias])
+
+  // Loop de animación: mueve la posición sola, salvo mientras se está
+  // arrastrando o mientras el mouse está encima (pausadoRef). El arrastre
+  // manual escribe directo sobre posRef en onPointerMove, así que ambos
+  // caminos terminan en el mismo lugar: aplicar posRef al transform.
+  useEffect(() => {
+    let raf: number
+    let ultimo = performance.now()
+    const signo = direccion === 'izquierda' ? -1 : 1
+
+    function tick(ahora: number) {
+      const dt = (ahora - ultimo) / 1000
+      ultimo = ahora
+      const loopWidth = loopWidthRef.current
+
+      if (loopWidth > 0 && !draggingRef.current && !pausadoRef.current) {
+        const velocidad = loopWidth / duracionSeg
+        posRef.current += signo * velocidad * dt
+      }
+      if (loopWidth > 0) {
+        posRef.current = ((posRef.current % loopWidth) + loopWidth) % loopWidth
+        if (trackRef.current) trackRef.current.style.transform = `translateX(${-posRef.current}px)`
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [direccion, duracionSeg, pausadoRef])
+
+  function onPointerDown(e: React.PointerEvent) {
+    draggingRef.current = true
+    dragStartXRef.current = e.clientX
+    dragStartPosRef.current = posRef.current
+    dragDistanciaRef.current = 0
+    trackRef.current?.setPointerCapture(e.pointerId)
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    if (!draggingRef.current) return
+    const delta = e.clientX - dragStartXRef.current
+    dragDistanciaRef.current = Math.abs(delta)
+    // Arrastrar hacia la izquierda avanza el carrusel hacia la izquierda
+    // (mismo criterio que cualquier carrusel táctil: el contenido "sigue"
+    // al dedo/mouse).
+    posRef.current = dragStartPosRef.current - delta
+  }
+
+  function onPointerUp() {
+    draggingRef.current = false
+  }
+
+  function onClickCapture(e: React.MouseEvent) {
+    // Si hubo un arrastre real (no un simple click), no dejar que el link
+    // de abajo navegue — evita abrir una categoría sin querer al soltar.
+    if (dragDistanciaRef.current > 5) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+  }
 
   return (
-    <div className="flex gap-3 w-max animate-carrusel"
-      style={{
-        animationDirection: direccion === 'derecha' ? 'reverse' : 'normal',
-        animationDuration: `${duracionSeg}s`,
-        animationPlayState: pausado ? 'paused' : 'running',
-      }}
+    <div
+      ref={trackRef}
+      className="flex gap-3 w-max cursor-grab active:cursor-grabbing select-none"
+      style={{ touchAction: 'pan-y' }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onClickCapture={onClickCapture}
     >
       {tira.map((c, i) => (
         <BannerCategoria key={`${c.rubro}-${i}`} categoria={c} className="w-[260px] sm:w-[300px] shrink-0" />
@@ -107,9 +176,16 @@ function BannerCategoria({ categoria, className = '' }: { categoria: Categoria; 
     <Link
       href={`/tienda?rubro=${encodeURIComponent(categoria.rubro)}`}
       className={`block rounded-lg overflow-hidden border border-border-gray hover:opacity-90 transition-opacity ${className}`}
+      draggable={false}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={categoria.imagen} alt={categoria.rubro} className="w-full h-auto block" loading="lazy" />
+      <img
+        src={categoria.imagen}
+        alt={categoria.rubro}
+        className="w-full h-auto block pointer-events-none"
+        loading="lazy"
+        draggable={false}
+      />
     </Link>
   )
 }
