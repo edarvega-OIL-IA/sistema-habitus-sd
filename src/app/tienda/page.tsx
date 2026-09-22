@@ -12,6 +12,7 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import ProductoCard from '@/components/tienda/ProductoCard'
+import CarruselCategorias from '@/components/tienda/CarruselCategorias'
 import CarritoBoton from '@/components/tienda/CarritoBoton'
 import FiltrosTienda from '@/components/tienda/FiltrosTienda'
 import OrdenTienda from '@/components/tienda/OrdenTienda'
@@ -78,10 +79,11 @@ function precioMinimo(g: GrupoProducto): number {
   return Math.min(...g.variantes.map(v => v.precio))
 }
 
-// Banners de categoría — solo las 6 con imagen armada por ahora (las de
+// Banners de categoría — se muestran en el carrusel de dos filas contrapuestas
+// (ver CarruselCategorias). Cada uno enlaza a /tienda?rubro=X. Las de
 // "Cafeínas" se dejaron afuera para no generar ambigüedad de nombre con el
 // rubro real "Energía"; las de "Envíos a toda Argentina" quedan pendientes
-// hasta que se implemente la fase de envíos a domicilio).
+// hasta que se implemente la fase de envíos a domicilio.
 const CATEGORIAS_BANNER = [
   { rubro: 'Proteínas', imagen: '/categorias/proteinas.png' },
   { rubro: 'Creatinas', imagen: '/categorias/creatinas.png' },
@@ -89,6 +91,7 @@ const CATEGORIAS_BANNER = [
   { rubro: 'Colágenos', imagen: '/categorias/colagenos.png' },
   { rubro: 'Quemadores', imagen: '/categorias/quemadores.png' },
   { rubro: 'Bebidas Isotónicas', imagen: '/categorias/isotonicas.png' },
+  { rubro: 'Geles', imagen: '/categorias/geles.png' },
 ]
 
 export default async function TiendaPage({
@@ -176,21 +179,10 @@ export default async function TiendaPage({
         Saltar al catálogo
       </a>
 
-      {/* Banners de categoría — solo en la vista "landing", sin filtro ni búsqueda activa */}
+      {/* Carrusel de categorías — solo en la vista "landing", sin filtro ni búsqueda activa */}
       {rubrosSeleccionados.length === 0 && marcasSeleccionadas.length === 0 && !busqueda && (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-6">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {CATEGORIAS_BANNER.map(c => (
-              <Link
-                key={c.rubro}
-                href={`/tienda?rubro=${encodeURIComponent(c.rubro)}`}
-                className="block rounded-lg overflow-hidden border border-border-gray hover:opacity-90 transition-opacity"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={c.imagen} alt={c.rubro} className="w-full h-auto block" loading="lazy" />
-              </Link>
-            ))}
-          </div>
+          <CarruselCategorias categorias={CATEGORIAS_BANNER} />
         </div>
       )}
 
