@@ -168,6 +168,13 @@ export default function FiscalizacionPage() {
     return true
   })
 
+  // Aviso general (no depende del número de comprobante, a diferencia de
+  // comprobantePrevioSinConfirmar): desde que fiscalizar.ts factura siempre
+  // con la fecha de hoy, esto ya no debería volver a romper por sí solo,
+  // pero avisa igual para que no se acumulen ventas viejas sin resolver.
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+  const ventasDeDiasAnteriores = ventas.filter(v => v.fecha_utc < hoy)
+
   if (loading) return <div className="p-6 text-sm text-gray-500">Cargando...</div>
 
   if (rolUsuario !== null && rolUsuario !== 1) {
@@ -182,6 +189,14 @@ export default function FiscalizacionPage() {
           Ventas Guardadas sin fiscalizar, o que se intentaron fiscalizar y ARCA/TusFacturasAPP rechazó.
         </p>
       </div>
+
+      {ventasDeDiasAnteriores.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm text-amber-800">
+          ⚠ Hay {ventasDeDiasAnteriores.length} {ventasDeDiasAnteriores.length === 1 ? 'venta' : 'ventas'} de días
+          anteriores sin fiscalizar (la más vieja: {ventasDeDiasAnteriores[ventasDeDiasAnteriores.length - 1].fecha_utc.split('-').reverse().join('/')}).
+          Conviene resolverlas antes que las de hoy, para no acumular pendientes.
+        </div>
+      )}
 
       <div className="flex gap-2 mb-4">
         {([
