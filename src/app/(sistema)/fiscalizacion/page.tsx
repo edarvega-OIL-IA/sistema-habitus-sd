@@ -66,7 +66,7 @@ export default function FiscalizacionPage() {
   useEffect(() => { cargarDatos() }, [])
 
   useEffect(() => {
-    if (filtroEstado === 'fiscalizadas' && !fiscalizadasCargadas) cargarFiscalizadas()
+    if ((filtroEstado === 'fiscalizadas' || filtroEstado === 'todos') && !fiscalizadasCargadas) cargarFiscalizadas()
   }, [filtroEstado, fiscalizadasCargadas])
 
   async function cargarDatos() {
@@ -171,6 +171,24 @@ export default function FiscalizacionPage() {
   }
 
   async function fiscalizar(ventaId: number) {
+    // Confirmación puntual en vez de un aviso fijo en pantalla: hay ventas
+    // en efectivo que nunca se van a fiscalizar, así que un banner
+    // permanente por "días anteriores sin fiscalizar" quedaría prendido
+    // para siempre sin ser un problema real. Esto solo avisa en el momento
+    // de intentar fiscalizar, y solo si la venta es de un día anterior a
+    // hoy (fiscalizar.ts ya factura siempre con la fecha de hoy, así que
+    // esto es solo un aviso informativo, no bloqueante).
+    const venta = ventas.find(v => v.id === ventaId)
+    if (venta) {
+      const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+      if (venta.fecha_utc < hoy) {
+        const continuar = window.confirm(
+          `Esta venta es del ${venta.fecha_utc.split('-').reverse().join('/')} (no de hoy). Al fiscalizarla, ARCA va a registrar la fecha de hoy (${hoy.split('-').reverse().join('/')}), no la fecha original de la venta.\n\n¿Confirmás que querés fiscalizarla igual?`
+        )
+        if (!continuar) return
+      }
+    }
+
     setProcesando(ventaId)
     const clienteId = clienteDeFila(ventaId, ventas.find(v => v.id === ventaId)?.cliente_id ?? null)
     const esContado = esContadoDeFila(ventaId)
@@ -213,18 +231,16 @@ export default function FiscalizacionPage() {
     }
   }
 
-  const ventasFiltradas = ventas.filter(v => {
-    if (filtroEstado === 'error') return v.estado_venta_id === 1
-    if (filtroEstado === 'sin_fiscalizar') return v.estado_venta_id === 2
-    return true
-  })
-
-  // Aviso general (no depende del número de comprobante, a diferencia de
-  // comprobantePrevioSinConfirmar): desde que fiscalizar.ts factura siempre
-  // con la fecha de hoy, esto ya no debería volver a romper por sí solo,
-  // pero avisa igual para que no se acumulen ventas viejas sin resolver.
-  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
-  const ventasDeDiasAnteriores = ventas.filter(v => v.fecha_utc < hoy)
+  // 'todos' ahora suma las fiscalizadas (si ya se cargaron) a las
+  // pendientes/rechazadas, ordenado por fecha igual que el resto.
+  const ventasFiltradas = (() => {
+    if (filtroEstado === 'error') return ventas.filter(v => v.estado_venta_id === 1)
+    if (filtroEstado === 'sin_fiscalizar') return ventas.filter(v => v.estado_venta_id === 2)
+    if (filtroEstado === 'fiscalizadas') return ventasFiscalizadas
+    return [...ventas, ...ventasFiscalizadas].sort((a, b) =>
+      a.fecha_utc === b.fecha_utc ? b.id - a.id : b.fecha_utc.localeCompare(a.fecha_utc)
+    )
+  })()
 
   if (loading) return <div className="p-6 text-sm text-gray-500">Cargando...</div>
 
@@ -241,20 +257,12 @@ export default function FiscalizacionPage() {
         </p>
       </div>
 
-      {ventasDeDiasAnteriores.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm text-amber-800">
-          ⚠ Hay {ventasDeDiasAnteriores.length} {ventasDeDiasAnteriores.length === 1 ? 'venta' : 'ventas'} de días
-          anteriores sin fiscalizar (la más vieja: {ventasDeDiasAnteriores[ventasDeDiasAnteriores.length - 1].fecha_utc.split('-').reverse().join('/')}).
-          Conviene resolverlas antes que las de hoy, para no acumular pendientes.
-        </div>
-      )}
-
       <div className="flex gap-2 mb-4">
         {([
           ['error', 'Rechazadas / Error', ventas.filter(v => v.estado_venta_id === 1).length],
           ['sin_fiscalizar', 'Sin fiscalizar', ventas.filter(v => v.estado_venta_id === 2).length],
-          ['todos', 'Todas', ventas.length],
           ['fiscalizadas', 'Fiscalizadas', totalFiscalizadas ?? '…'],
+          ['todos', 'Todas', ventas.length + (totalFiscalizadas ?? 0)],
         ] as const).map(([valor, etiqueta, cantidad]) => (
           <button
             key={valor}
@@ -320,6 +328,38 @@ export default function FiscalizacionPage() {
       ) : (
         <div className="space-y-3">
           {ventasFiltradas.map(venta => {
+            if (venta.estado_venta_id === ESTADO_VENTA_FISCALIZADA) {
+              const comprobanteFiscalizado = comprobantesFiscalizadas.get(venta.id)
+              return (
+                <div key={venta.id} className="bg-white rounded-lg border border-gray-200 p-4">
+                  <div className="flex items-start justify-between flex-wrap gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-[#3c3c3b]">#{venta.numero_venta}</span>
+                        <span className="text-sm text-gray-500">{venta.fecha_utc.split('-').reverse().join('/')}</span>
+                        <span className="text-xs bg-[#00a19a]/10 text-[#00a19a] px-2 py-0.5 rounded-full">Fiscalizada</span>
+                      </div>
+                      <div className="text-sm font-semibold text-[#3c3c3b] mt-1">
+                        ${venta.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      </div>
+                      {comprobanteFiscalizado && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Factura C {String(comprobanteFiscalizado.numero).padStart(8, '0')} — CAE {comprobanteFiscalizado.factura_cae}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => descargarPDF(venta.id)}
+                      className="bg-gray-100 text-gray-700 px-4 py-2 rounded text-sm hover:bg-gray-200 transition-colors border border-gray-300"
+                    >
+                      Descargar PDF
+                    </button>
+                  </div>
+                </div>
+              )
+            }
+
             const comprobante = comprobantesPorVenta.get(venta.id)
             const esRechazo = venta.estado_venta_id === 1
             const clienteId = clienteDeFila(venta.id, venta.cliente_id)
