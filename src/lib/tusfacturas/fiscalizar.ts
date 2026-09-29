@@ -101,7 +101,7 @@ export async function fiscalizarVenta(
     intentosPrevios = comprobanteExistente.fiscalizacion_intentos ?? 0
     await supabase
       .from('comprobantes')
-      .update({ estado_fiscal_id: ESTADO_FISCAL_PENDIENTE, mensaje_error: null })
+      .update({ estado_fiscal_id: ESTADO_FISCAL_PENDIENTE, mensaje_error: null, fecha_emision_utc: new Date().toISOString() })
       .eq('id', comprobanteId)
   } else {
     const { data: proximoNumero, error: numError } = await supabase.rpc('obtener_proximo_numero_comprobante', {
@@ -132,9 +132,19 @@ export async function fiscalizarVenta(
 
   const condicionesIva = cliente.condiciones_iva as unknown as { nombre: string } | null
 
+  // ARCA exige que la fecha de cada comprobante sea igual o posterior a la
+  // del último autorizado en la secuencia del punto de venta — nunca
+  // anterior. Si una venta vieja queda pendiente de facturar y mientras
+  // tanto se fiscaliza una más nueva, facturar con `venta.fecha_utc` (la
+  // fecha real de la venta) haría que ARCA la rechace con "El número o
+  // fecha del comprobante no se corresponde con el próximo a autorizar".
+  // Por eso se factura siempre con la fecha de HOY, sin importar cuándo
+  // ocurrió la venta.
+  const fechaEmisionHoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+
   const ventaParaFacturar: VentaParaFacturar = {
     venta_id: ventaId,
-    fecha_utc: venta.fecha_utc,
+    fecha_utc: fechaEmisionHoy,
     total: venta.total,
     cliente: {
       id: cliente.id,
