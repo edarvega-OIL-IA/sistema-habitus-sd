@@ -23,6 +23,9 @@ interface Comprobante {
   fiscalizacion_intentos: number
 }
 
+// Mismo valor que en fiscalizar.ts (ventas.estado_venta_id=4 al recibir CAE)
+const ESTADO_VENTA_FISCALIZADA = 4
+
 // Mismo valor que en fiscalizar.ts (verificado en producción, no se repite el
 // código de fiscalizar.ts acá, solo el número de estado para la comparación)
 const ESTADO_FISCAL_CAE_RECIBIDO = 3
@@ -48,9 +51,23 @@ export default function FiscalizacionPage() {
   const [contadoSeleccionado, setContadoSeleccionado] = useState<Map<number, boolean>>(new Map())
   const [procesando, setProcesando] = useState<number | null>(null)
   const [resultados, setResultados] = useState<Map<number, { ok: boolean; mensaje: string }>>(new Map())
-  const [filtroEstado, setFiltroEstado] = useState<'todos' | 'error' | 'sin_fiscalizar'>('error')
+  const [filtroEstado, setFiltroEstado] = useState<'todos' | 'error' | 'sin_fiscalizar' | 'fiscalizadas'>('error')
+
+  // Las fiscalizadas se cargan aparte y bajo demanda (recién cuando se
+  // entra a esa pestaña) porque, a diferencia de las pendientes/rechazadas,
+  // el historial completo puede ser mucho más largo — no tiene sentido
+  // traerlo siempre de entrada.
+  const [totalFiscalizadas, setTotalFiscalizadas] = useState<number | null>(null)
+  const [ventasFiscalizadas, setVentasFiscalizadas] = useState<Venta[]>([])
+  const [comprobantesFiscalizadas, setComprobantesFiscalizadas] = useState<Map<number, Comprobante>>(new Map())
+  const [cargandoFiscalizadas, setCargandoFiscalizadas] = useState(false)
+  const [fiscalizadasCargadas, setFiscalizadasCargadas] = useState(false)
 
   useEffect(() => { cargarDatos() }, [])
+
+  useEffect(() => {
+    if (filtroEstado === 'fiscalizadas' && !fiscalizadasCargadas) cargarFiscalizadas()
+  }, [filtroEstado, fiscalizadasCargadas])
 
   async function cargarDatos() {
     setLoading(true)
@@ -91,7 +108,41 @@ export default function FiscalizacionPage() {
       .order('nombre')
     setClientes(clientesData || [])
 
+    // Solo el conteo (head: true, sin traer filas) para la etiqueta de la
+    // pestaña "Fiscalizadas" — el detalle se carga recién al entrar ahí.
+    const { count } = await supabase
+      .from('ventas')
+      .select('id', { count: 'exact', head: true })
+      .eq('estado_venta_id', ESTADO_VENTA_FISCALIZADA)
+    setTotalFiscalizadas(count ?? 0)
+
     setLoading(false)
+  }
+
+  async function cargarFiscalizadas() {
+    setCargandoFiscalizadas(true)
+    const supabase = createClient()
+
+    const { data: ventasData } = await supabase
+      .from('ventas')
+      .select('id, numero_venta, fecha_utc, total, cliente_id, estado_venta_id')
+      .eq('estado_venta_id', ESTADO_VENTA_FISCALIZADA)
+      .order('fecha_utc', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(200)
+    setVentasFiscalizadas(ventasData || [])
+
+    if (ventasData && ventasData.length > 0) {
+      const ventaIds = ventasData.map(v => v.id)
+      const { data: comprobantesData } = await supabase
+        .from('comprobantes')
+        .select('venta_id, numero, punto_venta_id, estado_fiscal_id, factura_cae, mensaje_error, fiscalizacion_intentos')
+        .in('venta_id', ventaIds)
+      setComprobantesFiscalizadas(new Map((comprobantesData || []).map(c => [c.venta_id, c])))
+    }
+
+    setFiscalizadasCargadas(true)
+    setCargandoFiscalizadas(false)
   }
 
   function clienteDeFila(ventaId: number, clienteIdActual: number | null): number {
@@ -203,6 +254,7 @@ export default function FiscalizacionPage() {
           ['error', 'Rechazadas / Error', ventas.filter(v => v.estado_venta_id === 1).length],
           ['sin_fiscalizar', 'Sin fiscalizar', ventas.filter(v => v.estado_venta_id === 2).length],
           ['todos', 'Todas', ventas.length],
+          ['fiscalizadas', 'Fiscalizadas', totalFiscalizadas ?? '…'],
         ] as const).map(([valor, etiqueta, cantidad]) => (
           <button
             key={valor}
@@ -219,7 +271,49 @@ export default function FiscalizacionPage() {
         ))}
       </div>
 
-      {ventasFiltradas.length === 0 ? (
+      {filtroEstado === 'fiscalizadas' ? (
+        cargandoFiscalizadas ? (
+          <div className="p-6 text-sm text-gray-500">Cargando...</div>
+        ) : ventasFiscalizadas.length === 0 ? (
+          <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
+            Todavía no hay ninguna venta fiscalizada.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {ventasFiscalizadas.map(venta => {
+              const comprobante = comprobantesFiscalizadas.get(venta.id)
+              return (
+                <div key={venta.id} className="bg-white rounded-lg border border-gray-200 p-4">
+                  <div className="flex items-start justify-between flex-wrap gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-[#3c3c3b]">#{venta.numero_venta}</span>
+                        <span className="text-sm text-gray-500">{venta.fecha_utc.split('-').reverse().join('/')}</span>
+                        <span className="text-xs bg-[#00a19a]/10 text-[#00a19a] px-2 py-0.5 rounded-full">Fiscalizada</span>
+                      </div>
+                      <div className="text-sm font-semibold text-[#3c3c3b] mt-1">
+                        ${venta.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      </div>
+                      {comprobante && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Factura C {String(comprobante.numero).padStart(8, '0')} — CAE {comprobante.factura_cae}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => descargarPDF(venta.id)}
+                      className="bg-gray-100 text-gray-700 px-4 py-2 rounded text-sm hover:bg-gray-200 transition-colors border border-gray-300"
+                    >
+                      Descargar PDF
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      ) : ventasFiltradas.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
           {ventas.length === 0 ? 'No hay ventas pendientes de fiscalización. 🎉' : 'No hay ventas que coincidan con este filtro.'}
         </div>
