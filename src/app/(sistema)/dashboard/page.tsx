@@ -695,22 +695,6 @@ export default function DashboardPage() {
               <p className="text-xs sm:text-sm font-semibold text-gray-600 break-words">{fmt(ventasPorTurnoMes.tarde)}</p>
             </div>
           </button>
-          <button
-            onClick={() => router.push('/ventas/registro?turno=todos')}
-            className="text-left bg-[#3c3c3b] rounded-lg p-3 sm:p-4 min-w-0 hover:bg-[#3c3c3b]/90 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)] hover:-translate-y-1.5 hover:shadow-[0_6px_14px_rgba(60,60,59,0.14),0_24px_40px_-10px_rgba(60,60,59,0.38)] active:translate-y-0 active:shadow-[0_2px_4px_rgba(60,60,59,0.08),0_6px_10px_-2px_rgba(60,60,59,0.20)] transition-all duration-150"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <ShoppingCart className="w-4 h-4 text-white/70" />
-              <p className="text-xs text-white/70 font-medium">Total del día</p>
-            </div>
-            <p className="text-sm sm:text-xl md:text-2xl font-bold text-white leading-tight break-words">{fmt(ventasDia.total)}</p>
-            <p className="text-xs text-white/50 mt-1">{ventasDia.cantidad} {ventasDia.cantidad === 1 ? 'venta' : 'ventas'}</p>
-            <div className="mt-2 pt-2 border-t border-white/10">
-              <p className="text-[10px] text-white/40 uppercase tracking-wide">Acumulado mensual</p>
-              <p className="text-xs sm:text-sm font-semibold text-white/80 break-words">{fmt(resumenMes.ventas)}</p>
-            </div>
-          </button>
-
           {/* Web — mismo estilo que Mañana/Tarde, distingue el canal (web vs
               mostrador) en vez de la franja horaria */}
           <button
@@ -726,6 +710,22 @@ export default function DashboardPage() {
             <div className="mt-2 pt-2 border-t border-gray-100">
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Acumulado mensual</p>
               <p className="text-xs sm:text-sm font-semibold text-gray-600 break-words">{fmt(ventasWeb.acumuladoMensual)}</p>
+            </div>
+          </button>
+
+          <button
+            onClick={() => router.push('/ventas/registro?turno=todos')}
+            className="text-left bg-[#3c3c3b] rounded-lg p-3 sm:p-4 min-w-0 hover:bg-[#3c3c3b]/90 shadow-[0_2px_4px_rgba(60,60,59,0.10),0_14px_28px_-8px_rgba(60,60,59,0.30)] hover:-translate-y-1.5 hover:shadow-[0_6px_14px_rgba(60,60,59,0.14),0_24px_40px_-10px_rgba(60,60,59,0.38)] active:translate-y-0 active:shadow-[0_2px_4px_rgba(60,60,59,0.08),0_6px_10px_-2px_rgba(60,60,59,0.20)] transition-all duration-150"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <ShoppingCart className="w-4 h-4 text-white/70" />
+              <p className="text-xs text-white/70 font-medium">Total del día</p>
+            </div>
+            <p className="text-sm sm:text-xl md:text-2xl font-bold text-white leading-tight break-words">{fmt(ventasDia.total)}</p>
+            <p className="text-xs text-white/50 mt-1">{ventasDia.cantidad} {ventasDia.cantidad === 1 ? 'venta' : 'ventas'}</p>
+            <div className="mt-2 pt-2 border-t border-white/10">
+              <p className="text-[10px] text-white/40 uppercase tracking-wide">Acumulado mensual</p>
+              <p className="text-xs sm:text-sm font-semibold text-white/80 break-words">{fmt(resumenMes.ventas)}</p>
             </div>
           </button>
 
