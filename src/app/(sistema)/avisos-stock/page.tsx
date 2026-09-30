@@ -127,14 +127,18 @@ export default function AvisosStockPage() {
     return `https://wa.me/549${numero}?text=${encodeURIComponent(mensajeWhatsapp(articulo))}`
   }
 
+  // Compose web de Gmail en vez de mailto: — mailto: depende de cuál sea el
+  // cliente de mail predeterminado de Windows (en la práctica, Outlook sin
+  // configurar, que tira error). Esto abre directo en el navegador.
   function linkMailtoGrupo(grupo: Grupo): string {
     const emails = grupo.avisos.filter(a => a.email).map(a => a.email as string)
-    const titulo = grupo.articulo ? (grupo.articulo.nombre) : ''
+    const titulo = grupo.articulo ? grupo.articulo.nombre : ''
     const asunto = `¡Ya hay stock de ${titulo}! — Hábitus SD`
     const cuerpo = grupo.articulo
       ? `Hola!\n\nTe escribimos porque nos pediste que te avisemos cuando vuelva a haber stock de "${titulo}" — ¡ya llegó! 🎉\n\nLo podés ver acá: ${linkProducto(grupo.articulo)}\n\nSaludos,\nHábitus SD`
       : ''
-    return `mailto:?bcc=${encodeURIComponent(emails.join(','))}&subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`
+    const params = new URLSearchParams({ view: 'cm', fs: '1', bcc: emails.join(','), su: asunto, body: cuerpo })
+    return `https://mail.google.com/mail/?${params.toString()}`
   }
 
   const grupos: Grupo[] = (() => {
@@ -256,6 +260,8 @@ export default function AvisosStockPage() {
                     {tieneEmails && (
                       <a
                         href={linkMailtoGrupo(grupo)}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 px-3 py-1.5 rounded text-xs font-medium hover:bg-gray-200 transition-colors border border-gray-300"
                       >
                         <Mail className="w-3.5 h-3.5" />
