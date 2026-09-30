@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { Minus, Plus, ShoppingCart, Check } from 'lucide-react'
 import { useCarrito } from './CarritoContext'
+import AvisoStock from './AvisoStock'
 
 interface Props {
   articuloId: number
@@ -43,9 +44,12 @@ export default function DetalleAgregar({ articuloId, titulo, sabor, marca, rubro
 
   if (sinStock) {
     return (
-      <span className="inline-flex items-center bg-gray-100 text-gray-500 text-sm font-medium px-3 py-1.5 rounded-full">
-        Sin stock por el momento
-      </span>
+      <div className="space-y-2">
+        <span className="inline-flex items-center bg-gray-100 text-gray-500 text-sm font-medium px-3 py-1.5 rounded-full">
+          Sin stock por el momento
+        </span>
+        <AvisoStock articuloId={articuloId} />
+      </div>
     )
   }
 
