@@ -2,7 +2,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check } from 'lucide-react'
+import { Check, Bell } from 'lucide-react'
 
 interface Props {
   articuloId: number
@@ -67,16 +67,19 @@ export default function AvisoStock({ articuloId }: Props) {
 
   if (enviado) {
     return (
-      <div className="flex items-center gap-2 bg-offer-teal/10 text-offer-teal text-sm font-medium px-3 py-2 rounded-lg">
-        <Check className="w-4 h-4 shrink-0" />
+      <div className="flex items-center gap-2 border-2 border-offer-teal/30 bg-offer-teal/10 text-offer-teal text-sm font-medium px-4 py-3 rounded-lg">
+        <Check className="w-5 h-5 shrink-0" />
         Listo, te avisamos apenas vuelva a haber stock.
       </div>
     )
   }
 
   return (
-    <div className="border border-border-gray rounded-lg p-3 space-y-2.5">
-      <p className="text-sm font-medium text-charcoal">Avisame cuando haya stock</p>
+    <div className="border-2 border-offer-teal/30 bg-offer-teal/5 rounded-lg p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Bell className="w-5 h-5 text-offer-teal shrink-0" />
+        <p className="text-base font-semibold text-charcoal">Avisame cuando haya stock</p>
+      </div>
 
       <div className="flex gap-1.5">
         {([
