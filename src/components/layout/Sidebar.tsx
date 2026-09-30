@@ -10,7 +10,14 @@ const nav = [
   { label: 'Caja', href: '/cierre-turno', icon: '🔒' },
   { label: 'Ventas', href: '/ventas', icon: '🛒' },
   { label: 'Registro Ventas', href: '/ventas/registro', icon: '🧾' },
-  { label: 'Pedidos Web', href: '/pedidos-web', icon: '🌐' },
+  {
+    label: 'Pedidos',
+    icon: '🌐',
+    children: [
+      { label: 'Pedidos Web', href: '/pedidos-web' },
+      { label: 'Avisos Stock', href: '/avisos-stock' },
+    ],
+  },
   { label: 'Presupuestos', href: '/presupuestos', icon: '📋' },
   {
     label: 'Clientes',
