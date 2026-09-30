@@ -525,6 +525,28 @@ export default function ComprasNuevaPage() {
     const n = parseFloat(s.replace(/[.,]/g, ''))
     return isNaN(n) ? 0 : n
   }
+  // Precio Unit. (c/IVA) necesita más precisión que el resto de los montos
+  // del sistema: acá sí puede haber 3 decimales reales (ej. 2183,378), así
+  // que a diferencia de parsearMonto (donde 3+ dígitos después del
+  // separador se leen como miles) este SIEMPRE toma el último separador
+  // como el decimal, y redondea el resultado a 2 decimales.
+  function parsearPrecioUnitario(v: string): number {
+    const s = (v || '').trim()
+    if (!s) return 0
+    const lastComma = s.lastIndexOf(',')
+    const lastDot = s.lastIndexOf('.')
+    const lastSep = Math.max(lastComma, lastDot)
+    let n: number
+    if (lastSep === -1) {
+      n = parseFloat(s.replace(/[^\d]/g, ''))
+    } else {
+      const despuesDelSeparador = s.slice(lastSep + 1).replace(/[^\d]/g, '')
+      const parteEntera = s.slice(0, lastSep).replace(/[.,]/g, '')
+      n = parseFloat((parteEntera || '0') + '.' + (despuesDelSeparador || '0'))
+    }
+    if (isNaN(n)) return 0
+    return Math.round(n * 100) / 100
+  }
   function fmtInput(n: number): string {
     if (!n) return ''
     return n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
@@ -795,7 +817,7 @@ export default function ComprasNuevaPage() {
                           onChange={e => {
                             const raw = e.target.value
                             setPrecioTexto(prev => ({ ...prev, [index]: raw }))
-                            actualizarItem(index, 'precio_unitario', parsearMonto(raw))
+                            actualizarItem(index, 'precio_unitario', parsearPrecioUnitario(raw))
                           }}
                           onBlur={() => setPrecioTexto(prev => {
                             const next = { ...prev }; delete next[index]; return next
