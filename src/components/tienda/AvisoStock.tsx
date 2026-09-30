@@ -107,6 +107,8 @@ export default function AvisoStock({ articuloId }: Props) {
           <input
             type="tel"
             inputMode="tel"
+            autoComplete="tel"
+            name="whatsapp-aviso-stock"
             placeholder="Tu WhatsApp (ej. 299 123-4567)"
             value={whatsapp}
             onChange={e => { setWhatsapp(e.target.value); setError(null) }}
@@ -124,6 +126,8 @@ export default function AvisoStock({ articuloId }: Props) {
         <div>
           <input
             type="email"
+            autoComplete="email"
+            name="email-aviso-stock"
             placeholder="Tu email"
             value={email}
             onChange={e => { setEmail(e.target.value); setError(null) }}
