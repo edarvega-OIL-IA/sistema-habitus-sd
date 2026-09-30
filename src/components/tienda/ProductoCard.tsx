@@ -134,7 +134,7 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
           {sinStock && (
             <Link
               href={`/tienda/producto/${armarSlugProducto(seleccionada.id, titulo)}`}
-              className="flex items-center gap-1.5 text-xs font-medium text-offer-teal hover:underline mt-2"
+              className="flex items-center gap-1.5 text-sm font-semibold text-offer-teal hover:underline mt-2"
             >
               <Bell className="w-3.5 h-3.5 shrink-0" />
               Avisame cuando haya stock
