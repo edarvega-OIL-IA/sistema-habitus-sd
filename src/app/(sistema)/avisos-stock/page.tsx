@@ -34,12 +34,20 @@ function soloDigitos(s: string): string {
   return s.replace(/\D/g, '')
 }
 
+// Mismo criterio de búsqueda que el resto del sistema: tokenizada, sin
+// acentos/mayúsculas (ver Artículos, Actualizar Precios, tienda/page.tsx)
+function normalizar(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
 export default function AvisosStockPage() {
   const [loading, setLoading] = useState(true)
   const [avisos, setAvisos] = useState<Aviso[]>([])
   const [articulosMap, setArticulosMap] = useState<Map<number, Articulo>>(new Map())
   const [stockMap, setStockMap] = useState<Map<number, number>>(new Map())
   const [marcando, setMarcando] = useState<number | null>(null)
+  const [busqueda, setBusqueda] = useState('')
+  const [orden, setOrden] = useState<'stock' | 'cantidad'>('stock')
 
   useEffect(() => { cargarDatos() }, [])
 
@@ -144,12 +152,30 @@ export default function AvisosStockPage() {
         })
       }
     }
-    return [...mapa.values()].sort((a, b) => {
+
+    let lista = [...mapa.values()]
+
+    if (busqueda.trim()) {
+      const textoBuscado = normalizar(busqueda.trim())
+      lista = lista.filter(g => {
+        const nombre = g.articulo ? (g.articulo.nombre_base || g.articulo.nombre) : ''
+        return normalizar(nombre).includes(textoBuscado)
+      })
+    }
+
+    return lista.sort((a, b) => {
+      const nombreA = a.articulo ? (a.articulo.nombre_base || a.articulo.nombre) : ''
+      const nombreB = b.articulo ? (b.articulo.nombre_base || b.articulo.nombre) : ''
+
+      if (orden === 'cantidad') {
+        if (a.avisos.length !== b.avisos.length) return b.avisos.length - a.avisos.length
+        return nombreA.localeCompare(nombreB)
+      }
+
+      // orden === 'stock': con stock disponible primero
       const listoA = a.stock > 0 ? 0 : 1
       const listoB = b.stock > 0 ? 0 : 1
       if (listoA !== listoB) return listoA - listoB
-      const nombreA = a.articulo ? (a.articulo.nombre_base || a.articulo.nombre) : ''
-      const nombreB = b.articulo ? (b.articulo.nombre_base || b.articulo.nombre) : ''
       return nombreA.localeCompare(nombreB)
     })
   })()
@@ -165,9 +191,39 @@ export default function AvisosStockPage() {
         </p>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <input
+          type="text"
+          placeholder="Buscar producto..."
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          className="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+        />
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={() => setOrden('stock')}
+            className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
+              orden === 'stock' ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Con stock primero
+          </button>
+          <button
+            type="button"
+            onClick={() => setOrden('cantidad')}
+            className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
+              orden === 'cantidad' ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Más gente esperando
+          </button>
+        </div>
+      </div>
+
       {grupos.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
-          No hay avisos pendientes. 🎉
+          {avisos.length === 0 ? 'No hay avisos pendientes. 🎉' : 'No hay productos que coincidan con la búsqueda.'}
         </div>
       ) : (
         <div className="space-y-4">
