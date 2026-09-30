@@ -3,7 +3,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Package, Minus, Plus, ShoppingCart, Check } from 'lucide-react'
+import { Package, Minus, Plus, ShoppingCart, Check, Bell } from 'lucide-react'
 import { useCarrito } from './CarritoContext'
 import { armarSlugProducto } from '@/lib/slug'
 
@@ -129,6 +129,16 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
             </div>
           ) : (
             <p className="text-base font-bold text-charcoal">{fmt(seleccionada.precio)}</p>
+          )}
+
+          {sinStock && (
+            <Link
+              href={`/tienda/producto/${armarSlugProducto(seleccionada.id, titulo)}`}
+              className="flex items-center gap-1.5 text-xs font-medium text-offer-teal hover:underline mt-2"
+            >
+              <Bell className="w-3.5 h-3.5 shrink-0" />
+              Avisame cuando haya stock
+            </Link>
           )}
 
           {!sinStock && (
