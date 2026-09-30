@@ -109,12 +109,12 @@ export default function AvisosStockPage() {
   }
 
   function linkProducto(articulo: Articulo): string {
-    const titulo = articulo.nombre_base || articulo.nombre
+    const titulo = articulo.nombre
     return `${URL_TIENDA}/tienda/producto/${armarSlugProducto(articulo.id, titulo)}`
   }
 
   function mensajeWhatsapp(articulo: Articulo): string {
-    const titulo = articulo.nombre_base || articulo.nombre
+    const titulo = articulo.nombre
     return `Hola! Te escribimos de Hábitus SD porque nos pediste que te avisemos cuando vuelva a haber stock de "${titulo}" — ¡ya llegó! 🎉\n\nLo podés ver acá: ${linkProducto(articulo)}`
   }
 
@@ -129,7 +129,7 @@ export default function AvisosStockPage() {
 
   function linkMailtoGrupo(grupo: Grupo): string {
     const emails = grupo.avisos.filter(a => a.email).map(a => a.email as string)
-    const titulo = grupo.articulo ? (grupo.articulo.nombre_base || grupo.articulo.nombre) : ''
+    const titulo = grupo.articulo ? (grupo.articulo.nombre) : ''
     const asunto = `¡Ya hay stock de ${titulo}! — Hábitus SD`
     const cuerpo = grupo.articulo
       ? `Hola!\n\nTe escribimos porque nos pediste que te avisemos cuando vuelva a haber stock de "${titulo}" — ¡ya llegó! 🎉\n\nLo podés ver acá: ${linkProducto(grupo.articulo)}\n\nSaludos,\nHábitus SD`
@@ -158,14 +158,14 @@ export default function AvisosStockPage() {
     if (busqueda.trim()) {
       const textoBuscado = normalizar(busqueda.trim())
       lista = lista.filter(g => {
-        const nombre = g.articulo ? (g.articulo.nombre_base || g.articulo.nombre) : ''
+        const nombre = g.articulo ? (g.articulo.nombre) : ''
         return normalizar(nombre).includes(textoBuscado)
       })
     }
 
     return lista.sort((a, b) => {
-      const nombreA = a.articulo ? (a.articulo.nombre_base || a.articulo.nombre) : ''
-      const nombreB = b.articulo ? (b.articulo.nombre_base || b.articulo.nombre) : ''
+      const nombreA = a.articulo ? (a.articulo.nombre) : ''
+      const nombreB = b.articulo ? (b.articulo.nombre) : ''
 
       if (orden === 'cantidad') {
         if (a.avisos.length !== b.avisos.length) return b.avisos.length - a.avisos.length
@@ -230,7 +230,7 @@ export default function AvisosStockPage() {
           {grupos.map(grupo => {
             const stock = grupo.stock
             const hayStock = stock > 0
-            const titulo = grupo.articulo ? (grupo.articulo.nombre_base || grupo.articulo.nombre) : `Artículo #${grupo.articuloId}`
+            const titulo = grupo.articulo ? (grupo.articulo.nombre) : `Artículo #${grupo.articuloId}`
             const tieneEmails = grupo.avisos.some(a => a.email)
 
             return (
