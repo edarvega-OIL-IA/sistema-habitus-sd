@@ -10,22 +10,38 @@ interface Props {
 
 type Medio = 'whatsapp' | 'email' | 'ambos'
 
+// Bastante permisivo a propósito (no es para validar contra ARCA ni nada
+// fiscal, solo para evitar el típico "se me chingó un número/letra").
+// Whatsapp: al menos 8 dígitos, puede tener espacios/guiones/+ en el medio.
+const WHATSAPP_VALIDO = /^[\d+\s-]{8,}$/
+const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 export default function AvisoStock({ articuloId }: Props) {
   const [medio, setMedio] = useState<Medio>('whatsapp')
   const [whatsapp, setWhatsapp] = useState('')
   const [email, setEmail] = useState('')
+  const [whatsappTocado, setWhatsappTocado] = useState(false)
+  const [emailTocado, setEmailTocado] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [enviado, setEnviado] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const necesitaWhatsapp = medio === 'whatsapp' || medio === 'ambos'
   const necesitaEmail = medio === 'email' || medio === 'ambos'
-  const formularioValido =
-    (!necesitaWhatsapp || whatsapp.trim().length >= 8) &&
-    (!necesitaEmail || /\S+@\S+\.\S+/.test(email.trim()))
+  const whatsappValido = !necesitaWhatsapp || WHATSAPP_VALIDO.test(whatsapp.trim())
+  const emailValido = !necesitaEmail || EMAIL_VALIDO.test(email.trim())
+  const formularioValido = whatsappValido && emailValido
+
+  function cambiarMedio(nuevo: Medio) {
+    setMedio(nuevo)
+    setError(null) // el error del intento anterior ya no aplica necesariamente al nuevo medio elegido
+  }
 
   async function enviar() {
+    setWhatsappTocado(necesitaWhatsapp)
+    setEmailTocado(necesitaEmail)
     if (!formularioValido) return
+
     setEnviando(true)
     setError(null)
     try {
@@ -71,7 +87,7 @@ export default function AvisoStock({ articuloId }: Props) {
           <button
             key={valor}
             type="button"
-            onClick={() => setMedio(valor)}
+            onClick={() => cambiarMedio(valor)}
             className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
               medio === valor
                 ? 'bg-offer-teal text-white border-offer-teal'
@@ -84,23 +100,39 @@ export default function AvisoStock({ articuloId }: Props) {
       </div>
 
       {necesitaWhatsapp && (
-        <input
-          type="tel"
-          inputMode="tel"
-          placeholder="Tu WhatsApp (ej. 299 123-4567)"
-          value={whatsapp}
-          onChange={e => setWhatsapp(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-offer-teal"
-        />
+        <div>
+          <input
+            type="tel"
+            inputMode="tel"
+            placeholder="Tu WhatsApp (ej. 299 123-4567)"
+            value={whatsapp}
+            onChange={e => { setWhatsapp(e.target.value); setError(null) }}
+            onBlur={() => setWhatsappTocado(true)}
+            className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 ${
+              whatsappTocado && !whatsappValido ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-offer-teal'
+            }`}
+          />
+          {whatsappTocado && !whatsappValido && (
+            <p className="text-xs text-red-600 mt-1">Ingresá un WhatsApp válido (al menos 8 dígitos)</p>
+          )}
+        </div>
       )}
       {necesitaEmail && (
-        <input
-          type="email"
-          placeholder="Tu email"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-offer-teal"
-        />
+        <div>
+          <input
+            type="email"
+            placeholder="Tu email"
+            value={email}
+            onChange={e => { setEmail(e.target.value); setError(null) }}
+            onBlur={() => setEmailTocado(true)}
+            className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 ${
+              emailTocado && !emailValido ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-offer-teal'
+            }`}
+          />
+          {emailTocado && !emailValido && (
+            <p className="text-xs text-red-600 mt-1">Ingresá un email válido</p>
+          )}
+        </div>
       )}
 
       {error && <p className="text-xs text-red-600">{error}</p>}
@@ -108,7 +140,7 @@ export default function AvisoStock({ articuloId }: Props) {
       <button
         type="button"
         onClick={enviar}
-        disabled={!formularioValido || enviando}
+        disabled={enviando}
         className="w-full h-10 rounded-lg text-sm font-medium bg-charcoal text-white hover:bg-black disabled:opacity-40 transition-colors"
       >
         {enviando ? 'Guardando...' : 'Avisarme'}
