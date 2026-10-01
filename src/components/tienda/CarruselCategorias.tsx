@@ -75,6 +75,7 @@ function FilaCarrusel({
   const dragStartXRef = useRef(0)
   const dragStartPosRef = useRef(0)
   const dragDistanciaRef = useRef(0)
+  const capturadoRef = useRef(false)
 
   const duracionSeg = Math.max(categorias.length * 9, 40)
   // Tira triplicada (no solo duplicada): un arrastre manual rápido puede
@@ -123,25 +124,45 @@ function FilaCarrusel({
   }, [direccion, duracionSeg, pausadoRef])
 
   function onPointerDown(e: React.PointerEvent) {
+    // Solo botón principal (click izquierdo / toque). Ignora click derecho y central.
+    if (e.button !== 0) return
     draggingRef.current = true
+    capturadoRef.current = false
     dragStartXRef.current = e.clientX
     dragStartPosRef.current = posRef.current
     dragDistanciaRef.current = 0
-    trackRef.current?.setPointerCapture(e.pointerId)
+    // OJO: acá NO se captura el puntero. Capturarlo en el pointerdown hace que
+    // el navegador mande el "click" a la tira y no al <Link>, y el banner deja
+    // de navegar. La captura se hace recién cuando el movimiento supera el
+    // umbral de arrastre (ver onPointerMove).
   }
 
   function onPointerMove(e: React.PointerEvent) {
     if (!draggingRef.current) return
     const delta = e.clientX - dragStartXRef.current
     dragDistanciaRef.current = Math.abs(delta)
+    if (!capturadoRef.current && dragDistanciaRef.current > 5) {
+      capturadoRef.current = true
+      trackRef.current?.setPointerCapture(e.pointerId)
+    }
     // Arrastrar hacia la izquierda avanza el carrusel hacia la izquierda
     // (mismo criterio que cualquier carrusel táctil: el contenido "sigue"
     // al dedo/mouse).
     posRef.current = dragStartPosRef.current - delta
   }
 
-  function onPointerUp() {
+  function onPointerUp(e: React.PointerEvent) {
     draggingRef.current = false
+    if (capturadoRef.current) {
+      trackRef.current?.releasePointerCapture(e.pointerId)
+      capturadoRef.current = false
+    }
+  }
+
+  function onPointerLeave() {
+    // Sin captura activa (movimiento chico), si el puntero sale de la tira
+    // hay que cerrar el arrastre a mano. Con captura, este evento no molesta.
+    if (!capturadoRef.current) draggingRef.current = false
   }
 
   function onClickCapture(e: React.MouseEvent) {
@@ -162,6 +183,7 @@ function FilaCarrusel({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onPointerLeave={onPointerLeave}
       onClickCapture={onClickCapture}
     >
       {tira.map((c, i) => (
