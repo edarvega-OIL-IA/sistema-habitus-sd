@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 10/09/2026 — Sesión larga de dos partes: (1) carga completa de descripciones de producto en las fichas de la tienda (los ~19 rubros del catálogo, ver Bloque 21) y (2) trabajo de mantenimiento sobre datos reales — reconciliación de facturación de agosto contra AFIP/TusFacturasAPP (todo cuadró), desactivación de un punto de venta viejo sin uso, fix de un bug de ordenamiento en el filtro de rubros de la tienda, y un reporte de Ventas nuevo (por medio de pago). Ver Bloque 21 para el detalle completo.
+**Última actualización:** 30/09/2026 — Ajustes de la Vitrina web: carrusel de categorías (dos filas contrapuestas, arrastre manual, orden aleatorio del catálogo), fix del click en los banners desde PC y sabor "Neutro" siempre al final. Ver Bloque 22/09-30/09 al final. Antes: 10/09/2026 — carga completa de descripciones de producto, reconciliación fiscal de agosto y reporte de Ventas por medio de pago (Bloque 21).
 **Estado general:** 🟢 En producción. Catálogo de la tienda con descripción real en el 100% de las fichas de producto visibles (fallback por sabor hermano verificado con consulta cruzada, sin huecos). Facturación de agosto verificada contra AFIP: 127 comprobantes, $5.142.000, numeración sana, sin comprobantes sin fiscalizar.
-**Próxima acción concreta:** no hay ninguna tarea abierta puntual de esta sesión — el catálogo de descripciones quedó cerrado y verificado, y la reconciliación fiscal de agosto no arrojó ningún hallazgo pendiente. Seguir con lo que ya estaba en agenda: Presupuesto #1 esperando respuesta de la Municipalidad, y el bug de stock huérfano del webhook de MP (Bloque 17) sigue sin diagnosticar — prioridad alta apenas aparezca un caso fresco.
+**Próxima acción concreta:** (1) Verificar en producción que "Neutro" quede último también en las tarjetas del catálogo (`ProductoCard.tsx`); si no, subir ese archivo y ajustarlo con `compararSabores()`. (2) Probar el click en banners desde PC y en mobile. Después, seguir con lo que ya estaba en agenda: Presupuesto #1 esperando respuesta de la Municipalidad, y el bug de stock huérfano del webhook de MP (Bloque 17), sin diagnosticar — prioridad alta apenas aparezca un caso fresco.
 
 ---
 
@@ -14,7 +14,7 @@ Documentos relacionados:
 - `HABITUS_SD_ANALISIS_SESION01.md` — análisis funcional completo (41 secciones)
 - `HABITUS_UI_REGLAS.md` — reglas de UI confirmadas
 - `CLAUDE_CODE_PROMPT.md` — contexto para Claude Code (campos BD verificados, rutas, reglas) — actualizado con lo de la sesión 23 (ver sección 23)
-- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto — PENDIENTE actualizar con los archivos tocados en sesión 26 (`pedidos-web/page.tsx` reescrito, `tienda/checkout/page.tsx`, `api/tienda/checkout/route.ts`, `api/tienda/page.tsx`, `components/tienda/OrdenTienda.tsx`, `articulos/historial/page.tsx`, `obligaciones/page.tsx`)
+- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto — actualizado el 30/09 con los archivos de la Vitrina tocados en esta sesión (`tienda/page.tsx`, `tienda/producto/[slug]/page.tsx`, `CarruselCategorias.tsx`, `lib/ordenSabores.ts`); sigue PENDIENTE volcar los archivos tocados en sesión 26 (`pedidos-web/page.tsx` reescrito, `tienda/checkout/page.tsx`, `api/tienda/checkout/route.ts`, `api/tienda/page.tsx`, `components/tienda/OrdenTienda.tsx`, `articulos/historial/page.tsx`, `obligaciones/page.tsx`)
 - `supabase/01_referencia.sql` ✅ al `supabase/08_cierre_turno.sql` ✅ — todos ejecutados
 - `supabase/agregar_origen_subtipo.sql` — ejecutado en producción, PENDIENTE en sandbox
 - `supabase/limpieza_arranque.sql` — ejecutado en producción (01/07)
@@ -1249,3 +1249,33 @@ Conclusión sobre las compras: como monotributista, `RECUPERA_IVA_COMPRAS = fals
 ### Bloque 21.4 — Nuevo: Reporte de Ventas por medio de pago
 
 Pedido de Ariel: al reporte de Ventas (`Reportes → Ventas`, que ya tenía las pestañas "Por rubro" / "Por artículo") le faltaba el detalle de dinero por medio de pago (Efectivo/Tarjeta/Transferencia/QR), con los mismos filtros de fecha (Día/Mes/Año/Libre/Todos) que ya tenía. Agregada tercera pestaña **"Por medio de pago"** en `src/app/(sistema)/reportes/ventas/page.tsx`: agrupa `venta_pagos` por `medio_pago_id` (sumando `monto`, contando pagos) sobre el mismo conjunto de ventas del período filtrado, usando `medios_pago` para los nombres. Columnas propias para esta vista (sin Utilidad/Margen, que no aplican a un medio de pago): Medio de pago · Cantidad de pagos · Monto · % del total. **Limitación conocida, aceptada por Ariel:** el filtro de Rubros queda visible en esta pestaña pero no tiene efecto (un pago no pertenece a un rubro) — se puede ocultar más adelante si molesta. Probado en producción, funcionando correctamente.
+
+## Sesión 22/09 y 30/09/2026 — Vitrina web: carrusel de categorías, orden aleatorio, fix de click y sabor Neutro al final
+
+**Contexto:** ajustes de pulido de la tienda pública (`habitussd.com/tienda`) pedidos por Ariel. Los puntos 1-4 salen del historial del chat anterior (Conversa 22); los puntos 5-6 son de esta sesión.
+
+### Bloque 22.1 — Carrusel de categorías (Conversa 22)
+- Los 6 banners fijos pasaron a **7** (se sumó Geles; Bebidas Isotónicas ya estaba) en un carrusel de **dos filas contrapuestas**: arriba A→Z moviéndose hacia la izquierda, abajo Z→A hacia la derecha. Array `CATEGORIAS_BANNER` en `tienda/page.tsx`; imágenes en `public/categorias/`. Se muestra solo en la vista "landing" (sin filtro ni búsqueda activa).
+- Componente nuevo `src/components/tienda/CarruselCategorias.tsx`. Respeta la preferencia del sistema "reducir movimiento" (si está activa, grilla estática sin animar) y se pausa mientras el mouse está encima.
+- Motor de animación por `requestAnimationFrame` (posición calculada cuadro a cuadro, no `@keyframes` CSS) para permitir **arrastre manual** con mouse o dedo (Pointer Events); al soltar sigue solo desde donde quedó. Tira triplicada para que un arrastre rápido no muestre la costura del loop.
+
+### Bloque 22.2 — Orden aleatorio del catálogo (Conversa 22)
+- `tienda/page.tsx`: sin orden explícito (o "Relevancia") el catálogo se baraja con Fisher-Yates en cada visita; los productos sin stock van siempre al final. Si el usuario elige un criterio del dropdown (nombre/precio) se respeta tal cual.
+
+### Bloque 22.3 — Fix: click en los banners no navegaba desde PC (30/09)
+- **Síntoma:** en computadora, al hacer click en un banner solo se frenaba la rotación; no abría el rubro.
+- **Causa real:** `onPointerDown` de la tira llamaba a `setPointerCapture` de inmediato. Con el puntero capturado, el navegador entrega el `click` al contenedor (la tira) en vez de al `<Link>` de abajo, así que el link nunca recibía el click.
+- **Fix:** la captura del puntero se hace recién cuando el movimiento supera 5 px (umbral de arrastre real, el mismo que usa `onClickCapture` para anular el click tras arrastrar). Además: `onPointerUp` libera la captura, se ignora todo botón que no sea el izquierdo, y `onPointerLeave` cierra el arrastre si no hay captura.
+- **Lección general:** nunca capturar el puntero en `pointerdown` sobre un contenedor que tiene links/botones adentro; capturar recién cuando se confirma que es un arrastre.
+
+### Bloque 22.4 — Sabor "Neutro" siempre al final (30/09)
+- Pedido: que cuando un producto tiene sabor "Neutro", quede último entre los chips (ej. Frutos Rojos, Limón, Uva, **Neutro**).
+- Nuevo `src/lib/ordenSabores.ts` con `compararSabores(a, b)`: orden alfabético (`localeCompare` con `'es'`), con "Neutro" (sin distinguir mayúsculas ni tildes; también cualquier valor que empiece con "neutro") siempre después de los sabores comunes, y las variantes sin sabor ni atributo al final de todo.
+- Usado en dos lugares, para que la regla viva en un solo archivo: `agrupar()` de `tienda/page.tsx` (tarjetas del catálogo) y el ordenamiento de variantes en `tienda/producto/[slug]/page.tsx` (ficha). En la ficha también aplica a variantes que usan `atributo_valor` (ej. color) en vez de sabor.
+- **Pendiente de verificar:** que `ProductoCard.tsx` no reordene por su cuenta (se asumió que muestra las variantes en el orden recibido).
+
+### Bloque 22.5 — Primer cambio de la tanda del 30/09
+- [COMPLETAR: no quedó registrado en este chat cuál fue el primer cambio pedido antes del "segundo cambio" (click en banners).]
+
+### Regla de trabajo reforzada
+- No usar la muletilla "Che" al dirigirse a Ariel (ya pedido varias veces; guardada también en la memoria del proyecto).

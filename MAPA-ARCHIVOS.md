@@ -57,6 +57,17 @@ completar o corregir la próxima vez que se toquen.
 | `api/ventas/route.ts` | Confirma una venta desde el POS: inserta `ventas`/`venta_items`/`venta_pagos`, movimiento financiero (una fila por medio de pago, fix 17/07) y movimiento de stock. **Simplificado 27/07**: la fiscalización ya no vive acá — llama a `fiscalizarVenta()` de `lib/tusfacturas/fiscalizar.ts`. **15/08:** recibe `cliente_id` real del body (antes hardcodeado a `1`), lo usa en el `INSERT` de `ventas` y en `fiscalizarVenta()`. Excluye explícitamente los pagos con medio "Cuenta Corriente" del cálculo del movimiento financiero — bug real corregido, hubiera duplicado el ingreso (ficticio al vender + real al cobrar). |
 | `api/fiscalizacion/route.ts` | **Nuevo (27/07).** Endpoint que usa la pantalla `/fiscalizacion` para reintentar/fiscalizar manualmente. Gate rol Admin (`rol_id !== 1` → 403). Llama a la misma `fiscalizarVenta()` que el POS automático. |
 
+## Vitrina web (pública) — Tienda
+
+**Nota:** esta copia del mapa solo lista los archivos de la Vitrina tocados el 30/09/2026. El resto del storefront (checkout, carrito, pedido-confirmado, `ProductoCard`, `FiltrosTienda`, `OrdenTienda`, endpoints `api/tienda/*`, etc.) existe y funciona en producción pero no está volcado acá todavía. Rutas relativas a `src/`.
+
+| Ruta | Qué hace |
+|---|---|
+| `app/tienda/page.tsx` | Catálogo público, sin login. Lee de la vista `articulos_catalogo_web` (nunca de `articulos`, para no exponer costos). Agrupa por `nombre_base`+marca (sistema de Sabores). Sabores ordenados con `compararSabores()` (**30/09:** Neutro al final). Orden por defecto **aleatorio** (Fisher-Yates) con sin-stock al final; si se elige orden en el dropdown se respeta. Listas de rubros/marcas con `localeCompare('es')` (fix 10/09: "Óxido Nítrico" iba al final). `CATEGORIAS_BANNER` (7 rubros) alimenta el carrusel, visible solo sin filtro ni búsqueda activa. |
+| `app/tienda/producto/[slug]/page.tsx` | Ficha de producto (una URL por variante/sabor). Selector de variantes con links reales, ordenadas con `compararSabores()` (**30/09:** Neutro al final). Descripción con fallback a la de un sabor hermano; glosa legal en negrita; JSON-LD de producto. |
+| `components/tienda/CarruselCategorias.tsx` | **Nuevo.** Carrusel de banners de rubro, dos filas contrapuestas (A→Z izquierda / Z→A derecha). Animación por `requestAnimationFrame`, pausa con hover, arrastre manual (Pointer Events), tira triplicada, grilla estática si el sistema pide "reducir movimiento". **30/09, fix:** `setPointerCapture` solo al superar 5 px de arrastre — capturarlo en `pointerdown` desviaba el click del `<Link>` y los banners no navegaban en PC. |
+| `lib/ordenSabores.ts` | **Nuevo (30/09).** `compararSabores(a, b)`: alfabético `'es'`, "Neutro" (sin tildes/mayúsculas, prefijo "neutro") después de los sabores comunes, y sin sabor/atributo al final. Compartido por el catálogo y la ficha. |
+
 ## Resto de `src/app/`
 
 | Ruta | Qué hace |
@@ -115,4 +126,4 @@ completar o corregir la próxima vez que se toquen.
 
 ---
 
-*Última actualización: 22/08/2026 — fix de permisos en `reaperturas_caja` (GRANT faltante), fix de `reabrir_ultimo_cierre()` (no limpiaba `cerrado_en`), fix visual en Historial de Cajas (columna Cierre no respetaba estado Abierta). Ver `ESTADO-PROYECTO.md` Bloque 19 para el detalle completo.*
+*Última actualización: 30/09/2026 — sección nueva "Vitrina web" con `tienda/page.tsx`, `tienda/producto/[slug]/page.tsx`, `CarruselCategorias.tsx` y `lib/ordenSabores.ts` (carrusel, fix de click, sabor Neutro al final). Antes: 22/08/2026 — fix de permisos en `reaperturas_caja` (GRANT faltante), fix de `reabrir_ultimo_cierre()` (no limpiaba `cerrado_en`), fix visual en Historial de Cajas (columna Cierre no respetaba estado Abierta). Ver `ESTADO-PROYECTO.md` Bloque 19 para el detalle completo.*
