@@ -17,6 +17,7 @@ import CarritoBoton from '@/components/tienda/CarritoBoton'
 import FiltrosTienda from '@/components/tienda/FiltrosTienda'
 import OrdenTienda from '@/components/tienda/OrdenTienda'
 import { Mail, Phone, MapPin } from 'lucide-react'
+import { compararSabores } from '@/lib/ordenSabores'
 
 interface ArticuloCatalogo {
   id: number
@@ -68,9 +69,10 @@ function agrupar(articulos: ArticuloCatalogo[]): GrupoProducto[] {
       })
     }
   }
-  // Sabor alfabético dentro de cada grupo (los sin sabor van al final)
+  // Sabor alfabético dentro de cada grupo; "Neutro" siempre al final de los
+  // sabores y los sin sabor después (ver lib/ordenSabores.ts)
   for (const g of mapa.values()) {
-    g.variantes.sort((a, b) => (a.sabor || 'zzz').localeCompare(b.sabor || 'zzz'))
+    g.variantes.sort((a, b) => compararSabores(a.sabor, b.sabor))
   }
   return [...mapa.values()]
 }

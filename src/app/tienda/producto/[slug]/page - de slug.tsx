@@ -15,7 +15,6 @@ import GaleriaProducto from '@/components/tienda/GaleriaProducto'
 import CarritoBoton from '@/components/tienda/CarritoBoton'
 import { Mail, Phone, MapPin } from 'lucide-react'
 import type { Metadata } from 'next'
-import { compararSabores } from '@/lib/ordenSabores'
 
 interface ArticuloCatalogo {
   id: number
@@ -104,8 +103,7 @@ async function buscarProducto(slug: string) {
     if (data && data.length > 0) variantes = data
   }
 
-  // Alfabético, con "Neutro" siempre al final (ver lib/ordenSabores.ts)
-  variantes = [...variantes].sort((a, b) => compararSabores(etiquetaVariante(a), etiquetaVariante(b)))
+  variantes = [...variantes].sort((a, b) => (etiquetaVariante(a) || 'zzz').localeCompare(etiquetaVariante(b) || 'zzz'))
 
   const fotos = imagenes && imagenes.length > 0
     ? imagenes.map(img => ({ url: img.url, alt: img.alt_text || '' }))
