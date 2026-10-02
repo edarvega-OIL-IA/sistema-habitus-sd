@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { ShoppingCart, TrendingUp, TrendingDown, Package, Clock, AlertTriangle, Target, Wallet, ChevronDown, ChevronUp, Percent, Activity, Globe } from 'lucide-react'
+import { ShoppingCart, TrendingUp, TrendingDown, Package, Clock, AlertTriangle, Target, Wallet, ChevronDown, ChevronUp, Percent, Activity, Globe, Bell } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 interface VentasTurno {
@@ -89,6 +89,7 @@ export default function DashboardPage() {
   const [ultimaDiferenciaCaja, setUltimaDiferenciaCaja] = useState<number | null>(null)
   const [ritmoVentas, setRitmoVentas] = useState<number | null>(null)
   const [pedidosPendientes, setPedidosPendientes] = useState(0)
+  const [avisosStock, setAvisosStock] = useState({ personas: 0, productos: 0 })
 
   const [mostrarStockValorizado, setMostrarStockValorizado] = useState(false)
   const [mostrarStockMinimo, setMostrarStockMinimo] = useState(false)
@@ -116,6 +117,7 @@ export default function DashboardPage() {
         cargarUltimaDiferenciaCaja(),
         cargarRitmoVentas(),
         cargarPedidosPendientes(),
+        cargarAvisosStock(),
       ])
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : JSON.stringify(err))
@@ -532,6 +534,23 @@ export default function DashboardPage() {
     setPedidosPendientes((data || []).length)
   }
 
+  async function cargarAvisosStock() {
+    // Gente que pidió desde la tienda que le avisemos cuando vuelva el stock
+    // y todavía no fue avisada (mismo criterio que la pantalla Avisos de Stock:
+    // avisado = false). Se cuentan personas (filas) y productos distintos.
+    const { data, error } = await supabase
+      .from('avisos_stock')
+      .select('articulo_id')
+      .eq('avisado', false)
+
+    if (error) throw error
+    const filas = data || []
+    setAvisosStock({
+      personas: filas.length,
+      productos: new Set(filas.map(f => f.articulo_id)).size,
+    })
+  }
+
   async function calcularStockValorizado() {
     setCalculandoStock(true)
     try {
@@ -648,6 +667,30 @@ export default function DashboardPage() {
           </div>
           <div className="flex items-center gap-1 text-amber-700 shrink-0">
             <span className="text-xs font-medium">Ver pedidos</span>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </button>
+      )}
+
+      {/* Alerta de avisos de stock pendientes */}
+      {avisosStock.personas > 0 && (
+        <button
+          onClick={() => router.push('/avisos-stock')}
+          className="w-full bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center gap-3 hover:bg-amber-100 transition-colors text-left"
+        >
+          <Bell className="w-5 h-5 text-amber-600 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-900">
+              {avisosStock.personas} {avisosStock.personas === 1 ? 'persona espera' : 'personas esperan'} un aviso de stock
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              {avisosStock.productos === 1 ? 'De 1 producto' : `De ${avisosStock.productos} productos`} — pidieron que les avisemos cuando vuelva a haber stock
+            </p>
+          </div>
+          <div className="flex items-center gap-1 text-amber-700 shrink-0">
+            <span className="text-xs font-medium">Ver avisos</span>
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
