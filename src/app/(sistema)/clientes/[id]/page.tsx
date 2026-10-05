@@ -8,7 +8,7 @@ export default async function EditarClientePage({ params }: { params: Promise<{ 
 
   const { data: cliente, error } = await supabase
     .from('clientes')
-    .select('id, nombre, tipo_cliente_id, dni, cuit, condicion_iva_id, domicilio, telefono, email, tiene_cuenta_corriente, plazo_dias_cta_cte, descuento_default_pct, notas, activo')
+    .select('id, nombre, tipo_cliente_id, dni, cuit, condicion_iva_id, domicilio, telefono, email, tiene_cuenta_corriente, plazo_dias_cta_cte, descuento_default_pct, recargo_mayorista_pct, notas, activo')
     .eq('id', id)
     .single()
 
@@ -31,6 +31,7 @@ export default async function EditarClientePage({ params }: { params: Promise<{ 
           tiene_cuenta_corriente: cliente.tiene_cuenta_corriente ?? false,
           plazo_dias_cta_cte: cliente.plazo_dias_cta_cte?.toString() ?? '',
           descuento_default_pct: cliente.descuento_default_pct?.toString() ?? '',
+          recargo_mayorista_pct: cliente.recargo_mayorista_pct?.toString() ?? '',
           notas: cliente.notas ?? '',
           activo: cliente.activo ?? true,
         }}

@@ -20,6 +20,15 @@ const clienteSchema = z.object({
   tiene_cuenta_corriente: z.boolean(),
   plazo_dias_cta_cte: z.string().optional(),
   descuento_default_pct: z.string().optional(),
+  // Recargo mayorista por defecto (%) sobre el costo. Vacío = no es mayorista.
+  recargo_mayorista_pct: z.string().optional().refine(
+    v => {
+      if (!v || v.trim() === '') return true
+      const n = Number(v.trim().replace(',', '.'))
+      return Number.isFinite(n) && n >= 0
+    },
+    'Ingresá un porcentaje válido (0 o más)'
+  ),
   notas: z.string().optional(),
   activo: z.boolean(),
 })
@@ -69,6 +78,7 @@ export default function ClienteForm({ clienteId, valoresIniciales }: Props) {
       tiene_cuenta_corriente: false,
       plazo_dias_cta_cte: '',
       descuento_default_pct: '',
+      recargo_mayorista_pct: '',
       notas: '',
       activo: true,
       ...valoresIniciales,
@@ -94,6 +104,7 @@ export default function ClienteForm({ clienteId, valoresIniciales }: Props) {
       tiene_cuenta_corriente: data.tiene_cuenta_corriente,
       plazo_dias_cta_cte: data.tiene_cuenta_corriente && data.plazo_dias_cta_cte ? Number(data.plazo_dias_cta_cte) : null,
       descuento_default_pct: data.descuento_default_pct ? Number(data.descuento_default_pct.replace(',', '.')) : 0,
+      recargo_mayorista_pct: data.recargo_mayorista_pct?.trim() ? Number(data.recargo_mayorista_pct.trim().replace(',', '.')) : null,
       notas: data.notas?.trim() || null,
       activo: data.activo,
     }
@@ -219,6 +230,23 @@ export default function ClienteForm({ clienteId, valoresIniciales }: Props) {
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
             />
           </div>
+        </div>
+
+        <div className="max-w-xs">
+          <label className="block text-xs font-medium text-gray-600 mb-1">Recargo mayorista (%)</label>
+          <input
+            type="text"
+            inputMode="decimal"
+            {...register('recargo_mayorista_pct')}
+            placeholder="ej. 7"
+            className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+          />
+          {errors.recargo_mayorista_pct && (
+            <p className="text-xs text-red-600 mt-1">{errors.recargo_mayorista_pct.message}</p>
+          )}
+          <p className="text-xs text-gray-400 mt-1">
+            Solo para revendedores. Con un valor cargado, el cliente aparece en Mayoristas y se le aplica este recargo sobre el costo. Dejalo vacío si no es mayorista.
+          </p>
         </div>
 
         <div className="pt-2 border-t border-gray-100">
