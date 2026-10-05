@@ -111,7 +111,7 @@ export default function NuevaVentaMayoristaPage() {
     const supabase = createClient()
     const { data, error: err } = await supabase
       .from('ordenes_compra')
-      .select('id, flete_monto, subtotal, orden_compra_items(articulo_id, cantidad_facturada, precio_unitario_sin_iva, es_ajuste_redondeo, articulos(nombre))')
+      .select('id, flete_monto, subtotal, orden_compra_items(articulo_id, cantidad_facturada, precio_unitario_con_iva, precio_unitario_sin_iva, es_ajuste_redondeo, articulos(nombre))')
       .eq('id', Number(ocId))
       .maybeSingle()
     setCargandoOc(false)
@@ -121,6 +121,7 @@ export default function NuevaVentaMayoristaPage() {
     const filas = ((data as any).orden_compra_items || []) as {
       articulo_id: number | null
       cantidad_facturada: number
+      precio_unitario_con_iva: number | null
       precio_unitario_sin_iva: number
       es_ajuste_redondeo: boolean
       articulos: { nombre: string } | null
@@ -132,7 +133,8 @@ export default function NuevaVentaMayoristaPage() {
         articulo_id: Number(f.articulo_id),
         nombre: f.articulos?.nombre || `Artículo #${f.articulo_id}`,
         cantidad: String(Number(f.cantidad_facturada)),
-        costo: String(Number(Number(f.precio_unitario_sin_iva || 0).toFixed(4))),
+        // Precio que figura en la OC (c/IVA, sin flete): lo que efectivamente se pagó por unidad
+        costo: String(Number(Number(f.precio_unitario_con_iva ?? f.precio_unitario_sin_iva ?? 0).toFixed(4))),
         pct,
       }))
     if (nuevas.length === 0) { setMsgError('La OC no tiene artículos para cargar.'); return }
