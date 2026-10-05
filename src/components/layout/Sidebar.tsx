@@ -27,6 +27,7 @@ const nav = [
       { label: 'Cuenta Corriente', href: '/clientes/cuenta-corriente' },
     ],
   },
+  { label: 'Mayoristas', href: '/mayoristas', icon: '🏷️' },
   { label: 'Fiscalización', href: '/fiscalizacion', icon: '⚠️' },
   { label: 'Movimientos', href: '/movimientos', icon: '💰' },
   { label: 'Obligaciones', href: '/obligaciones', icon: '📇' },
