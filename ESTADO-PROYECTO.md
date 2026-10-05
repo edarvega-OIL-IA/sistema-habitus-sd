@@ -1,8 +1,8 @@
 # ESTADO-PROYECTO — Sistema Habitus SD
 
-**Última actualización:** 30/09/2026 — Ajustes de la Vitrina web: carrusel de categorías (dos filas contrapuestas, arrastre manual, orden aleatorio del catálogo), fix del click en los banners desde PC y sabor "Neutro" siempre al final. Ver Bloque 22/09-30/09 al final. Antes: 10/09/2026 — carga completa de descripciones de producto, reconciliación fiscal de agosto y reporte de Ventas por medio de pago (Bloque 21).
+**Última actualización:** 05/10/2026 — Reportes optimizado para celular, Avisos de Stock (limpieza de pruebas + alerta en Dashboard), descripciones de Omega 3 y Bisglicinato ENA, y módulo nuevo de **Ventas Mayoristas** (reventa a Agustín y otros, con cobros, entrega, flete y carga desde OC). Ver Bloque 23 al final. Antes: 30/09/2026 — Vitrina web (carrusel, fix de click, sabor Neutro al final, Bloque 22).
 **Estado general:** 🟢 En producción. Catálogo de la tienda con descripción real en el 100% de las fichas de producto visibles (fallback por sabor hermano verificado con consulta cruzada, sin huecos). Facturación de agosto verificada contra AFIP: 127 comprobantes, $5.142.000, numeración sana, sin comprobantes sin fiscalizar.
-**Próxima acción concreta:** (1) Verificar en producción que "Neutro" quede último también en las tarjetas del catálogo (`ProductoCard.tsx`); si no, subir ese archivo y ajustarlo con `compararSabores()`. (2) Probar el click en banners desde PC y en mobile. Después, seguir con lo que ya estaba en agenda: Presupuesto #1 esperando respuesta de la Municipalidad, y el bug de stock huérfano del webhook de MP (Bloque 17), sin diagnosticar — prioridad alta apenas aparezca un caso fresco.
+**Próxima acción concreta:** (1) Cargar la OC real de DisFit (pedido #150391 ampliado, comprobante 00257554, $1.201.878,75, compra compartida con Agustín) — antes crear los artículos que falten (ej. barritas Enargy Coco + Dulce de Leche y Banana, con `disponible_web = false`). (2) Cargar desde esa OC la venta mayorista a Agustín (botón "Cargar artículos de esta OC", flete aparte), registrar sus cobros con la fecha real y **anular el movimiento del 05/10 de $24.844,95**. (3) Verificar que el Dashboard no cuente mal los cobros mayoristas (ingresos de categoría "Otros Ingresos", concepto "Cobro venta mayorista"). Pendientes previos: verificar `ProductoCard.tsx` (Neutro al final), Presupuesto #1 sin respuesta, bug de stock huérfano del webhook de MP (Bloque 17).
 
 ---
 
@@ -14,7 +14,7 @@ Documentos relacionados:
 - `HABITUS_SD_ANALISIS_SESION01.md` — análisis funcional completo (41 secciones)
 - `HABITUS_UI_REGLAS.md` — reglas de UI confirmadas
 - `CLAUDE_CODE_PROMPT.md` — contexto para Claude Code (campos BD verificados, rutas, reglas) — actualizado con lo de la sesión 23 (ver sección 23)
-- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto — actualizado el 30/09 con los archivos de la Vitrina tocados en esta sesión (`tienda/page.tsx`, `tienda/producto/[slug]/page.tsx`, `CarruselCategorias.tsx`, `lib/ordenSabores.ts`); sigue PENDIENTE volcar los archivos tocados en sesión 26 (`pedidos-web/page.tsx` reescrito, `tienda/checkout/page.tsx`, `api/tienda/checkout/route.ts`, `api/tienda/page.tsx`, `components/tienda/OrdenTienda.tsx`, `articulos/historial/page.tsx`, `obligaciones/page.tsx`)
+- `MAPA-ARCHIVOS.md` — índice de rutas: qué hace cada archivo .tsx/.ts del proyecto — actualizado el 05/10 con los archivos de Mayoristas, `avisos-stock`, Dashboard, Reportes, Clientes y Sidebar (y el 30/09 con los de la Vitrina); sigue PENDIENTE volcar los archivos tocados en sesión 26 (`pedidos-web/page.tsx` reescrito, `tienda/checkout/page.tsx`, `api/tienda/checkout/route.ts`, `api/tienda/page.tsx`, `components/tienda/OrdenTienda.tsx`, `articulos/historial/page.tsx`, `obligaciones/page.tsx`)
 - `supabase/01_referencia.sql` ✅ al `supabase/08_cierre_turno.sql` ✅ — todos ejecutados
 - `supabase/agregar_origen_subtipo.sql` — ejecutado en producción, PENDIENTE en sandbox
 - `supabase/limpieza_arranque.sql` — ejecutado en producción (01/07)
@@ -1279,3 +1279,66 @@ Pedido de Ariel: al reporte de Ventas (`Reportes → Ventas`, que ya tenía las 
 
 ### Regla de trabajo reforzada
 - No usar la muletilla "Che" al dirigirse a Ariel (ya pedido varias veces; guardada también en la memoria del proyecto).
+
+## Sesión 01/10 – 05/10/2026 — Reportes en celular, Avisos de Stock, descripciones nuevas y módulo Ventas Mayoristas
+
+### Bloque 23.1 — Reportes: orden invertido y vista de celular (01/10)
+- Pedido: intercambiar los dos gráficos (**Utilidad mensual** arriba, **Ventas mensuales** abajo) y mejorarlos para celular. Archivo: `reportes/page.tsx`.
+- Problemas vistos en el teléfono real: etiquetas de valor encimadas (ilegibles en Utilidad), barras finísimas por mostrar 13 meses casi vacíos, eje X rotado y amontonado, y el botón de menú tapaba el título.
+- Cambios en celular (ancho < 640 px, detectado con `matchMedia`; PC queda igual salvo el orden): **ventana de 6 meses** (en PC 13), anclada al mes actual y navegable con las flechas; eje X con etiqueta corta ("Jul 26") sin rotar; ejes y márgenes más chicos; en Ventas, etiquetas compactas (7,4M); en Utilidad, **sin etiquetas sobre las 3 barras y tabla debajo** (Mes / Bruta / Gastos / Neta, Neta negativa en rojo, solo meses con datos). Título con `pl-14 md:pl-0` para no quedar bajo el botón hamburguesa.
+
+### Bloque 23.2 — Avisos de Stock: limpieza de pruebas + alerta en Dashboard
+- Tabla `avisos_stock` (columnas confirmadas por el código de `avisos-stock/page.tsx`: `id, articulo_id, medio_preferido, whatsapp, email, creado_en, avisado, avisado_en`). Las filas existentes eran pruebas de Ariel (WhatsApp y mail ya probados); se indicó `TRUNCATE TABLE avisos_stock RESTART IDENTITY` previo chequeo de claves foráneas (`pg_constraint`), para que el `id` reinicie en 1.
+- **Dashboard** (`dashboard/page.tsx`): tarjeta ámbar con campanita, mismo patrón que la alerta de pedidos web pendientes. Cuenta filas con `avisado = false` (personas) y artículos distintos; texto "N personas esperan un aviso de stock — De M productos"; click → `/avisos-stock`; desaparece sola al marcar todo como avisado. Carga con el resto de `cargarDatos()` (`cargarAvisosStock()` dentro del `Promise.all`), por lo que se actualiza al abrir/recargar el Dashboard.
+- **Criterio a revisar con el uso real:** salta por cualquier aviso pendiente, incluso de productos todavía sin stock. Si resulta ruidoso, alternativa acordada: contar solo avisos de productos que ya volvieron a tener stock.
+
+### Bloque 23.3 — Descripciones nuevas: Omega 3 ENA (id 1401) y Bisglicinato de Magnesio ENA (id 1402)
+- Artículos nuevos del catálogo. Mismo template y método de la carga de descripciones (Bloque 21.1): intro + bullets con emoji + Presentación + Composición (producto de fórmula activa) + Modo de uso + Ingredientes/alérgenos + glosa dietaria fija al final; redactado en palabras propias, datos (porción, EPA/DHA, % VD, ingredientes) tomados de la ficha oficial de ENA.
+- `UPDATE articulos SET descripcion = ... WHERE id = ...` entregado como texto en el chat con `SELECT` previo (confirmar nombre y que no pise nada) y `SELECT` posterior.
+- **Dato a recordar:** el 1401 tenía `descripcion = ''` (cadena vacía, no `NULL`), por lo que `descripcion IS NOT NULL` daba `true`. Para saber si hay descripción real usar `length(descripcion)`.
+
+### Bloque 23.4 — Compra compartida con Agustín (DisFit, pedido #150391)
+- Compra a DisFit (comprobante X 00257554, 05/10/2026, $1.201.878,75, cuenta corriente) hecha a medias con Agustín, que revende en un gimnasio (Energym) con autorización de Ariel; Ariel le revende al **precio mayorista + 7%**.
+- Reparto calculado de la factura: **Agustín $382.335,62** a precio mayorista (→ **$409.099,11** con el 7%, ganancia de Ariel $26.763,49) y **Ariel $819.543,12**. Cajas de barritas Enargy: se cargan **por unidad** en la OC (caja ÷ 16; ej. Frutilla $1.439,17 por unidad).
+- Antes solo se anotaba el 7% como ingreso suelto (concepto "Comisión intermediación mayorista", categoría Otros Ingresos): quedan el del **16/07 ($40.126,43), histórico, sin detalle de artículos, que se deja como está**, y el del **05/10 ($24.844,95)**, calculado sobre el pedido antes de ampliarlo, que **se anula** cuando se cargue el pedido completo con su cobro.
+
+### Bloque 23.5 — Módulo nuevo: Ventas Mayoristas
+**Decisiones de diseño confirmadas con Ariel**
+- **Tablas propias**, copia de la estructura de Ventas/Detalle (no se reusa `ventas` con un tipo, para no contaminar Dashboard, Reportes, Caja ni Fiscalización). **No se fiscaliza** (no factura C); los datos quedan por si el contador decide otra cosa.
+- Se muestra y edita el **costo** (no el precio al público); precio = costo × (1 + recargo %), todo editable por línea. El recargo por defecto sale del cliente (`clientes.recargo_mayorista_pct`; NULL = no es mayorista; editable en la ficha del cliente y en cada venta).
+- **El stock baja al ENTREGAR, no al guardar** (la mercadería llega junta: se acepta la OC → sube el stock → se marca entregada → baja). Anular una venta devuelve el stock solo si ya estaba entregada.
+- **Cobros separados de la venta** (pueden ser varios y anticipados; Agustín suele pagar antes de que Ariel pague al proveedor). Siempre **por transferencia** (si pagara en efectivo se registra como transferencia para no tocar la Caja diaria). Cada cobro genera un **movimiento Ingreso** (categoría 11 "Otros Ingresos", concepto nuevo "Cobro venta mayorista", entidad Cliente, `origen_tipo = 'venta_mayorista'`) y el saldo pendiente sale de total − cobrado.
+- No se usa tipo de cliente "Cuenta Corriente" (esa mecánica es para ventas fiadas minoristas): el saldo se ve en un **extracto por cliente** (pedidos suman, cobros restan).
+- **Flete aparte y sin recargo**: se carga como monto en la venta, suma al total pero cuenta como costo (no infla la ganancia). Vacío si el cliente paga el flete por su cuenta.
+- **Cargar artículos desde una OC**: botón "Cargar artículos de esta OC" trae las líneas (sin las de ajuste por redondeo) con cantidad facturada y **precio unitario c/IVA sin flete** (respaldo: sin IVA — Ariel es monotributista, el IVA es costo); después se borra lo que no corresponde y se ajustan cantidades. Sugiere un flete proporcional al costo de las líneas (`flete_monto` de la OC × costo líneas / `subtotal` de la OC). El vínculo con la OC es informativo (no se actualiza solo si la OC cambia).
+
+**Objetos de base de datos**
+- Tablas: `ventas_mayoristas` (`cliente_id, sucursal_id, orden_compra_id, fecha_utc, total, flete_monto, observaciones, usuario_id, anulada, motivo_anulacion, anulada_en, estado_entrega 'Pendiente'|'Entregada', fecha_entrega, entrega_movimiento_stock_id`), `ventas_mayoristas_items` (`cantidad, costo_unitario, recargo_pct, precio_unitario, subtotal`), `ventas_mayoristas_cobros` (`monto, fecha_cobro, medio_pago_id, movimiento_id, anulado`). RLS con las 4 políticas en cada una. Columna nueva `clientes.recargo_mayorista_pct`.
+- Funciones: `registrar_venta_mayorista(p_cliente_id, p_fecha, p_orden_compra_id, p_observaciones, p_items jsonb, p_sucursal_id, p_entregar_ahora, p_flete)`, `entregar_venta_mayorista`, `registrar_cobro_mayorista`, `anular_cobro_mayorista`, `anular_venta_mayorista` (exige anular antes los cobros). Todo transaccional.
+- Vistas (`security_invoker`): `ventas_mayoristas_resumen` (total, costo incl. flete, ganancia, cobrado, pendiente, estado de entrega) y `ventas_mayoristas_extracto` (saldo acumulado por cliente).
+- Catálogos nuevos: concepto "Cobro venta mayorista" (categoría 11); subtipos de stock **inactivos** "Venta mayorista" (Egreso) y "Anulación venta mayorista" (Ingreso). `fn_validar_origen_movimiento()` ampliada con `'venta_mayorista'` (la misma función la usan los triggers de `movimientos` y de `movimientos_stock`).
+- **Cliente Agustín cargado (id 76)**: tipo Consumidor Final, Monotributista, sin cuenta corriente, recargo 7%. (Cuidado: la búsqueda por nombre trae también a otro cliente, id 72, que no es él.)
+
+**Pantallas** (menú lateral: ítem nuevo **Mayoristas**, debajo de Clientes)
+- `/mayoristas`: filtros (cliente, desde/hasta, mostrar anuladas), totales (vendido, ganancia, cobrado, pendiente, sin entregar), resumen por cliente, listado de pedidos con estado de cobro y de entrega; al elegir un cliente aparece su extracto.
+- `/mayoristas/nueva`: cliente, fecha, OC de origen, buscador de artículos, costo/recargo editables por línea, flete, casilla "Entregar ahora" y casilla "Registrar el cobro ahora".
+- `/mayoristas/[id]`: ítems, cobros (registrar/anular), entrega (con fecha), anulación con motivo.
+- `ClienteForm.tsx` + `clientes/[id]/page.tsx`: campo "Recargo mayorista (%)" (acepta coma, rechaza negativos; vacío = no mayorista).
+
+**Lecciones técnicas de este bloque**
+- **Tablas y vistas nuevas necesitan `GRANT` además de las políticas RLS** (mismo bug que `reaperturas_caja`, 22/08): a `authenticated` `SELECT/INSERT/UPDATE/DELETE` en tablas y `SELECT` en vistas; en funciones, `EXECUTE` a `authenticated`/`service_role` y `REVOKE EXECUTE ... FROM PUBLIC, anon`. Una vista `security_invoker` además exige permisos sobre las tablas de las que lee. Síntoma: "permission denied for view ...".
+- Si cambia la **firma** de una función hay que `DROP FUNCTION` de la versión vieja (`CREATE OR REPLACE` crea una sobrecarga nueva) y volver a dar/quitar permisos. `CREATE OR REPLACE VIEW` permite agregar columnas **al final** y conserva los permisos.
+- Al subir al chat archivos con el mismo nombre (varios `page.tsx`) se pisan: renombrarlos al subir. En PowerShell, crear antes con `New-Item -ItemType Directory -Force` las carpetas nuevas (`nueva`, `[id]`).
+
+**Pendiente de este bloque**
+- Primer uso real: cargar la OC de DisFit, la venta a Agustín (desde la OC), sus cobros con fecha real y anular el movimiento del 05/10. Todavía no se probó el flujo con datos reales (Ariel confirmó "todo en sistema ok" tras probar pantallas y permisos).
+- Verificar el comportamiento del **Dashboard** ante los ingresos de "Cobro venta mayorista" (Reportes no los toma: calcula con ventas, costo y egresos).
+
+### Bloque 23.6 — Plan en conversación (sin código): stands en gimnasios y retiro en la web
+- **Gimnasios nuevos** (Energym/Agustín no entra en este esquema): Ariel lleva productos propios, el gimnasio vende al público y cobra comisión. Hace falta **stock por ubicación** (llevar mercadería = transferencia, no venta), carga diaria de lo que informa cada gimnasio, comisión acumulada por gimnasio y liquidada por semana. Probablemente las ventas al público sí entren en las reglas de fiscalización (postnet/QR/transferencia fiscalizan).
+- **Retiro en gimnasio desde la web**: "disponibilidad inmediata" si hay stock en ese gimnasio; "dentro de 24 horas" si solo hay en el local.
+- **Decisión técnica pendiente**: `articulo_stock` y `movimientos_stock` se identifican por `sucursal_id` (no por `depositos`; la tabla `depositos` tiene una sola fila, "Principal", sin uso). Ariel confirmó que `sucursal_id` estaba pensado por si se abren otros locales: definir si cada gimnasio es sucursal o depósito. Varias pantallas filtran fijo `sucursal_id = 1`.
+- Orden acordado: 1) ventas mayoristas (hecho), 2) stock por ubicación y comisión de gimnasios, 3) retiro en gimnasio en la web.
+
+### Archivos nuevos o modificados en esta sesión (ya volcados en `MAPA-ARCHIVOS.md`)
+`reportes/page.tsx`, `dashboard/page.tsx`, `layout/Sidebar.tsx`, `mayoristas/page.tsx` (nuevo), `mayoristas/nueva/page.tsx` (nuevo), `mayoristas/[id]/page.tsx` (nuevo), `clientes/[id]/page.tsx`, `components/clientes/ClienteForm.tsx`. `avisos-stock/page.tsx` sin cambios (solo se leyó).
