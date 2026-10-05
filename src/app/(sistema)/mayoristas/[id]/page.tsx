@@ -18,6 +18,7 @@ interface Venta {
   fecha_utc: string
   orden_compra_id: number | null
   total: number
+  flete_monto: number
   observaciones: string | null
   anulada: boolean
   motivo_anulacion: string | null
@@ -102,7 +103,8 @@ export default function DetalleVentaMayoristaPage() {
   const total = venta ? Number(venta.total) : 0
   const pendiente = Math.max(0, Math.round((total - cobrado) * 100) / 100)
   const costoTotal = items.reduce((s, it) => s + Number(it.cantidad) * Number(it.costo_unitario), 0)
-  const ganancia = total - costoTotal
+  const flete = venta ? Number(venta.flete_monto || 0) : 0
+  const ganancia = total - costoTotal - flete
   const cobrosActivos = cobros.filter(c => !c.anulado).length
 
   // Precarga el monto del cobro con lo que falta cobrar
@@ -228,7 +230,11 @@ export default function DetalleVentaMayoristaPage() {
             : <p className="text-gray-500">—</p>}
         </div>
         <div><p className="text-xs text-gray-500">Observaciones</p><p className="text-gray-800">{venta.observaciones || '—'}</p></div>
-        <div><p className="text-xs text-gray-500">Total</p><p className="text-lg font-semibold text-[#3c3c3b]">{fmt(total)}</p></div>
+        <div>
+          <p className="text-xs text-gray-500">Total</p>
+          <p className="text-lg font-semibold text-[#3c3c3b]">{fmt(total)}</p>
+          {flete > 0 && <p className="text-xs text-gray-500">incluye flete {fmt(flete)}</p>}
+        </div>
         <div><p className="text-xs text-gray-500">Costo</p><p className="text-gray-800">{fmt(costoTotal)}</p></div>
         <div><p className="text-xs text-gray-500">Ganancia</p><p className="text-[#00a19a] font-medium">{fmt(ganancia)}</p></div>
         <div>

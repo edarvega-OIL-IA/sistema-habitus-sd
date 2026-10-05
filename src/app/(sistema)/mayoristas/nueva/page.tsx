@@ -15,6 +15,7 @@ import { FECHA_MIN, fechaMax, fechaFueraDeRango } from '@/lib/fechaLimites'
 interface ClienteMay { id: number; nombre: string; recargo_mayorista_pct: number }
 interface ArticuloOpt { id: number; nombre: string; costo_sin_iva: number | null }
 interface OcOpt { id: number; fecha_orden: string; total: number; proveedores: { nombre_comercial: string } | null }
+interface OcInfo { flete: number; subtotal: number }
 interface Linea { key: number; articulo_id: number; nombre: string; cantidad: string; costo: string; pct: string }
 
 const fmt = (n: number) => '$' + Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -39,6 +40,9 @@ export default function NuevaVentaMayoristaPage() {
   const [fecha, setFecha] = useState(hoyAR())
   const [errFecha, setErrFecha] = useState(false)
   const [ocId, setOcId] = useState('')
+  const [ocInfo, setOcInfo] = useState<OcInfo | null>(null)
+  const [cargandoOc, setCargandoOc] = useState(false)
+  const [flete, setFlete] = useState('')
   const [obs, setObs] = useState('')
   const [lineas, setLineas] = useState<Linea[]>([])
   const [busqueda, setBusqueda] = useState('')
@@ -97,6 +101,45 @@ export default function NuevaVentaMayoristaPage() {
     setBusqueda('')
   }
 
+  // Trae las líneas de la OC elegida (precio de proveedor sin IVA y sin flete).
+  // El usuario después borra las líneas que no van y ajusta cantidades.
+  async function cargarItemsDeOc() {
+    if (!ocId) return
+    if (lineas.length > 0 && !window.confirm('Esto reemplaza los artículos ya cargados. ¿Continuar?')) return
+    setCargandoOc(true)
+    setMsgError(null)
+    const supabase = createClient()
+    const { data, error: err } = await supabase
+      .from('ordenes_compra')
+      .select('id, flete_monto, subtotal, orden_compra_items(articulo_id, cantidad_facturada, precio_unitario_sin_iva, es_ajuste_redondeo, articulos(nombre))')
+      .eq('id', Number(ocId))
+      .maybeSingle()
+    setCargandoOc(false)
+    if (err || !data) { setMsgError('No se pudo leer la OC: ' + (err?.message || 'no existe')); return }
+
+    const pct = String(cliente ? cliente.recargo_mayorista_pct : 0)
+    const filas = ((data as any).orden_compra_items || []) as {
+      articulo_id: number | null
+      cantidad_facturada: number
+      precio_unitario_sin_iva: number
+      es_ajuste_redondeo: boolean
+      articulos: { nombre: string } | null
+    }[]
+    const nuevas: Linea[] = filas
+      .filter(f => f.articulo_id != null && !f.es_ajuste_redondeo)
+      .map((f, i) => ({
+        key: Date.now() * 1000 + i,
+        articulo_id: Number(f.articulo_id),
+        nombre: f.articulos?.nombre || `Artículo #${f.articulo_id}`,
+        cantidad: String(Number(f.cantidad_facturada)),
+        costo: String(Number(Number(f.precio_unitario_sin_iva || 0).toFixed(4))),
+        pct,
+      }))
+    if (nuevas.length === 0) { setMsgError('La OC no tiene artículos para cargar.'); return }
+    setLineas(nuevas)
+    setOcInfo({ flete: Number((data as any).flete_monto || 0), subtotal: Number((data as any).subtotal || 0) })
+  }
+
   function actualizar(key: number, campo: 'cantidad' | 'costo' | 'pct', valor: string) {
     setLineas(prev => prev.map(l => (l.key === key ? { ...l, [campo]: valor } : l)))
   }
@@ -107,15 +150,22 @@ export default function NuevaVentaMayoristaPage() {
     const sub = r2(cant * precio)
     return { precio, sub, ok: cant > 0 && costo >= 0 && pct >= 0 && Number.isFinite(precio) && Number.isFinite(sub) }
   })
-  const total = r2(calculo.reduce((s, c) => s + (c.ok ? c.sub : 0), 0))
+  const productos = r2(calculo.reduce((s, c) => s + (c.ok ? c.sub : 0), 0))
   const costoTotal = lineas.reduce((s, l, i) => s + (calculo[i].ok ? num(l.cantidad) * num(l.costo) : 0), 0)
-  const ganancia = r2(total - costoTotal)
+  // El flete se cobra aparte y sin recargo: suma al total pero no es ganancia.
+  const fleteNum = flete.trim() === '' ? 0 : num(flete)
+  const fleteOk = Number.isFinite(fleteNum) && fleteNum >= 0
+  const total = r2(productos + (fleteOk ? fleteNum : 0))
+  const ganancia = r2(productos - costoTotal)
+  // Orientativo: flete de la OC proporcional al costo de los artículos que se le cargan
+  const fleteSugerido = ocInfo && ocInfo.flete > 0 && ocInfo.subtotal > 0 ? r2((ocInfo.flete * costoTotal) / ocInfo.subtotal) : null
 
   async function guardar() {
     setMsgError(null)
     if (!clienteId) { setMsgError('Elegí un cliente.'); return }
     if (!fecha || fechaFueraDeRango(fecha)) { setMsgError('La fecha está fuera de rango.'); return }
     if (lineas.length === 0) { setMsgError('Agregá al menos un artículo.'); return }
+    if (!fleteOk) { setMsgError('El flete es inválido (usá 0 o un número positivo).'); return }
     if (calculo.some(c => !c.ok)) { setMsgError('Revisá cantidades, costos y % de recargo: hay valores inválidos.'); return }
     let montoCobro = 0
     if (registrarCobro) {
@@ -148,6 +198,7 @@ export default function NuevaVentaMayoristaPage() {
         p_items: items,
         p_sucursal_id: usuario.sucursal_id,
         p_entregar_ahora: entregarAhora,
+        p_flete: fleteOk ? r2(fleteNum) : 0,
       })
       if (errVenta) throw new Error(errVenta.message)
       const id = Number(ventaId)
@@ -221,7 +272,7 @@ export default function NuevaVentaMayoristaPage() {
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">OC de origen (opcional)</label>
-          <select value={ocId} onChange={e => setOcId(e.target.value)} className={inputCls}>
+          <select value={ocId} onChange={e => { setOcId(e.target.value); setOcInfo(null) }} className={inputCls}>
             <option value="">Sin vincular</option>
             {ocs.map(o => (
               <option key={o.id} value={o.id}>
@@ -229,6 +280,12 @@ export default function NuevaVentaMayoristaPage() {
               </option>
             ))}
           </select>
+          {ocId && (
+            <button type="button" onClick={cargarItemsDeOc} disabled={cargandoOc}
+              className="mt-2 text-xs text-[#00a19a] hover:underline disabled:opacity-50">
+              {cargandoOc ? 'Cargando...' : 'Cargar artículos de esta OC'}
+            </button>
+          )}
         </div>
         <div className="md:col-span-3">
           <label className="block text-xs font-medium text-gray-600 mb-1">Observaciones</label>
@@ -258,7 +315,7 @@ export default function NuevaVentaMayoristaPage() {
         </div>
 
         {lineas.length === 0 ? (
-          <p className="text-sm text-gray-500">Buscá y elegí los artículos del pedido. El costo se precarga con el costo actual del artículo (y se puede editar).</p>
+          <p className="text-sm text-gray-500">Buscá y elegí los artículos, o elegí una OC arriba y cargá sus artículos para después borrar lo que no va y ajustar cantidades. El costo se precarga y se puede editar.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -306,8 +363,23 @@ export default function NuevaVentaMayoristaPage() {
 
         {lineas.length > 0 && (
           <div className="mt-4 flex flex-col items-end gap-1 text-sm">
+            <div className="w-full max-w-xs mb-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Flete a cargar al cliente (sin recargo)</label>
+              <input type="text" inputMode="decimal" value={flete} onChange={e => setFlete(e.target.value)}
+                placeholder="0"
+                className={`w-full px-3 py-2 border rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${fleteOk ? 'border-gray-300' : 'border-red-400'}`} />
+              {fleteSugerido != null && (
+                <p className="text-xs text-gray-500 mt-1 text-right">
+                  Flete de la OC: {fmt(ocInfo!.flete)}. Proporcional a estos artículos: {fmt(fleteSugerido)}{' '}
+                  <button type="button" onClick={() => setFlete(String(fleteSugerido))} className="text-[#00a19a] hover:underline">usar</button>
+                </p>
+              )}
+              <p className="text-xs text-gray-400 mt-1 text-right">Dejalo vacío si él paga el flete por su cuenta.</p>
+            </div>
             <p className="text-gray-500">Costo: <span className="text-gray-700">{fmt(costoTotal)}</span></p>
             <p className="text-gray-500">Ganancia: <span className="text-[#00a19a] font-medium">{fmt(ganancia)}</span></p>
+            <p className="text-gray-500">Artículos: <span className="text-gray-700">{fmt(productos)}</span></p>
+            {fleteOk && fleteNum > 0 && <p className="text-gray-500">Flete: <span className="text-gray-700">{fmt(fleteNum)}</span></p>}
             <p className="text-base font-semibold text-[#3c3c3b]">Total: {fmt(total)}</p>
           </div>
         )}
