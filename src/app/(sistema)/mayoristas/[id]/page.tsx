@@ -203,6 +203,12 @@ export default function DetalleVentaMayoristaPage() {
             </span>
           </>
         )}
+        {!venta.anulada && (
+          <Link href={`/mayoristas/${venta.id}/editar`}
+            className="ml-auto text-sm border border-gray-300 text-gray-700 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors">
+            Editar venta
+          </Link>
+        )}
       </div>
 
       {notif && (
