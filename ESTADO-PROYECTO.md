@@ -1361,9 +1361,13 @@ Pedido de Ariel: al reporte de Ventas (`Reportes → Ventas`, que ya tenía las 
 - **Egresos Dashboard vs Movimientos** ($1.556.783,51 vs $1.824.983,51): la diferencia, **$268.200,00**, son 2 movimientos de **RetiroCaja** (categoría 13, concepto 41, `origen_subtipo = 'RetiroCaja'`). El Dashboard los excluye; Movimientos los incluye salvo que se tilde "Excluir movimientos internos de Caja". Composición del Dashboard: 2 OC de mercadería $1.411.783,51 + categoría 7 $120.000,00 + flete de OC $20.000,00 + categoría 15 $5.000,00.
 - El artículo del Whey Doypack de la OC (el nombre no coincidía con el de la factura) lo corrigió Ariel en la OC antes de armar la venta; no afecta el pedido de Agustín.
 
+**Fix: filtro de fechas de Movimientos (06/10)**
+- `movimientos/page.tsx` mostraba la columna Fecha con `fecha_utc` pero filtraba (Día/Mes/Año/Libre) por `creado_en` (fecha de carga): el cobro mayorista del 05/10, cargado el 06/10, se veía en el 06/10 y no aparecía en el 05/10. Ahora el filtro usa `fecha_utc` (la misma que se muestra y que sigue `mes_contable`, base del Dashboard).
+- Chequeo previo en producción (movimientos con `fecha_utc` ≠ fecha de carga en hora argentina): 16 casos, todos cargados a propósito con otra fecha (pagos atrasados o adelantados, OC, cobro mayorista) más un egreso de venta (#339, ajuste); **ninguna venta con la fecha corrida**, así que `fecha_utc` es confiable. Único efecto de mes: el movimiento 668 ($47.735,23, fecha 01/08, cargado el 24/09) pasa de septiembre a agosto en el filtro Mes, igual que en el Dashboard.
+
 **Pendiente**
 - Al llegar la mercadería: confirmar OC #31 (stock sube) → "Marcar como entregada" en la venta #1 (stock baja, con la fecha real).
 - Decidir si la ganancia mayorista entra a Reportes (hoy no: "Otros Ingresos" no se toma).
 
 ### Archivos nuevos o modificados en esta sesión (ya volcados en `MAPA-ARCHIVOS.md`)
-`reportes/page.tsx`, `dashboard/page.tsx`, `layout/Sidebar.tsx`, `mayoristas/page.tsx` (nuevo), `mayoristas/nueva/page.tsx` (nuevo), `mayoristas/[id]/page.tsx` (nuevo), `clientes/[id]/page.tsx`, `components/clientes/ClienteForm.tsx`. `avisos-stock/page.tsx` sin cambios (solo se leyó). **06/10:** `components/mayoristas/InputMonto.tsx` (nuevo), `mayoristas/nueva/page.tsx` y `mayoristas/[id]/page.tsx` (formato de montos).
+`reportes/page.tsx`, `dashboard/page.tsx`, `layout/Sidebar.tsx`, `mayoristas/page.tsx` (nuevo), `mayoristas/nueva/page.tsx` (nuevo), `mayoristas/[id]/page.tsx` (nuevo), `clientes/[id]/page.tsx`, `components/clientes/ClienteForm.tsx`. `avisos-stock/page.tsx` sin cambios (solo se leyó). **06/10:** `components/mayoristas/InputMonto.tsx` (nuevo), `mayoristas/nueva/page.tsx` y `mayoristas/[id]/page.tsx` (formato de montos), `movimientos/page.tsx` (filtro por `fecha_utc`).

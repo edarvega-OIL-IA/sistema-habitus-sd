@@ -1,3 +1,4 @@
+// Ruta destino: C:\Users\Usuario\Documents\sistema-habitus-sd\src\app\(sistema)\movimientos\page.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -210,9 +211,12 @@ export default function MovimientosPage() {
     const cumpleMedioPago = medioPagoFiltro === 'todos' ||
       mov.medio_pago_id?.toString() === medioPagoFiltro
     const cumpleExclusionCaja = !excluirCaja || mov.categoria_gasto_id !== 13
-    const fechaCreado = new Date(mov.creado_en).toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
-    const cumpleFechaDesde = !desde || fechaCreado >= desde
-    const cumpleFechaHasta = !hasta || fechaCreado <= hasta
+    // Se filtra por la MISMA fecha que muestra la columna Fecha (fecha_utc, tipo date
+    // 'YYYY-MM-DD'), no por creado_en: un movimiento cargado hoy con fecha de ayer
+    // (ej. cobro mayorista del 05/10 registrado el 06/10) tiene que verse en su fecha real.
+    const fechaMov = mov.fecha_utc.slice(0, 10)
+    const cumpleFechaDesde = !desde || fechaMov >= desde
+    const cumpleFechaHasta = !hasta || fechaMov <= hasta
     return cumpleTipo && cumpleCategoria && cumpleMedioPago && cumpleExclusionCaja && cumpleFechaDesde && cumpleFechaHasta
   })
 
