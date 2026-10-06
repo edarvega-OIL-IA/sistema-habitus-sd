@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { ChevronLeft } from 'lucide-react'
 import { FECHA_MIN, fechaMax, fechaFueraDeRango } from '@/lib/fechaLimites'
+import InputMonto from '@/components/mayoristas/InputMonto'
 
 interface Venta {
   id: number
@@ -313,7 +314,7 @@ export default function DetalleVentaMayoristaPage() {
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Monto</label>
-                <input type="text" inputMode="decimal" value={cobroMonto} onChange={e => setCobroMonto(e.target.value)} className={inputCls} />
+                <InputMonto value={cobroMonto} onChange={setCobroMonto} className={inputCls} />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Fecha</label>

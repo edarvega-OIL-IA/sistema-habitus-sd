@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Trash2, Search, ChevronLeft } from 'lucide-react'
 import { FECHA_MIN, fechaMax, fechaFueraDeRango } from '@/lib/fechaLimites'
+import InputMonto from '@/components/mayoristas/InputMonto'
 
 interface ClienteMay { id: number; nombre: string; recargo_mayorista_pct: number }
 interface ArticuloOpt { id: number; nombre: string; costo_sin_iva: number | null }
@@ -341,7 +342,7 @@ export default function NuevaVentaMayoristaPage() {
                         className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
                     </td>
                     <td className="py-2 px-2">
-                      <input type="text" inputMode="decimal" value={l.costo} onChange={e => actualizar(l.key, 'costo', e.target.value)}
+                      <InputMonto value={l.costo} onChange={v => actualizar(l.key, 'costo', v)} maxDecimales={4}
                         className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a]" />
                     </td>
                     <td className="py-2 px-2">
@@ -367,7 +368,7 @@ export default function NuevaVentaMayoristaPage() {
           <div className="mt-4 flex flex-col items-end gap-1 text-sm">
             <div className="w-full max-w-xs mb-2">
               <label className="block text-xs font-medium text-gray-600 mb-1">Flete a cargar al cliente (sin recargo)</label>
-              <input type="text" inputMode="decimal" value={flete} onChange={e => setFlete(e.target.value)}
+              <InputMonto value={flete} onChange={setFlete}
                 placeholder="0"
                 className={`w-full px-3 py-2 border rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${fleteOk ? 'border-gray-300' : 'border-red-400'}`} />
               {fleteSugerido != null && (
@@ -412,7 +413,7 @@ export default function NuevaVentaMayoristaPage() {
             <div className="grid grid-cols-2 gap-3 mt-3 max-w-md">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Monto cobrado</label>
-                <input type="text" inputMode="decimal" value={cobroMonto} onChange={e => setCobroMonto(e.target.value)} className={inputCls} />
+                <InputMonto value={cobroMonto} onChange={setCobroMonto} className={inputCls} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fecha del cobro</label>
