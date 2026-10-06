@@ -42,6 +42,7 @@ interface Cobro {
   fecha_cobro: string
   anulado: boolean
   observaciones: string | null
+  tipo: 'mercaderia' | 'flete'
   medios_pago: { nombre: string } | null
 }
 interface Medio { id: number; nombre: string }
@@ -69,6 +70,7 @@ export default function DetalleVentaMayoristaPage() {
   const [cobroFecha, setCobroFecha] = useState(hoyAR())
   const [cobroMedio, setCobroMedio] = useState('')
   const [cobroObs, setCobroObs] = useState('')
+  const [cobroTipo, setCobroTipo] = useState<'mercaderia' | 'flete'>('mercaderia')
   const [fechaEntrega, setFechaEntrega] = useState(hoyAR())
   const [confirmandoEntrega, setConfirmandoEntrega] = useState(false)
   const [confirmandoAnular, setConfirmandoAnular] = useState(false)
@@ -83,7 +85,7 @@ export default function DetalleVentaMayoristaPage() {
         .select('id, cantidad, costo_unitario, recargo_pct, precio_unitario, subtotal, articulos(nombre)')
         .eq('venta_mayorista_id', ventaId).order('id'),
       supabase.from('ventas_mayoristas_cobros')
-        .select('id, monto, fecha_cobro, anulado, observaciones, medios_pago(nombre)')
+        .select('id, monto, fecha_cobro, anulado, observaciones, tipo, medios_pago(nombre)')
         .eq('venta_mayorista_id', ventaId).order('fecha_cobro').order('id'),
       supabase.from('medios_pago').select('id, nombre').eq('activo', true).order('id'),
     ])
@@ -108,10 +110,25 @@ export default function DetalleVentaMayoristaPage() {
   const ganancia = total - costoTotal - flete
   const cobrosActivos = cobros.filter(c => !c.anulado).length
 
-  // Precarga el monto del cobro con lo que falta cobrar
+  // Saldo por tipo: flete = flete_monto; mercadería = total - flete
+  const activos = cobros.filter(c => !c.anulado)
+  const cobradoFlete = activos.filter(c => c.tipo === 'flete').reduce((s, c) => s + Number(c.monto), 0)
+  const cobradoMerc = activos.filter(c => c.tipo !== 'flete').reduce((s, c) => s + Number(c.monto), 0)
+  const pendFlete = Math.max(0, Math.round((flete - cobradoFlete) * 100) / 100)
+  const pendMerc = Math.max(0, Math.round((total - flete - cobradoMerc) * 100) / 100)
+  const pendTipo = cobroTipo === 'flete' ? pendFlete : pendMerc
+
+  // Si el tipo elegido ya no tiene saldo, pasa al otro
   useEffect(() => {
-    if (venta) setCobroMonto(pendiente > 0 ? String(pendiente) : '')
-  }, [venta, pendiente])
+    if (!venta) return
+    if (cobroTipo === 'flete' && pendFlete <= 0.005 && pendMerc > 0.005) setCobroTipo('mercaderia')
+    if (cobroTipo === 'mercaderia' && pendMerc <= 0.005 && pendFlete > 0.005) setCobroTipo('flete')
+  }, [venta, pendFlete, pendMerc, cobroTipo])
+
+  // Precarga el monto del cobro con lo que falta cobrar del tipo elegido
+  useEffect(() => {
+    if (venta) setCobroMonto(pendTipo > 0 ? String(pendTipo) : '')
+  }, [venta, pendTipo])
 
   async function ejecutar(fn: () => Promise<{ error: { message: string } | null }>, okMsg: string) {
     setTrabajando(true)
@@ -129,6 +146,7 @@ export default function DetalleVentaMayoristaPage() {
     if (!(monto > 0)) { setNotif({ tipo: 'error', msg: 'El monto del cobro es inválido.' }); return }
     if (!cobroFecha || fechaFueraDeRango(cobroFecha)) { setNotif({ tipo: 'error', msg: 'La fecha del cobro está fuera de rango.' }); return }
     if (!cobroMedio) { setNotif({ tipo: 'error', msg: 'Elegí el medio de pago.' }); return }
+    if (monto > pendTipo + 0.01) { setNotif({ tipo: 'error', msg: `El cobro supera el saldo de ${cobroTipo === 'flete' ? 'flete' : 'mercadería'} (${fmt(pendTipo)}).` }); return }
     const supabase = createClient()
     const ok = await ejecutar(
       async () => supabase.rpc('registrar_cobro_mayorista', {
@@ -137,6 +155,7 @@ export default function DetalleVentaMayoristaPage() {
         p_fecha: cobroFecha,
         p_medio_pago_id: Number(cobroMedio),
         p_observaciones: cobroObs.trim() || null,
+        p_tipo: cobroTipo,
       }),
       'Cobro registrado.'
     )
@@ -290,6 +309,7 @@ export default function DetalleVentaMayoristaPage() {
                 {cobros.map(c => (
                   <tr key={c.id} className={c.anulado ? 'opacity-50' : ''}>
                     <td className="py-2 pr-3 text-gray-600">{fmtFecha(c.fecha_cobro)}</td>
+                    <td className="py-2 pr-3 text-gray-600">{c.tipo === 'flete' ? 'Flete' : 'Mercadería'}</td>
                     <td className="py-2 pr-3 text-gray-600">{c.medios_pago?.nombre || '—'}</td>
                     <td className={`py-2 pr-3 text-right font-medium ${c.anulado ? 'line-through' : 'text-green-700'}`}>{fmt(c.monto)}</td>
                     <td className="py-2 pr-3 text-gray-500 text-xs">{c.anulado ? 'Anulado' : c.observaciones || ''}</td>
@@ -317,7 +337,14 @@ export default function DetalleVentaMayoristaPage() {
         {!venta.anulada && pendiente > 0.005 && (
           <div className="border-t border-gray-100 pt-4">
             <p className="text-xs font-medium text-gray-600 mb-2">Registrar cobro</p>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Tipo</label>
+                <select value={cobroTipo} onChange={e => setCobroTipo(e.target.value as 'mercaderia' | 'flete')} className={inputCls}>
+                  <option value="mercaderia" disabled={pendMerc <= 0.005}>Mercadería (falta {fmt(pendMerc)})</option>
+                  <option value="flete" disabled={pendFlete <= 0.005}>Flete (falta {fmt(pendFlete)})</option>
+                </select>
+              </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Monto</label>
                 <InputMonto value={cobroMonto} onChange={setCobroMonto} className={inputCls} />
