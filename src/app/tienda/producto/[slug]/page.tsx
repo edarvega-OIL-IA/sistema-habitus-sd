@@ -143,7 +143,10 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     description: descripcionCorta,
     openGraph: {
       title: tituloVariante,
-      description: descripcionCorta,
+      // Texto corto para la tarjeta de WhatsApp/redes: solo la marca, sin precio
+      // ni lugar de retiro — la idea es que la persona entre al link para ver
+      // el detalle. La descripción larga (arriba) queda para Google.
+      description: producto.marca || tituloVariante,
       images: imagenVistaPrevia ? [imagenVistaPrevia] : [],
     },
   }
