@@ -116,7 +116,7 @@ export default function AvisosStockPage() {
 
   function mensajeWhatsapp(articulo: Articulo): string {
     const titulo = articulo.nombre
-    return `Hola! Te escribimos de Hábitus SD porque nos pediste que te avisemos cuando vuelva a haber stock de "${titulo}" — ¡ya llegó! 🎉\n\nLo podés ver acá: ${linkProducto(articulo)}`
+    return `Hola! Te escribimos porque nos pediste que te avisemos cuando tengamos stock de "${titulo}"\n\nPodés adquirirlo en Av. Roca 54 - Cinco Saltos o en nuestra página web\n${linkProducto(articulo)}\n\nGracias por elegirnos\n*Hábitus SD* - *Presentes en tu proceso*`
   }
 
   function linkWhatsapp(whatsapp: string, articulo: Articulo): string {
@@ -138,7 +138,7 @@ export default function AvisosStockPage() {
     const titulo = grupo.articulo ? grupo.articulo.nombre : ''
     const asunto = `¡Ya hay stock de ${titulo}! — Hábitus SD`
     const cuerpo = grupo.articulo
-      ? `Hola!\n\nTe escribimos porque nos pediste que te avisemos cuando vuelva a haber stock de "${titulo}" — ¡ya llegó! 🎉\n\nLo podés ver acá: ${linkProducto(grupo.articulo)}\n\nSaludos,\nHábitus SD`
+      ? `Hola!\n\nTe escribimos porque nos pediste que te avisemos cuando tengamos stock de "${titulo}"\n\nPodés adquirirlo en Av. Roca 54 - Cinco Saltos o en nuestra página web\n${linkProducto(grupo.articulo)}\n\nGracias por elegirnos\nHábitus SD - Presentes en tu proceso`
       : ''
     const params = new URLSearchParams({ view: 'cm', fs: '1', bcc: emails.join(','), su: asunto, body: cuerpo })
     return `https://mail.google.com/mail/?${params.toString()}`
