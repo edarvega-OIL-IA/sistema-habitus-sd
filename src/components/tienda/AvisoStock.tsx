@@ -3,6 +3,7 @@
 
 import { useState } from 'react'
 import { Check, Bell } from 'lucide-react'
+import { CODIGO_PAIS_POR_DEFECTO, PAISES_WHATSAPP, normalizarWhatsapp } from '@/lib/whatsapp'
 
 interface Props {
   articuloId: number
@@ -10,15 +11,15 @@ interface Props {
 
 type Medio = 'whatsapp' | 'email' | 'ambos'
 
-// Bastante permisivo a propósito (no es para validar contra ARCA ni nada
-// fiscal, solo para evitar el típico "se me chingó un número/letra").
-// Whatsapp: al menos 8 dígitos, puede tener espacios/guiones/+ en el medio.
-const WHATSAPP_VALIDO = /^[\d+\s-]{8,}$/
+// WhatsApp: se normaliza con normalizarWhatsapp() (src/lib/whatsapp.ts). Si el
+// usuario escribe solo el número, se le antepone el país elegido (Argentina +54
+// por defecto); si escribe "+..." se respeta el número internacional tal cual.
 const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export default function AvisoStock({ articuloId }: Props) {
   const [medio, setMedio] = useState<Medio>('whatsapp')
   const [whatsapp, setWhatsapp] = useState('')
+  const [codigoPais, setCodigoPais] = useState(CODIGO_PAIS_POR_DEFECTO)
   const [email, setEmail] = useState('')
   const [whatsappTocado, setWhatsappTocado] = useState(false)
   const [emailTocado, setEmailTocado] = useState(false)
@@ -28,7 +29,8 @@ export default function AvisoStock({ articuloId }: Props) {
 
   const necesitaWhatsapp = medio === 'whatsapp' || medio === 'ambos'
   const necesitaEmail = medio === 'email' || medio === 'ambos'
-  const whatsappValido = !necesitaWhatsapp || WHATSAPP_VALIDO.test(whatsapp.trim())
+  const whatsappNormalizado = normalizarWhatsapp(whatsapp, codigoPais)
+  const whatsappValido = !necesitaWhatsapp || whatsappNormalizado !== null
   const emailValido = !necesitaEmail || EMAIL_VALIDO.test(email.trim())
   const formularioValido = whatsappValido && emailValido
 
@@ -51,15 +53,20 @@ export default function AvisoStock({ articuloId }: Props) {
         body: JSON.stringify({
           articulo_id: articuloId,
           medio_preferido: medio,
-          whatsapp: necesitaWhatsapp ? whatsapp.trim() : null,
+          whatsapp: necesitaWhatsapp ? whatsappNormalizado : null,
           email: necesitaEmail ? email.trim() : null,
         }),
       })
-      const data = await res.json()
-      if (!data.ok) throw new Error(data.mensaje || 'No se pudo guardar el aviso')
+      // Si el servidor falla sin devolver JSON (respuesta vacía), no mostramos el
+      // error técnico del navegador sino un mensaje claro.
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.mensaje || 'No pudimos guardar tu aviso. Probá de nuevo en unos minutos.')
+      }
       setEnviado(true)
-    } catch (err: any) {
-      setError(err.message || 'Error de conexión')
+    } catch (err: unknown) {
+      const esErrorDeRed = err instanceof TypeError
+      setError(esErrorDeRed ? 'Error de conexión. Revisá tu internet y probá de nuevo.' : err instanceof Error ? err.message : 'No pudimos guardar tu aviso.')
     } finally {
       setEnviando(false)
     }
@@ -104,21 +111,37 @@ export default function AvisoStock({ articuloId }: Props) {
 
       {necesitaWhatsapp && (
         <div>
-          <input
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            name="whatsapp-aviso-stock"
-            placeholder="Tu WhatsApp (ej. 299 123-4567)"
-            value={whatsapp}
-            onChange={e => { setWhatsapp(e.target.value); setError(null) }}
-            onBlur={() => setWhatsappTocado(true)}
-            className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 ${
-              whatsappTocado && !whatsappValido ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-offer-teal'
-            }`}
-          />
-          {whatsappTocado && !whatsappValido && (
-            <p className="text-xs text-red-600 mt-1">Ingresá un WhatsApp válido (al menos 8 dígitos)</p>
+          <div className="flex gap-1.5">
+            <select
+              aria-label="País"
+              value={codigoPais}
+              onChange={e => { setCodigoPais(e.target.value); setError(null) }}
+              className="shrink-0 px-2 py-2 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-offer-teal"
+            >
+              {PAISES_WHATSAPP.map(p => (
+                <option key={p.codigo} value={p.codigo}>
+                  {p.bandera} +{p.codigo}
+                </option>
+              ))}
+            </select>
+            <input
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel-national"
+              name="whatsapp-aviso-stock"
+              placeholder="Tu WhatsApp (ej. 299 574-1735)"
+              value={whatsapp}
+              onChange={e => { setWhatsapp(e.target.value); setError(null) }}
+              onBlur={() => setWhatsappTocado(true)}
+              className={`min-w-0 flex-1 px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 ${
+                whatsappTocado && !whatsappValido ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-offer-teal'
+              }`}
+            />
+          </div>
+          {whatsappTocado && !whatsappValido ? (
+            <p className="text-xs text-red-600 mt-1">Ingresá tu número con código de área, sin 0 ni 15 (ej. 299 574-1735)</p>
+          ) : (
+            whatsappNormalizado && <p className="text-xs text-gray-500 mt-1">Te escribimos a {whatsappNormalizado}</p>
           )}
         </div>
       )}
