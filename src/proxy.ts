@@ -9,7 +9,11 @@ import { NextResponse, type NextRequest } from 'next/server'
 // arrancan con "/tienda" sino con "/api/tienda" (bug real, 08/08/2026:
 // startsWith('/tienda') no matcheaba '/api/tienda/checkout', el
 // middleware redirigía cualquier llamada al checkout a /login).
-const RUTAS_PUBLICAS = ['/login', '/tienda', '/api/tienda']
+// /api/avisos-stock es el formulario "Avisame cuando haya stock" de la
+// Vitrina: lo usa cualquier visitante sin sesión (mismo bug, 08/10/2026:
+// sin esta entrada el POST se redirigía a /login y el formulario recibía
+// una respuesta vacía).
+const RUTAS_PUBLICAS = ['/login', '/tienda', '/api/tienda', '/api/avisos-stock']
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({

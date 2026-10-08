@@ -141,7 +141,7 @@ export default function AvisoStock({ articuloId }: Props) {
           {whatsappTocado && !whatsappValido ? (
             <p className="text-xs text-red-600 mt-1">Ingresá tu número con código de área, sin 0 ni 15 (ej. 299 574-1735)</p>
           ) : (
-            whatsappNormalizado && <p className="text-xs text-gray-500 mt-1">Te escribimos a {whatsappNormalizado}</p>
+            whatsappNormalizado && <p className="text-xs text-gray-500 mt-1">Número que vamos a guardar: {whatsappNormalizado}</p>
           )}
         </div>
       )}
