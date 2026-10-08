@@ -123,15 +123,22 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
   const { producto } = resultado
   const titulo = producto.nombre_base || producto.nombre
+  // Cada sabor/variante tiene su propia URL: el título que ven Google y las
+  // vistas previas (WhatsApp, redes) tiene que incluir el sabor, si no todas
+  // las variantes se ven con el mismo nombre (pedido 08/10/2026).
+  const etiquetaProducto = etiquetaVariante(producto)
+  const tituloVariante = etiquetaProducto && !titulo.toLowerCase().includes(etiquetaProducto.toLowerCase())
+    ? `${titulo} - ${etiquetaProducto}`
+    : titulo
   const descripcionCorta = producto.descripcion
     ? producto.descripcion.slice(0, 155)
     : `${titulo}${producto.marca ? ` — ${producto.marca}` : ''}. Comprá online con envío en Cinco Saltos, Río Negro.`
 
   return {
-    title: `${titulo}${producto.marca ? ` — ${producto.marca}` : ''} | Hábitus SD`,
+    title: `${tituloVariante}${producto.marca ? ` — ${producto.marca}` : ''} | Hábitus SD`,
     description: descripcionCorta,
     openGraph: {
-      title: titulo,
+      title: tituloVariante,
       description: descripcionCorta,
       images: producto.imagen_url ? [producto.imagen_url] : [],
     },
