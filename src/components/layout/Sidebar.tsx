@@ -2,10 +2,24 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Menu, X, ChevronDown } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
-const nav = [
+// Pantallas con cosas "para atender": si una entrada del menú tiene `pendiente`,
+// se le muestra un punto rojo cuando hay pendientes de ese tipo (ver cargar()
+// más abajo). Para sumar otra pantalla: agregar su clave acá, su consulta en
+// cargar() y la propiedad `pendiente` en la entrada del menú.
+type ClavePendiente = 'avisos' | 'pedidos'
+type NavHijo = { label: string; href: string; pendiente?: ClavePendiente }
+type NavItem = {
+  label: string
+  icon: string
+  href?: string
+  children?: NavHijo[]
+}
+
+const nav: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: '⊞' },
   { label: 'Caja', href: '/cierre-turno', icon: '🔒' },
   { label: 'Ventas', href: '/ventas', icon: '🛒' },
@@ -14,8 +28,8 @@ const nav = [
     label: 'Pedidos',
     icon: '🌐',
     children: [
-      { label: 'Pedidos Web', href: '/pedidos-web' },
-      { label: 'Avisos Stock', href: '/avisos-stock' },
+      { label: 'Pedidos Web', href: '/pedidos-web', pendiente: 'pedidos' },
+      { label: 'Avisos Stock', href: '/avisos-stock', pendiente: 'avisos' },
     ],
   },
   { label: 'Presupuestos', href: '/presupuestos', icon: '📋' },
@@ -64,13 +78,41 @@ const nav = [
 export default function Sidebar() {
   const pathname = usePathname()
   const [abierto, setAbierto] = useState(false)
+  const supabase = useMemo(() => createClient(), [])
+  const [pendientes, setPendientes] = useState<Record<ClavePendiente, number>>({ avisos: 0, pedidos: 0 })
+
+  // Cantidad de pendientes por tipo — se recalcula al cambiar de pantalla (así
+  // el punto desaparece apenas se marcan los avisos) y cada 60 segundos.
+  // Mismos criterios que las alertas del Dashboard.
+  useEffect(() => {
+    let cancelado = false
+    async function cargar() {
+      try {
+        const [avisosRes, pedidosRes] = await Promise.all([
+          supabase.from('avisos_stock').select('id', { count: 'exact', head: true }).eq('avisado', false),
+          supabase
+            .from('pedidos_web')
+            .select('id', { count: 'exact', head: true })
+            .or('estado.eq.pendiente_pago,estado.eq.pendiente_retiro,and(estado.eq.confirmado,entregado_en.is.null)'),
+        ])
+        if (!cancelado) {
+          setPendientes({ avisos: avisosRes.count ?? 0, pedidos: pedidosRes.count ?? 0 })
+        }
+      } catch {
+        // si falla la consulta, simplemente no se muestra el punto
+      }
+    }
+    cargar()
+    const timer = setInterval(cargar, 60000)
+    return () => { cancelado = true; clearInterval(timer) }
+  }, [pathname, supabase])
 
   // Todos los grupos con children del nav (hoy: Artículos y Reportes)
   const grupos = nav.filter(item => item.children)
 
   // ¿La ruta actual pertenece a este grupo? (usado para resaltarlo y para
   // decidir con qué grupos arranca abierto el acordeón)
-  function grupoActivo(item: typeof nav[number]) {
+  function grupoActivo(item: NavItem) {
     if (!item.children) return false
     return item.children.some(c => pathname === c.href || pathname.startsWith(c.href + '/'))
   }
@@ -102,7 +144,7 @@ export default function Sidebar() {
     // Prefijo más largo entre todas las rutas del menú que matchea el
     // pathname actual — evita que, por ej., "/articulos" quede resaltado
     // al mismo tiempo que "/articulos/precios".
-    const todasLasRutas = nav.flatMap(item => item.children ? item.children.map(c => c.href) : [item.href])
+    const todasLasRutas = nav.flatMap(item => item.children ? item.children.map(c => c.href) : [item.href as string])
     let mejor: string | null = null
     for (const h of todasLasRutas) {
       if (pathname === h || pathname.startsWith(h + '/')) {
@@ -111,6 +153,14 @@ export default function Sidebar() {
     }
     return href === mejor
   }
+
+  // Punto rojo de "hay algo para atender"
+  const Punto = () => (
+    <span
+      className="inline-block w-2 h-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.9)] animate-pulse shrink-0"
+      aria-label="Hay pendientes"
+    />
+  )
 
   return (
     <>
@@ -158,6 +208,7 @@ export default function Sidebar() {
             if (item.children) {
               const activo = grupoActivo(item)
               const grupoAbierto = gruposAbiertos.has(item.label)
+              const grupoConPendientes = item.children.some(c => c.pendiente && pendientes[c.pendiente] > 0)
               return (
                 <div key={item.label}>
                   <button
@@ -168,6 +219,7 @@ export default function Sidebar() {
                   >
                     <span>{item.icon}</span>
                     <span className="flex-1 text-left">{item.label}</span>
+                    {grupoConPendientes && !grupoAbierto && <Punto />}
                     <ChevronDown className={`w-3.5 h-3.5 transition-transform ${grupoAbierto ? 'rotate-180' : ''}`} />
                   </button>
                   {grupoAbierto && (
@@ -182,7 +234,8 @@ export default function Sidebar() {
                               : 'text-white/60 hover:text-white hover:bg-white/5'
                           }`}
                         >
-                          {child.label}
+                          <span>{child.label}</span>
+                          {child.pendiente && pendientes[child.pendiente] > 0 && <Punto />}
                         </Link>
                       ))}
                     </div>
@@ -194,9 +247,9 @@ export default function Sidebar() {
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={item.href as string}
                 className={`flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-                  esActivo(item.href)
+                  esActivo(item.href as string)
                     ? 'bg-[#00a19a] text-white'
                     : 'text-white/70 hover:text-white hover:bg-white/5'
                 }`}
