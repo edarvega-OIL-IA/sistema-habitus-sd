@@ -25,6 +25,7 @@ export default function AvisoStock({ articuloId }: Props) {
   const [emailTocado, setEmailTocado] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [enviado, setEnviado] = useState(false)
+  const [yaAnotado, setYaAnotado] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const necesitaWhatsapp = medio === 'whatsapp' || medio === 'ambos'
@@ -63,6 +64,7 @@ export default function AvisoStock({ articuloId }: Props) {
       if (!res.ok || !data?.ok) {
         throw new Error(data?.mensaje || 'No pudimos guardar tu aviso. Probá de nuevo en unos minutos.')
       }
+      setYaAnotado(Boolean(data.repetido))
       setEnviado(true)
     } catch (err: unknown) {
       const esErrorDeRed = err instanceof TypeError
@@ -76,7 +78,9 @@ export default function AvisoStock({ articuloId }: Props) {
     return (
       <div className="flex items-center gap-2 border-2 border-offer-teal/30 bg-offer-teal/10 text-offer-teal text-sm font-medium px-4 py-3 rounded-lg">
         <Check className="w-5 h-5 shrink-0" />
-        Listo, te avisamos apenas vuelva a haber stock.
+        {yaAnotado
+          ? 'Ya tenías este aviso anotado. Te avisamos apenas vuelva a haber stock.'
+          : 'Listo, te avisamos apenas vuelva a haber stock.'}
       </div>
     )
   }

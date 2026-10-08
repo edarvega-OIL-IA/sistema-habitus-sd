@@ -46,7 +46,7 @@ export async function POST(request: Request) {
       if (!email || typeof email !== 'string') {
         return NextResponse.json({ ok: false, mensaje: 'Falta el email' }, { status: 400 })
       }
-      emailFinal = email.trim()
+      emailFinal = email.trim().toLowerCase()
       if (!EMAIL_VALIDO.test(emailFinal)) {
         return NextResponse.json({ ok: false, mensaje: 'El email no parece válido' }, { status: 400 })
       }
@@ -61,6 +61,12 @@ export async function POST(request: Request) {
     })
 
     if (error) {
+      // 23505 = violación de unicidad: esa persona ya tiene un aviso PENDIENTE para
+      // este producto (índices avisos_stock_unico_*_pendiente). Para ella es un éxito:
+      // ya está anotada, no se cuenta dos veces.
+      if (error.code === '23505') {
+        return NextResponse.json({ ok: true, repetido: true })
+      }
       console.error('Error al guardar aviso de stock:', error.message)
       return NextResponse.json({ ok: false, mensaje: 'No se pudo guardar el aviso' }, { status: 500 })
     }
