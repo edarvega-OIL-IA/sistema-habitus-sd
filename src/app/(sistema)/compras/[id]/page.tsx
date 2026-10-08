@@ -164,7 +164,21 @@ export default function ComprasEditarPage() {
       setNroRemito(o.numero_remito_proveedor || '')
       setFechaFactura(o.fecha_factura || '')
       setNroPedidoExterno(o.numero_pedido_externo || '')
-      if (o.medio_pago_id) setMedioPagoId(o.medio_pago_id)
+      // Medio de pago de la mercadería: la fuente de verdad es el movimiento ya
+      // registrado (ahí se ve cómo se pagó de verdad). ordenes_compra.medio_pago_id
+      // puede estar vacío en órdenes viejas (guardar() no lo grababa hasta 08/10/2026)
+      // y, si se asumía Efectivo, un simple "Confirmar" reescribía el movimiento
+      // como Efectivo y pegaba en la Caja del turno.
+      const { data: movMercExistente } = await supabase
+        .from('movimientos')
+        .select('medio_pago_id')
+        .eq('origen_tipo', 'orden_compra')
+        .eq('origen_id', ordenId)
+        .eq('origen_subtipo', 'mercaderia')
+        .eq('anulado', false)
+        .maybeSingle()
+      const medioPagoInicial: number = movMercExistente?.medio_pago_id || o.medio_pago_id || 1
+      setMedioPagoId(medioPagoInicial)
       setFleteMonto(o.flete_monto || 0)
       setFleteFecha(o.flete_fecha || '')
       setFleteMedioPagoId(o.flete_medio_pago_id || 1)
@@ -218,7 +232,7 @@ export default function ComprasEditarPage() {
         proveedorId: o.proveedor_id, fechaOrden: o.fecha_orden, fechaRecepcion: o.fecha_recepcion || '', tieneComprobante: o.tiene_comprobante,
         nroFactura: o.numero_factura_proveedor || '', nroRemito: o.numero_remito_proveedor || '',
         fechaFactura: o.fecha_factura || '', nroPedidoExterno: o.numero_pedido_externo || '',
-        medioPagoId: o.medio_pago_id || 1, fleteMonto: o.flete_monto || 0, fleteFecha: o.flete_fecha || '',
+        medioPagoId: medioPagoInicial, fleteMonto: o.flete_monto || 0, fleteFecha: o.flete_fecha || '',
         fleteMedioPagoId: o.flete_medio_pago_id || 1, fleteTransportistaId: o.flete_transportista_id || '',
         montoComprobante: o.monto_comprobante || 0, observaciones: o.observaciones || '',
         items: itemsCargados,
@@ -569,6 +583,7 @@ export default function ComprasEditarPage() {
         numero_remito_proveedor: tieneComprobante ? nroRemito || null : null,
         fecha_factura: tieneComprobante ? fechaFactura || null : null,
         numero_pedido_externo: nroPedidoExterno || null,
+        medio_pago_id: medioPagoId,
         flete_monto: fleteMonto,
         flete_fecha: fleteMonto > 0 ? fleteFecha || null : null,
         flete_medio_pago_id: fleteMonto > 0 ? fleteMedioPagoId : null,
