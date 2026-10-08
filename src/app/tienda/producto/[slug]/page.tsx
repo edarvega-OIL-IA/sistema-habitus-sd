@@ -121,8 +121,12 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const resultado = await buscarProducto(slug)
   if (!resultado) return { title: 'Producto no encontrado — Hábitus SD' }
 
-  const { producto } = resultado
+  const { producto, fotos } = resultado
   const titulo = producto.nombre_base || producto.nombre
+  // Foto para la vista previa: la primera de la galería (articulo_imagenes) y,
+  // si no hay, imagen_url. Antes se usaba solo imagen_url, que en artículos con
+  // varias fotos puede estar vacío y la tarjeta salía sin imagen (08/10/2026).
+  const imagenVistaPrevia = fotos[0]?.url || producto.imagen_url
   // Cada sabor/variante tiene su propia URL: el título que ven Google y las
   // vistas previas (WhatsApp, redes) tiene que incluir el sabor, si no todas
   // las variantes se ven con el mismo nombre (pedido 08/10/2026).
@@ -140,7 +144,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     openGraph: {
       title: tituloVariante,
       description: descripcionCorta,
-      images: producto.imagen_url ? [producto.imagen_url] : [],
+      images: imagenVistaPrevia ? [imagenVistaPrevia] : [],
     },
   }
 }
@@ -171,7 +175,7 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
     '@type': 'Product',
     name: titulo,
     description: descripcionAMostrar || undefined,
-    image: producto.imagen_url || undefined,
+    image: fotos[0]?.url || producto.imagen_url || undefined,
     brand: producto.marca ? { '@type': 'Brand', name: producto.marca } : undefined,
     sku: String(producto.id),
     offers: {
