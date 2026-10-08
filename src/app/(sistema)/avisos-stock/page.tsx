@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { armarSlugProducto } from '@/lib/slug'
+import { normalizarWhatsapp } from '@/lib/whatsapp'
 import { MessageCircle, Mail, Check } from 'lucide-react'
 
 interface Aviso {
@@ -119,12 +120,14 @@ export default function AvisosStockPage() {
   }
 
   function linkWhatsapp(whatsapp: string, articulo: Articulo): string {
-    // wa.me para Argentina necesita 54 9 <código de área><número>, sin el 0
-    // ni el 15 que la gente suele anteponer al escribir su número a mano.
-    let numero = soloDigitos(whatsapp)
-    if (numero.startsWith('0')) numero = numero.slice(1)
-    if (numero.startsWith('15')) numero = numero.slice(2)
-    return `https://wa.me/549${numero}?text=${encodeURIComponent(mensajeWhatsapp(articulo))}`
+    // Los números se guardan normalizados ("+5492995741735", ver src/lib/whatsapp.ts),
+    // así que NO hay que volver a anteponer 549 (bug 08/10/2026: generaba
+    // 5495492996204144). normalizarWhatsapp respeta lo que ya viene con "+" y
+    // además arregla los números viejos guardados sin código de país.
+    // wa.me quiere solo dígitos, sin "+".
+    const normalizado = normalizarWhatsapp(whatsapp)
+    const numero = soloDigitos(normalizado ?? whatsapp)
+    return `https://wa.me/${numero}?text=${encodeURIComponent(mensajeWhatsapp(articulo))}`
   }
 
   // Compose web de Gmail en vez de mailto: — mailto: depende de cuál sea el
