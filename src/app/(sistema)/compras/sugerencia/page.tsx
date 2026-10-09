@@ -1,8 +1,9 @@
+// Ruta destino: C:\Users\Usuario\Documents\sistema-habitus-sd\src\app\(sistema)\compras\sugerencia\page.tsx
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Search, Filter, AlertTriangle } from 'lucide-react'
+import { Search, Filter, AlertTriangle, ChevronDown } from 'lucide-react'
 
 interface DetallePresupuesto {
   numero: number
@@ -13,6 +14,8 @@ interface DetallePresupuesto {
 interface FilaArticulo {
   id: number
   nombre: string
+  rubroId: number // 0 = artículo sin rubro
+  rubroNombre: string
   stockActual: number
   stockMinimo: number | null
   unidadesPeriodo: { 1: number; 3: number; 6: number; 12: number }
@@ -23,6 +26,11 @@ interface FilaArticulo {
   detallePresupuestos: DetallePresupuesto[]
 }
 
+interface Rubro {
+  id: number
+  nombre: string
+}
+
 interface Proveedor {
   id: number
   nombre: string
@@ -31,6 +39,7 @@ interface Proveedor {
 type PeriodoMeses = 1 | 3 | 6 | 12
 
 const SIN_PROVEEDOR = 'sin_proveedor'
+const SIN_RUBRO_ID = 0
 
 export default function SugerenciaCompraPage() {
   const supabase = createClient()
@@ -39,6 +48,7 @@ export default function SugerenciaCompraPage() {
   const [error, setError] = useState<string | null>(null)
   const [filas, setFilas] = useState<FilaArticulo[]>([])
   const [proveedores, setProveedores] = useState<Proveedor[]>([])
+  const [rubros, setRubros] = useState<Rubro[]>([])
 
   const [periodo, setPeriodo] = useState<PeriodoMeses>(3)
   const [umbralDias, setUmbralDias] = useState<number>(15)
@@ -47,6 +57,31 @@ export default function SugerenciaCompraPage() {
   const [incluirBorradores, setIncluirBorradores] = useState(false)
   const [busqueda, setBusqueda] = useState('')
   const [filtroProveedor, setFiltroProveedor] = useState<string>('todos')
+
+  // --- Filtro Rubros (multi-select, mismo patrón que Reportes — Ventas) ---
+  // Vacío = todos los rubros.
+  const [rubrosSeleccionados, setRubrosSeleccionados] = useState<Set<number>>(new Set())
+  const [dropdownAbierto, setDropdownAbierto] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onClickFuera(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownAbierto(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickFuera)
+    return () => document.removeEventListener('mousedown', onClickFuera)
+  }, [])
+
+  function toggleRubro(id: number) {
+    setRubrosSeleccionados(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   useEffect(() => { cargar() }, [])
 
@@ -69,7 +104,7 @@ export default function SugerenciaCompraPage() {
       // Universo: solo lo que Ariel marcó como disponible en el local
       const { data: articulosData, error: articulosError } = await supabase
         .from('articulos')
-        .select('id, nombre, nombre_base')
+        .select('id, nombre, nombre_base, rubro_id')
         .eq('activo', true)
         .eq('disponible_local', true)
 
@@ -79,7 +114,11 @@ export default function SugerenciaCompraPage() {
       // con base+sabor+marca), NUNCA nombre_base — nombre_base no distingue
       // sabores y mostraba artículos distintos repetidos con el mismo texto.
       const articuloNombreMap = new Map<number, string>()
-      ;(articulosData || []).forEach(a => articuloNombreMap.set(a.id, a.nombre))
+      const articuloRubroMap = new Map<number, number>()
+      ;(articulosData || []).forEach(a => {
+        articuloNombreMap.set(a.id, a.nombre)
+        articuloRubroMap.set(a.id, a.rubro_id ?? SIN_RUBRO_ID)
+      })
       let articuloIds = (articulosData || []).map(a => a.id)
 
       // Presupuestos — se traen los 3 estados relevantes (Borrador incluido)
@@ -130,12 +169,15 @@ export default function SugerenciaCompraPage() {
       if (idsFaltantesEnUniverso.length > 0) {
         const { data: articulosExtra, error: articulosExtraError } = await supabase
           .from('articulos')
-          .select('id, nombre')
+          .select('id, nombre, rubro_id')
           .in('id', idsFaltantesEnUniverso)
 
         if (articulosExtraError) throw articulosExtraError
 
-        ;(articulosExtra || []).forEach(a => articuloNombreMap.set(a.id, a.nombre))
+        ;(articulosExtra || []).forEach(a => {
+          articuloNombreMap.set(a.id, a.nombre)
+          articuloRubroMap.set(a.id, a.rubro_id ?? SIN_RUBRO_ID)
+        })
         articuloIds = [...articuloIds, ...idsFaltantesEnUniverso]
       }
 
@@ -228,6 +270,17 @@ export default function SugerenciaCompraPage() {
       ;(proveedoresData || []).forEach(p => proveedorNombreMap.set(p.id, p.nombre_comercial))
       setProveedores((proveedoresData || []).map(p => ({ id: p.id, nombre: p.nombre_comercial })))
 
+      const { data: rubrosData, error: rubrosError } = await supabase
+        .from('rubros')
+        .select('id, nombre')
+        .order('nombre')
+
+      if (rubrosError) throw rubrosError
+
+      const rubroNombreMap = new Map<number, string>()
+      ;(rubrosData || []).forEach(r => rubroNombreMap.set(r.id, r.nombre))
+      setRubros(rubrosData || [])
+
       const cantidadPedidaMap = new Map<number, number>()
       const ultimoProveedorPorArticuloMap = new Map<number, { proveedorId: number; fecha: string }>()
       const todosProveedoresPorArticuloMap = new Map<number, Set<number>>()
@@ -269,6 +322,8 @@ export default function SugerenciaCompraPage() {
         return {
           id,
           nombre: articuloNombreMap.get(id) || `Artículo #${id}`,
+          rubroId: articuloRubroMap.get(id) ?? SIN_RUBRO_ID,
+          rubroNombre: rubroNombreMap.get(articuloRubroMap.get(id) ?? SIN_RUBRO_ID) || 'Sin rubro',
           stockActual: stockMap.get(id) || 0,
           stockMinimo: stockMinMap.get(id) ?? null,
           unidadesPeriodo: unidadesPorArticulo.get(id) || { 1: 0, 3: 0, 6: 0, 12: 0 },
@@ -344,6 +399,10 @@ export default function SugerenciaCompraPage() {
     // después lo que está bajo su stock mínimo (independiente de si rota o
     // no), después lo que más pesa en la próxima compra (Cant. sugerida
     // desc), y a igualdad, lo que más rota (Venta prom. mensual desc).
+    // Filtro por rubro (multi-select; vacío = todos)
+    if (rubrosSeleccionados.size > 0) {
+      out = out.filter(f => rubrosSeleccionados.has(f.rubroId))
+    }
     return [...out].sort((a, b) => {
       const aTienePresupuesto = a.faltantePresupuesto > 0
       const bTienePresupuesto = b.faltantePresupuesto > 0
@@ -352,7 +411,16 @@ export default function SugerenciaCompraPage() {
       if (b.cantidadSugerida !== a.cantidadSugerida) return b.cantidadSugerida - a.cantidadSugerida
       return b.promedioDiario - a.promedioDiario
     })
-  }, [filasCalculadas, mostrarTodos, busqueda, filtroProveedor])
+  }, [filasCalculadas, mostrarTodos, busqueda, filtroProveedor, rubrosSeleccionados])
+
+  // Solo se ofrecen los rubros que tienen artículos en esta pantalla (más
+  // "Sin rubro" si hay artículos sin rubro), ordenados A→Z.
+  const rubrosDisponibles = useMemo(() => {
+    const ids = new Set(filas.map(f => f.rubroId))
+    const lista = rubros.filter(r => ids.has(r.id))
+    if (ids.has(SIN_RUBRO_ID)) lista.push({ id: SIN_RUBRO_ID, nombre: 'Sin rubro' })
+    return lista
+  }, [filas, rubros])
 
   const totalUnidadesSugeridas = filasFiltradas.reduce((sum, f) => sum + f.cantidadSugerida, 0)
   const totalArticulos = filasFiltradas.length
@@ -440,15 +508,56 @@ export default function SugerenciaCompraPage() {
         </div>
 
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="relative max-w-xs flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-            <input
-              type="text"
-              value={busqueda}
-              onChange={e => setBusqueda(e.target.value)}
-              placeholder="Buscar artículo o proveedor..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg text-[#3c3c3b]"
-            />
+          <div className="flex items-center gap-3 flex-wrap flex-1">
+            {/* Dropdown Rubros (multi-select) */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                type="button"
+                onClick={() => setDropdownAbierto(prev => !prev)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm border rounded transition-colors ${
+                  rubrosSeleccionados.size > 0
+                    ? 'bg-[#00a19a]/10 border-[#00a19a] text-[#00a19a]'
+                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Rubros{rubrosSeleccionados.size > 0 ? ` (${rubrosSeleccionados.size})` : ''}
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${dropdownAbierto ? 'rotate-180' : ''}`} />
+              </button>
+              {dropdownAbierto && (
+                <div className="absolute z-10 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg max-h-80 overflow-y-auto">
+                  <div className="p-2 border-b border-gray-100 flex items-center justify-between">
+                    <span className="text-xs text-gray-500">{rubrosSeleccionados.size === 0 ? 'Mostrando todos' : `${rubrosSeleccionados.size} seleccionados`}</span>
+                    {rubrosSeleccionados.size > 0 && (
+                      <button type="button" onClick={() => setRubrosSeleccionados(new Set())} className="text-xs text-[#00a19a] hover:underline">
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                  {rubrosDisponibles.map(r => (
+                    <label key={r.id} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={rubrosSeleccionados.has(r.id)}
+                        onChange={() => toggleRubro(r.id)}
+                        className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                      />
+                      {r.nombre}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="relative max-w-xs flex-1 min-w-[200px]">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <input
+                type="text"
+                value={busqueda}
+                onChange={e => setBusqueda(e.target.value)}
+                placeholder="Buscar artículo o proveedor..."
+                className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg text-[#3c3c3b]"
+              />
+            </div>
           </div>
           <div className="flex items-center gap-4 flex-wrap">
             <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
