@@ -5,6 +5,7 @@ import { MINIMOS_POR_RUBRO } from '@/lib/tienda/config'
 import { matchOCrearClienteWeb } from '@/lib/tienda/clientes'
 import { cotizarEnvio } from '@/lib/correoargentino/micorreo'
 import { calcularPesoCarritoGramos } from '@/lib/correoargentino/pesoCarrito'
+import { obtenerRecargoEnvio, aplicarRecargo } from '@/lib/correoargentino/recargo'
 import { CORREO_ARGENTINO_CP_ORIGEN, CORREO_ARGENTINO_CAJA_ESTANDAR } from '@/lib/config'
 
 const SUCURSAL_ID = 1 // única sucursal existente hoy
@@ -264,7 +265,9 @@ export async function POST(request: NextRequest) {
           { status: 409 }
         )
 
-      costoEnvio = opcionElegida.price
+      // Mismo recargo que se le mostró al cliente en cotizar-envio
+      const recargo = await obtenerRecargoEnvio(admin)
+      costoEnvio = aplicarRecargo(opcionElegida.price, recargo)
       envioProductoFinal = envioProducto!
       envioTipoEntregaFinal = envioTipoEntrega!
       envioAgenciaCodigoFinal = envioTipoEntrega === 'S' ? envioAgenciaCodigo!.trim() : null

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { cotizarEnvio } from '@/lib/correoargentino/micorreo'
 import { calcularPesoCarritoGramos } from '@/lib/correoargentino/pesoCarrito'
+import { obtenerRecargoEnvio, aplicarRecargo } from '@/lib/correoargentino/recargo'
 import { CORREO_ARGENTINO_CP_ORIGEN, CORREO_ARGENTINO_CAJA_ESTANDAR } from '@/lib/config'
 
 interface ItemCarrito {
@@ -45,11 +46,16 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    // Recargo configurado en Configuración → Envíos (0 por defecto): se suma a
+    // cada tarifa para que el cliente vea el mismo precio que después se cobra.
+    const recargo = await obtenerRecargoEnvio(admin)
+    const opciones = cotizacion.rates.map(rate => ({ ...rate, price: aplicarRecargo(rate.price, recargo) }))
+
     return NextResponse.json({
       ok: true,
       pesoTotalGramos,
       pesoEstimado: algunPesoEstimado,
-      opciones: cotizacion.rates,
+      opciones,
       validoHasta: cotizacion.validTo,
     })
   } catch (error: any) {

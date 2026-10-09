@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Truck, Save, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react'
+import { CORREO_ARGENTINO_CP_ORIGEN } from '@/lib/config'
 
 interface ConfiguracionEnvios {
   id: number
@@ -99,6 +100,10 @@ export default function ConfiguracionPage() {
   const [tarifaTexto, setTarifaTexto] = useState('')
   const [tarifaTextoOriginal, setTarifaTextoOriginal] = useState('')
 
+  // Buffers de texto para los recargos de Correo Argentino
+  const [recargoPctTexto, setRecargoPctTexto] = useState('')
+  const [recargoFijoTexto, setRecargoFijoTexto] = useState('')
+
   useEffect(() => {
     cargarConfig()
   }, [])
@@ -117,6 +122,8 @@ export default function ConfiguracionPage() {
       const tarifaFmt = fmtMonto(data.tarifa_cinco_saltos)
       setTarifaTexto(tarifaFmt)
       setTarifaTextoOriginal(tarifaFmt)
+      setRecargoPctTexto(fmtMonto(Number(data.correo_argentino_recargo_pct) || 0))
+      setRecargoFijoTexto(fmtMonto(Number(data.correo_argentino_recargo_monto_fijo) || 0))
     }
     setLoading(false)
   }
@@ -129,10 +136,18 @@ export default function ConfiguracionPage() {
     (config.aclaraciones_texto !== original.aclaraciones_texto ||
       config.aclaraciones_activo !== original.aclaraciones_activo ||
       config.envio_cinco_saltos_activo !== original.envio_cinco_saltos_activo ||
-      parsearMonto(tarifaTexto) !== original.tarifa_cinco_saltos)
+      parsearMonto(tarifaTexto) !== original.tarifa_cinco_saltos ||
+      Math.max(0, parsearMonto(recargoPctTexto)) !== Number(original.correo_argentino_recargo_pct) ||
+      Math.max(0, parsearMonto(recargoFijoTexto)) !== Number(original.correo_argentino_recargo_monto_fijo))
 
   async function guardar() {
     if (!config || !hayCambios) return
+    const recargoPct = Math.max(0, parsearMonto(recargoPctTexto))
+    const recargoFijo = Math.max(0, parsearMonto(recargoFijoTexto))
+    if (recargoPct > 100) {
+      alert('El recargo % no puede ser mayor a 100.')
+      return
+    }
     setGuardando(true)
     setGuardadoOk(false)
     const supabase = createClient()
@@ -145,8 +160,8 @@ export default function ConfiguracionPage() {
         envio_cinco_saltos_activo: config.envio_cinco_saltos_activo,
         correo_argentino_activo: config.correo_argentino_activo,
         correo_argentino_cp_origen: config.correo_argentino_cp_origen,
-        correo_argentino_recargo_pct: config.correo_argentino_recargo_pct,
-        correo_argentino_recargo_monto_fijo: config.correo_argentino_recargo_monto_fijo,
+        correo_argentino_recargo_pct: recargoPct,
+        correo_argentino_recargo_monto_fijo: recargoFijo,
         actualizado_en: new Date().toISOString(),
       })
       .eq('id', 1)
@@ -238,17 +253,16 @@ export default function ConfiguracionPage() {
           </div>
         </div>
 
-        {/* Correo Argentino — placeholder hasta tener credenciales de API */}
-        <div className="border border-gray-200 rounded-lg p-4 opacity-70">
+        {/* Correo Argentino — conectado (API MiCorreo) */}
+        <div className="border border-gray-200 rounded-lg p-4">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium text-gray-700">Envío a domicilio (Correo Argentino)</p>
-            <span className="px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-700">
-              Pendiente credenciales de API
-            </span>
+            <span className="px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700">Conectado</span>
           </div>
           <p className="text-xs text-gray-400 mb-3">
             Cotización automática vía API de MiCorreo para localidades fuera de Cinco Saltos.
-            Se habilita cuando lleguen las credenciales del ambiente PROD.
+            El recargo se suma a la tarifa que cotiza el Correo y el cliente lo ve ya incluido en el precio del envío.
+            Con ambos recargos en 0 se cobra exactamente la tarifa del Correo.
           </p>
           <div className="grid grid-cols-3 gap-3">
             <div>
@@ -256,27 +270,38 @@ export default function ConfiguracionPage() {
               <input
                 type="text"
                 disabled
-                value={config.correo_argentino_cp_origen || ''}
+                value={config.correo_argentino_cp_origen || CORREO_ARGENTINO_CP_ORIGEN}
+                title="Fijo en el sistema (lib/config.ts)"
                 className="w-full px-3 py-2 border border-gray-200 rounded text-sm bg-gray-50 text-gray-400"
               />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Recargo %</label>
-              <input
-                type="text"
-                disabled
-                value={config.correo_argentino_recargo_pct}
-                className="w-full px-3 py-2 border border-gray-200 rounded text-sm bg-gray-50 text-gray-400"
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={recargoPctTexto}
+                  onChange={e => setRecargoPctTexto(e.target.value)}
+                  onBlur={() => setRecargoPctTexto(fmtMonto(Math.max(0, parsearMonto(recargoPctTexto))))}
+                  className="w-full pl-3 pr-7 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+              </div>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Recargo fijo $</label>
-              <input
-                type="text"
-                disabled
-                value={config.correo_argentino_recargo_monto_fijo}
-                className="w-full px-3 py-2 border border-gray-200 rounded text-sm bg-gray-50 text-gray-400"
-              />
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={recargoFijoTexto}
+                  onChange={e => setRecargoFijoTexto(e.target.value)}
+                  onBlur={() => setRecargoFijoTexto(fmtMonto(Math.max(0, parsearMonto(recargoFijoTexto))))}
+                  className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+                />
+              </div>
             </div>
           </div>
         </div>
