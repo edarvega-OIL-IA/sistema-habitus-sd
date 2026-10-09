@@ -16,6 +16,7 @@ interface FilaArticulo {
   nombre: string
   rubroId: number // 0 = artículo sin rubro
   rubroNombre: string
+  marcaId: number // 0 = artículo sin marca
   stockActual: number
   stockMinimo: number | null
   unidadesPeriodo: { 1: number; 3: number; 6: number; 12: number }
@@ -31,6 +32,11 @@ interface Rubro {
   nombre: string
 }
 
+interface Marca {
+  id: number
+  nombre: string
+}
+
 interface Proveedor {
   id: number
   nombre: string
@@ -40,6 +46,7 @@ type PeriodoMeses = 1 | 3 | 6 | 12
 
 const SIN_PROVEEDOR = 'sin_proveedor'
 const SIN_RUBRO_ID = 0
+const SIN_MARCA_ID = 0
 
 export default function SugerenciaCompraPage() {
   const supabase = createClient()
@@ -49,6 +56,7 @@ export default function SugerenciaCompraPage() {
   const [filas, setFilas] = useState<FilaArticulo[]>([])
   const [proveedores, setProveedores] = useState<Proveedor[]>([])
   const [rubros, setRubros] = useState<Rubro[]>([])
+  const [marcas, setMarcas] = useState<Marca[]>([])
 
   const [periodo, setPeriodo] = useState<PeriodoMeses>(3)
   const [umbralDias, setUmbralDias] = useState<number>(15)
@@ -73,6 +81,30 @@ export default function SugerenciaCompraPage() {
     document.addEventListener('mousedown', onClickFuera)
     return () => document.removeEventListener('mousedown', onClickFuera)
   }, [])
+
+  // --- Filtro Marcas (multi-select, mismo patrón que Rubros) ---
+  const [marcasSeleccionadas, setMarcasSeleccionadas] = useState<Set<number>>(new Set())
+  const [dropdownMarcasAbierto, setDropdownMarcasAbierto] = useState(false)
+  const dropdownMarcasRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onClickFuera(e: MouseEvent) {
+      if (dropdownMarcasRef.current && !dropdownMarcasRef.current.contains(e.target as Node)) {
+        setDropdownMarcasAbierto(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickFuera)
+    return () => document.removeEventListener('mousedown', onClickFuera)
+  }, [])
+
+  function toggleMarca(id: number) {
+    setMarcasSeleccionadas(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   function toggleRubro(id: number) {
     setRubrosSeleccionados(prev => {
@@ -104,7 +136,7 @@ export default function SugerenciaCompraPage() {
       // Universo: solo lo que Ariel marcó como disponible en el local
       const { data: articulosData, error: articulosError } = await supabase
         .from('articulos')
-        .select('id, nombre, nombre_base, rubro_id')
+        .select('id, nombre, nombre_base, rubro_id, marca_id')
         .eq('activo', true)
         .eq('disponible_local', true)
 
@@ -115,9 +147,11 @@ export default function SugerenciaCompraPage() {
       // sabores y mostraba artículos distintos repetidos con el mismo texto.
       const articuloNombreMap = new Map<number, string>()
       const articuloRubroMap = new Map<number, number>()
+      const articuloMarcaMap = new Map<number, number>()
       ;(articulosData || []).forEach(a => {
         articuloNombreMap.set(a.id, a.nombre)
         articuloRubroMap.set(a.id, a.rubro_id ?? SIN_RUBRO_ID)
+        articuloMarcaMap.set(a.id, a.marca_id ?? SIN_MARCA_ID)
       })
       let articuloIds = (articulosData || []).map(a => a.id)
 
@@ -169,7 +203,7 @@ export default function SugerenciaCompraPage() {
       if (idsFaltantesEnUniverso.length > 0) {
         const { data: articulosExtra, error: articulosExtraError } = await supabase
           .from('articulos')
-          .select('id, nombre, rubro_id')
+          .select('id, nombre, rubro_id, marca_id')
           .in('id', idsFaltantesEnUniverso)
 
         if (articulosExtraError) throw articulosExtraError
@@ -177,6 +211,7 @@ export default function SugerenciaCompraPage() {
         ;(articulosExtra || []).forEach(a => {
           articuloNombreMap.set(a.id, a.nombre)
           articuloRubroMap.set(a.id, a.rubro_id ?? SIN_RUBRO_ID)
+          articuloMarcaMap.set(a.id, a.marca_id ?? SIN_MARCA_ID)
         })
         articuloIds = [...articuloIds, ...idsFaltantesEnUniverso]
       }
@@ -281,6 +316,14 @@ export default function SugerenciaCompraPage() {
       ;(rubrosData || []).forEach(r => rubroNombreMap.set(r.id, r.nombre))
       setRubros(rubrosData || [])
 
+      const { data: marcasData, error: marcasError } = await supabase
+        .from('marcas')
+        .select('id, nombre')
+        .order('nombre')
+
+      if (marcasError) throw marcasError
+      setMarcas(marcasData || [])
+
       const cantidadPedidaMap = new Map<number, number>()
       const ultimoProveedorPorArticuloMap = new Map<number, { proveedorId: number; fecha: string }>()
       const todosProveedoresPorArticuloMap = new Map<number, Set<number>>()
@@ -323,6 +366,7 @@ export default function SugerenciaCompraPage() {
           id,
           nombre: articuloNombreMap.get(id) || `Artículo #${id}`,
           rubroId: articuloRubroMap.get(id) ?? SIN_RUBRO_ID,
+          marcaId: articuloMarcaMap.get(id) ?? SIN_MARCA_ID,
           rubroNombre: rubroNombreMap.get(articuloRubroMap.get(id) ?? SIN_RUBRO_ID) || 'Sin rubro',
           stockActual: stockMap.get(id) || 0,
           stockMinimo: stockMinMap.get(id) ?? null,
@@ -403,6 +447,11 @@ export default function SugerenciaCompraPage() {
     if (rubrosSeleccionados.size > 0) {
       out = out.filter(f => rubrosSeleccionados.has(f.rubroId))
     }
+
+    // Filtro por marca (multi-select; vacío = todas)
+    if (marcasSeleccionadas.size > 0) {
+      out = out.filter(f => marcasSeleccionadas.has(f.marcaId))
+    }
     return [...out].sort((a, b) => {
       const aTienePresupuesto = a.faltantePresupuesto > 0
       const bTienePresupuesto = b.faltantePresupuesto > 0
@@ -411,7 +460,7 @@ export default function SugerenciaCompraPage() {
       if (b.cantidadSugerida !== a.cantidadSugerida) return b.cantidadSugerida - a.cantidadSugerida
       return b.promedioDiario - a.promedioDiario
     })
-  }, [filasCalculadas, mostrarTodos, busqueda, filtroProveedor, rubrosSeleccionados])
+  }, [filasCalculadas, mostrarTodos, busqueda, filtroProveedor, rubrosSeleccionados, marcasSeleccionadas])
 
   // Solo se ofrecen los rubros que tienen artículos en esta pantalla (más
   // "Sin rubro" si hay artículos sin rubro), ordenados A→Z.
@@ -421,6 +470,14 @@ export default function SugerenciaCompraPage() {
     if (ids.has(SIN_RUBRO_ID)) lista.push({ id: SIN_RUBRO_ID, nombre: 'Sin rubro' })
     return lista
   }, [filas, rubros])
+
+  // Solo marcas con artículos en esta pantalla (más "Sin marca"), A→Z.
+  const marcasDisponibles = useMemo(() => {
+    const ids = new Set(filas.map(f => f.marcaId))
+    const lista = marcas.filter(m => ids.has(m.id))
+    if (ids.has(SIN_MARCA_ID)) lista.push({ id: SIN_MARCA_ID, nombre: 'Sin marca' })
+    return lista
+  }, [filas, marcas])
 
   const totalUnidadesSugeridas = filasFiltradas.reduce((sum, f) => sum + f.cantidadSugerida, 0)
   const totalArticulos = filasFiltradas.length
@@ -542,6 +599,45 @@ export default function SugerenciaCompraPage() {
                         className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
                       />
                       {r.nombre}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Dropdown Marcas (multi-select) */}
+            <div className="relative" ref={dropdownMarcasRef}>
+              <button
+                type="button"
+                onClick={() => setDropdownMarcasAbierto(prev => !prev)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm border rounded transition-colors ${
+                  marcasSeleccionadas.size > 0
+                    ? 'bg-[#00a19a]/10 border-[#00a19a] text-[#00a19a]'
+                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Marcas{marcasSeleccionadas.size > 0 ? ` (${marcasSeleccionadas.size})` : ''}
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${dropdownMarcasAbierto ? 'rotate-180' : ''}`} />
+              </button>
+              {dropdownMarcasAbierto && (
+                <div className="absolute z-10 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg max-h-80 overflow-y-auto">
+                  <div className="p-2 border-b border-gray-100 flex items-center justify-between">
+                    <span className="text-xs text-gray-500">{marcasSeleccionadas.size === 0 ? 'Mostrando todas' : `${marcasSeleccionadas.size} seleccionadas`}</span>
+                    {marcasSeleccionadas.size > 0 && (
+                      <button type="button" onClick={() => setMarcasSeleccionadas(new Set())} className="text-xs text-[#00a19a] hover:underline">
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                  {marcasDisponibles.map(m => (
+                    <label key={m.id} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={marcasSeleccionadas.has(m.id)}
+                        onChange={() => toggleMarca(m.id)}
+                        className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                      />
+                      {m.nombre}
                     </label>
                   ))}
                 </div>
