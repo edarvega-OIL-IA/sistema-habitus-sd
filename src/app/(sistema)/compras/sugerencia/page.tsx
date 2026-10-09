@@ -471,13 +471,29 @@ export default function SugerenciaCompraPage() {
     return lista
   }, [filas, rubros])
 
-  // Solo marcas con artículos en esta pantalla (más "Sin marca"), A→Z.
+  // Marcas "atadas" a Rubros: si hay rubros seleccionados, solo se ofrecen las
+  // marcas de los artículos de esos rubros. Siempre limitadas a las marcas con
+  // artículos en esta pantalla (más "Sin marca"), A→Z.
   const marcasDisponibles = useMemo(() => {
-    const ids = new Set(filas.map(f => f.marcaId))
+    const base = rubrosSeleccionados.size > 0
+      ? filas.filter(f => rubrosSeleccionados.has(f.rubroId))
+      : filas
+    const ids = new Set(base.map(f => f.marcaId))
     const lista = marcas.filter(m => ids.has(m.id))
     if (ids.has(SIN_MARCA_ID)) lista.push({ id: SIN_MARCA_ID, nombre: 'Sin marca' })
     return lista
-  }, [filas, marcas])
+  }, [filas, marcas, rubrosSeleccionados])
+
+  // Al cambiar los rubros, se descartan las marcas seleccionadas que ya no
+  // corresponden (evita un filtro "invisible" que deje la tabla vacía).
+  useEffect(() => {
+    if (marcasSeleccionadas.size === 0) return
+    const permitidas = new Set(marcasDisponibles.map(m => m.id))
+    const quedan = [...marcasSeleccionadas].filter(id => permitidas.has(id))
+    if (quedan.length !== marcasSeleccionadas.size) {
+      setMarcasSeleccionadas(new Set(quedan))
+    }
+  }, [marcasDisponibles, marcasSeleccionadas])
 
   const totalUnidadesSugeridas = filasFiltradas.reduce((sum, f) => sum + f.cantidadSugerida, 0)
   const totalArticulos = filasFiltradas.length
