@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { Search, Edit, Copy } from 'lucide-react'
+import { Search, Edit, Copy, ChevronDown } from 'lucide-react'
 
 interface Articulo {
   id: number
@@ -44,6 +44,65 @@ function normalizar(s: string): string {
     .toLowerCase()
 }
 
+// Desplegable de selección múltiple (mismo patrón que Reportes — Ventas).
+// Set vacío = todos.
+function MultiSelect({ label, todosTexto, opciones, seleccionados, onToggle, onLimpiar }: {
+  label: string
+  todosTexto: string
+  opciones: { id: number; nombre: string }[]
+  seleccionados: Set<number>
+  onToggle: (id: number) => void
+  onLimpiar: () => void
+}) {
+  const [abierto, setAbierto] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onClickFuera(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setAbierto(false)
+    }
+    document.addEventListener('mousedown', onClickFuera)
+    return () => document.removeEventListener('mousedown', onClickFuera)
+  }, [])
+
+  const n = seleccionados.size
+  let texto = todosTexto
+  if (n === 1) texto = opciones.find(o => seleccionados.has(o.id))?.nombre ?? '1 seleccionado'
+  else if (n > 1) texto = `${n} seleccionados`
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+      <div className="relative" ref={ref}>
+        <button type="button" onClick={() => setAbierto(prev => !prev)}
+          className={`w-full flex items-center justify-between gap-2 px-3 py-2 border rounded text-sm text-left focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${
+            n > 0 ? 'bg-[#00a19a]/10 border-[#00a19a] text-[#00a19a]' : 'bg-white border-gray-300 text-gray-900'
+          }`}>
+          <span className="truncate">{texto}</span>
+          <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${abierto ? 'rotate-180' : ''}`} />
+        </button>
+        {abierto && (
+          <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-80 overflow-y-auto">
+            <div className="p-2 border-b border-gray-100 flex items-center justify-between">
+              <span className="text-xs text-gray-500">{n === 0 ? 'Mostrando todos' : `${n} seleccionados`}</span>
+              {n > 0 && (
+                <button type="button" onClick={onLimpiar} className="text-xs text-[#00a19a] hover:underline">Limpiar</button>
+              )}
+            </div>
+            {opciones.map(o => (
+              <label key={o.id} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                <input type="checkbox" checked={seleccionados.has(o.id)} onChange={() => onToggle(o.id)}
+                  className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]" />
+                {o.nombre}
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function ArticulosPage() {
   const [articulos, setArticulos] = useState<Articulo[]>([])
   const [rubros, setRubros] = useState<Rubro[]>([])
@@ -54,8 +113,8 @@ export default function ArticulosPage() {
 
   // Filtros
   const [busqueda, setBusqueda] = useState('')
-  const [rubroFiltro, setRubroFiltro] = useState<string>('todos')
-  const [marcaFiltro, setMarcaFiltro] = useState<string>('todos')
+  const [rubrosSeleccionados, setRubrosSeleccionados] = useState<Set<number>>(new Set()) // vacío = todos
+  const [marcasSeleccionadas, setMarcasSeleccionadas] = useState<Set<number>>(new Set()) // vacío = todas
   const [disponibilidadFiltro, setDisponibilidadFiltro] = useState<string>('local') // local | web | todos
   const [stockFiltro, setStockFiltro] = useState<string>('todos') // con_stock | sin_stock | todos
 
@@ -139,8 +198,8 @@ export default function ArticulosPage() {
       )
       if (!tokens.every(t => haystack.includes(t))) return false
     }
-    if (rubroFiltro !== 'todos' && a.rubro_id?.toString() !== rubroFiltro) return false
-    if (marcaFiltro !== 'todos' && a.marca_id?.toString() !== marcaFiltro) return false
+    if (rubrosSeleccionados.size > 0 && !(a.rubro_id != null && rubrosSeleccionados.has(a.rubro_id))) return false
+    if (marcasSeleccionadas.size > 0 && !(a.marca_id != null && marcasSeleccionadas.has(a.marca_id))) return false
     if (disponibilidadFiltro === 'local' && !a.disponible_local) return false
     if (disponibilidadFiltro === 'web' && !a.disponible_web) return false
     const stock = a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_actual ?? 0
@@ -152,19 +211,35 @@ export default function ArticulosPage() {
     return true
   })
 
-  // Si hay un rubro seleccionado, solo mostrar marcas que tengan al menos
-  // un artículo en ese rubro — evita listar marcas irrelevantes al filtro actual.
-  const marcasDisponibles = rubroFiltro === 'todos'
+  // Si hay rubros seleccionados, solo mostrar marcas que tengan al menos
+  // un artículo en alguno de esos rubros — evita listar marcas irrelevantes al filtro actual.
+  const marcasDisponibles = rubrosSeleccionados.size === 0
     ? marcas
-    : marcas.filter(m => articulos.some(a => a.rubro_id?.toString() === rubroFiltro && a.marca_id === m.id))
+    : marcas.filter(m => articulos.some(a => a.rubro_id != null && rubrosSeleccionados.has(a.rubro_id) && a.marca_id === m.id))
 
-  function handleCambioRubro(nuevoRubro: string) {
-    setRubroFiltro(nuevoRubro)
-    // Si la marca actualmente elegida no tiene artículos en el rubro nuevo, resetear el filtro de marca
-    if (marcaFiltro !== 'todos' && nuevoRubro !== 'todos') {
-      const sigueDisponible = articulos.some(a => a.rubro_id?.toString() === nuevoRubro && a.marca_id?.toString() === marcaFiltro)
-      if (!sigueDisponible) setMarcaFiltro('todos')
+  function toggleRubro(id: number) {
+    const nuevos = new Set(rubrosSeleccionados)
+    if (nuevos.has(id)) nuevos.delete(id)
+    else nuevos.add(id)
+    setRubrosSeleccionados(nuevos)
+    // Descarta las marcas elegidas que ya no tienen artículos en los rubros seleccionados
+    if (nuevos.size > 0 && marcasSeleccionadas.size > 0) {
+      const quedan = new Set(
+        [...marcasSeleccionadas].filter(mid =>
+          articulos.some(a => a.rubro_id != null && nuevos.has(a.rubro_id) && a.marca_id === mid)
+        )
+      )
+      if (quedan.size !== marcasSeleccionadas.size) setMarcasSeleccionadas(quedan)
     }
+  }
+
+  function toggleMarca(id: number) {
+    setMarcasSeleccionadas(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   const fmtPrecio = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -175,7 +250,7 @@ export default function ArticulosPage() {
   // El botón de glosa exige al menos un filtro que realmente acote QUÉ
   // artículos entran (Rubro, Marca o Búsqueda) — Disponibilidad/Stock no
   // cuentan para esto porque no eligen productos, solo su estado.
-  const hayFiltroActivo = busqueda.trim() !== '' || rubroFiltro !== 'todos' || marcaFiltro !== 'todos'
+  const hayFiltroActivo = busqueda.trim() !== '' || rubrosSeleccionados.size > 0 || marcasSeleccionadas.size > 0
 
   function stockDe(a: Articulo): number {
     return a.articulo_stock?.find(s => s.sucursal_id === 1)?.stock_actual ?? 0
@@ -287,25 +362,15 @@ export default function ArticulosPage() {
             </div>
           </div>
 
-          {/* Rubro */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Rubro</label>
-            <select value={rubroFiltro} onChange={e => handleCambioRubro(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-transparent">
-              <option value="todos">Todos los rubros</option>
-              {rubros.map(r => <option key={r.id} value={r.id.toString()}>{r.nombre}</option>)}
-            </select>
-          </div>
+          {/* Rubro (multiselección) */}
+          <MultiSelect label="Rubro" todosTexto="Todos los rubros" opciones={rubros}
+            seleccionados={rubrosSeleccionados} onToggle={toggleRubro}
+            onLimpiar={() => setRubrosSeleccionados(new Set())} />
 
-          {/* Marca */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Marca</label>
-            <select value={marcaFiltro} onChange={e => setMarcaFiltro(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] focus:border-transparent">
-              <option value="todos">Todas las marcas</option>
-              {marcasDisponibles.map(m => <option key={m.id} value={m.id.toString()}>{m.nombre}</option>)}
-            </select>
-          </div>
+          {/* Marca (multiselección, atada a Rubro) */}
+          <MultiSelect label="Marca" todosTexto="Todas las marcas" opciones={marcasDisponibles}
+            seleccionados={marcasSeleccionadas} onToggle={toggleMarca}
+            onLimpiar={() => setMarcasSeleccionadas(new Set())} />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
