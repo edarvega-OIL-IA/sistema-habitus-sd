@@ -13,12 +13,20 @@ interface MesData {
   label: string     // 'Jul 2026'
   labelCorto: string // 'Jul 26' — eje X en celular
   ventas: number
+  ventasT1: number  // ventas del día 1 al 10
+  ventasT2: number  // del 11 al 20
+  ventasT3: number  // del 21 al fin de mes
   costoMercaderia: number
   costosFijos: number
   utilidadBruta: number
   utilidadNeta: number
   objetivoPE: number | null // Punto de equilibrio estimado de ese mes (null si no se pudo calcular)
 }
+
+// Colores de los 3 tramos del mes en Ventas mensuales (de claro a oscuro, tonos del verde de marca)
+const COLOR_T1 = '#7fd4cf' // días 1 a 10
+const COLOR_T2 = '#00a19a' // días 11 a 20
+const COLOR_T3 = '#00615d' // días 21 a fin de mes
 
 const NOMBRES_MES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
@@ -123,10 +131,16 @@ export default function ReportesPage() {
 
       const ventaMesMap = new Map<number, string>()
       const ventasPorMes = new Map<string, number>()
+      const ventasTramoPorMes = new Map<string, [number, number, number]>()
       ;(ventasRes || []).forEach(v => {
         const mes = v.fecha_utc.slice(0, 7)
         ventaMesMap.set(v.id, mes)
         ventasPorMes.set(mes, (ventasPorMes.get(mes) || 0) + v.total)
+        const dia = Number(v.fecha_utc.slice(8, 10))
+        const tramo = dia <= 10 ? 0 : dia <= 20 ? 1 : 2
+        const acum = ventasTramoPorMes.get(mes) || [0, 0, 0]
+        acum[tramo] += v.total
+        ventasTramoPorMes.set(mes, acum)
       })
 
       const ventaIds = (ventasRes || []).map(v => v.id)
@@ -178,13 +192,14 @@ export default function ReportesPage() {
       const mesesDisplay = generarMeses(mesInicio, mesFinDisplay)
       const serie: MesData[] = mesesDisplay.map(({ mes, label, labelCorto }) => {
         const ventas = ventasPorMes.get(mes) || 0
+        const [ventasT1, ventasT2, ventasT3] = ventasTramoPorMes.get(mes) || [0, 0, 0]
         const costoMercaderia = costoPorMes.get(mes) || 0
         const costosFijos = costosFijosPorMes.get(mes) || 0
         const utilidadBruta = ventas - costoMercaderia
         const utilidadNeta = utilidadBruta - costosFijos
         const margen = ventas > 0 ? utilidadBruta / ventas : 0
         const objetivoPE = margen > 0 ? costosFijos / margen : null
-        return { mes, label, labelCorto, ventas, costoMercaderia, costosFijos, utilidadBruta, utilidadNeta, objetivoPE }
+        return { mes, label, labelCorto, ventas, ventasT1, ventasT2, ventasT3, costoMercaderia, costosFijos, utilidadBruta, utilidadNeta, objetivoPE }
       })
 
       setDatos(serie)
@@ -387,9 +402,51 @@ export default function ReportesPage() {
                   height={esMovil ? 28 : 60}
                 />
                 <YAxis tickFormatter={fmtEje} tick={{ fontSize: esMovil ? 10 : 11 }} width={esMovil ? 40 : 60} />
-                <Tooltip formatter={(value: any) => fmt(Number(value ?? 0))} />
-                <Legend />
-                <Bar dataKey="ventas" name="Ventas" fill="#00a19a" radius={[4, 4, 0, 0]}>
+                <Tooltip
+                  content={({ active, payload, label }: any) => {
+                    if (!active || !payload || payload.length === 0) return null
+                    const d = payload[0].payload as MesData
+                    return (
+                      <div className="bg-white border border-gray-200 rounded shadow-sm px-3 py-2 text-xs text-[#3c3c3b]">
+                        <p className="font-semibold mb-1">{label}</p>
+                        <p><span style={{ color: COLOR_T1 }}>■</span> Del 1 al 10: {fmt(d.ventasT1)}</p>
+                        <p><span style={{ color: COLOR_T2 }}>■</span> Del 11 al 20: {fmt(d.ventasT2)}</p>
+                        <p><span style={{ color: COLOR_T3 }}>■</span> Del 21 al fin de mes: {fmt(d.ventasT3)}</p>
+                        <p className="font-semibold mt-1 pt-1 border-t border-gray-100">Total: {fmt(d.ventas)}</p>
+                        {d.objetivoPE !== null && (
+                          <p style={{ color: '#D97706' }}>Punto de equilibrio: {fmt(d.objetivoPE)}</p>
+                        )}
+                      </div>
+                    )
+                  }}
+                />
+                <Legend
+                  content={() => (
+                    <div className="flex items-center justify-center flex-wrap gap-x-4 gap-y-1 text-xs text-[#3c3c3b] mt-2">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm inline-block" style={{ background: COLOR_T1 }} />
+                        Del 1 al 10
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm inline-block" style={{ background: COLOR_T2 }} />
+                        Del 11 al 20
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm inline-block" style={{ background: COLOR_T3 }} />
+                        Del 21 al fin de mes
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-4 border-t-2 border-dashed inline-block" style={{ borderColor: '#D97706' }} />
+                        <span style={{ color: '#D97706' }}>Punto de equilibrio</span>
+                      </span>
+                    </div>
+                  )}
+                />
+                {/* Una sola columna por mes, apilada en 3 tramos. La etiqueta con el
+                    total del mes va sobre el último tramo (el de más arriba). */}
+                <Bar dataKey="ventasT1" name="Del 1 al 10" stackId="ventas" fill={COLOR_T1} />
+                <Bar dataKey="ventasT2" name="Del 11 al 20" stackId="ventas" fill={COLOR_T2} />
+                <Bar dataKey="ventasT3" name="Del 21 al fin de mes" stackId="ventas" fill={COLOR_T3} radius={[4, 4, 0, 0]}>
                   <LabelList
                     dataKey="ventas"
                     position="top"
@@ -404,7 +461,7 @@ export default function ReportesPage() {
               </ComposedChart>
             </ResponsiveContainer>
             <p className="text-[11px] text-gray-400 mt-2">
-              El Punto de equilibrio se calcula mes a mes con los gastos fijos y el margen reales de ese mismo mes
+              Cada columna es el total del mes, dividido por tramos según el día de la venta. El Punto de equilibrio se calcula mes a mes con los gastos fijos y el margen reales de ese mismo mes
               (misma lógica que el Dashboard). Los meses sin margen positivo no muestran línea.
             </p>
           </div>
