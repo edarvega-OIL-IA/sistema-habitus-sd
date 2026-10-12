@@ -1448,3 +1448,6 @@ Filtro multiselección de Marcas en `reportes/ventas/page.tsx`, al lado de Rubro
 
 ### Bloque 24.9 — Ventas mensuales por tramos del mes (12/10/2026)
 En `reportes/page.tsx`, el gráfico "Ventas mensuales" sigue con una columna por mes pero apilada en 3 tramos de colores según el día de la venta: **1–10, 11–20 y 21–fin de mes** (tonos de verde de marca, de claro a oscuro). La etiqueta sobre la columna es el total del mes; el tooltip muestra los 3 tramos, el total y el punto de equilibrio; la leyenda tiene los 3 tramos + la línea de Punto de equilibrio. El día se toma de `ventas.fecha_utc` (misma base que el mes). Pendiente probar en producción.
+
+### Bloque 24.10 — Descuento general editable en "Editar ítems" de una venta (12/10/2026)
+Pedido: la venta #1867 tenía un descuento general (6,67 %) y no se podía quitar al editarla. En `components/ventas/EditarItemsVentaModal.tsx` el descuento general ahora es un campo editable (%): arranca con el de la venta, se puede dejar en 0 o cambiar, y recalcula "Nuevo total" y la diferencia vs. original (que se compara contra el descuento original). Al guardar se actualiza también `ventas.descuento_pct`. Si el nuevo total difiere de lo cobrado, sigue el paso de siempre (cobrar / devolver / registrar como descuento o recargo). Pendiente probar en producción.

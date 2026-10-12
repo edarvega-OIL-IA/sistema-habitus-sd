@@ -98,6 +98,10 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
   // Buffer de texto en edición para precios (evita que se pierda la coma/punto)
   const [precioTexto, setPrecioTexto] = useState<Record<number, string>>({})
 
+  // Descuento general editable (arranca con el de la venta; 0 = sin descuento).
+  // Se guarda como texto para no perder la coma mientras se escribe.
+  const [descuentoTexto, setDescuentoTexto] = useState<string>(String(descuentoPctGeneral || 0).replace('.', ','))
+
   // Paso de confirmación tras guardar, si el nuevo total difiere de lo cobrado
   const [pasoDiferencia, setPasoDiferencia] = useState<{
     diferencia: number; medioPagoId: number; emisorPagoId: number; referencia: string
@@ -196,8 +200,11 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
     else if (e.key === 'Enter' && indiceSeleccionado >= 0) { e.preventDefault(); agregarArticulo(resultados[indiceSeleccionado]) }
   }
 
+  // Descuento general vigente en el modal (0 a 100). El original (prop) solo
+  // se usa para comparar "Diferencia vs. original".
+  const descuentoGeneral = Math.min(100, Math.max(0, parsearMonto(descuentoTexto)))
   const subtotalArticulos = items.reduce((s, i) => s + i.subtotal, 0)
-  const nuevoTotal = subtotalArticulos * (1 - descuentoPctGeneral / 100)
+  const nuevoTotal = subtotalArticulos * (1 - descuentoGeneral / 100)
   const diferenciaVsOriginal = nuevoTotal - itemsOriginales.reduce((s, i) => s + i.subtotal, 0) * (1 - descuentoPctGeneral / 100)
 
   // Calcula, por artículo, cuánto hay que sumar/restar de stock (delta entre
@@ -302,7 +309,7 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
       // 4) Recalcular total de la venta
       const { error: ventaError } = await supabase
         .from('ventas')
-        .update({ subtotal: subtotalArticulos, total: nuevoTotal })
+        .update({ subtotal: subtotalArticulos, total: nuevoTotal, descuento_pct: descuentoGeneral })
         .eq('id', ventaId)
       if (ventaError) throw new Error('Error al actualizar el total: ' + ventaError.message)
 
@@ -556,10 +563,18 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
 
             <div className="flex justify-end">
               <div className="min-w-64 space-y-1">
-                {descuentoPctGeneral > 0 && (
-                  <div className="flex justify-between text-xs text-gray-400">
-                    <span>Descuento general</span><span>{descuentoPctGeneral}%</span>
-                  </div>
+                <div className="flex justify-between items-center text-xs text-gray-500">
+                  <span>Descuento general (%)</span>
+                  <input type="text" inputMode="decimal" value={descuentoTexto}
+                    onFocus={e => e.target.select()}
+                    onChange={e => setDescuentoTexto(e.target.value)}
+                    onBlur={() => setDescuentoTexto(String(descuentoGeneral).replace('.', ','))}
+                    className="w-20 px-2 py-1 border border-gray-300 rounded text-right text-sm text-[#3c3c3b] focus:outline-none focus:ring-1 focus:ring-[#00a19a]" />
+                </div>
+                {descuentoGeneral !== (descuentoPctGeneral || 0) && (
+                  <p className="text-[11px] text-gray-400 text-right">
+                    Descuento original: {descuentoPctGeneral || 0}%
+                  </p>
                 )}
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Nuevo total</span>

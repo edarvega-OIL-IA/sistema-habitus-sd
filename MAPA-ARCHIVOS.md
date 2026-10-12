@@ -102,7 +102,7 @@ completar o corregir la próxima vez que se toquen.
 | `ui/button.tsx` | Componente genérico de botón (shadcn/ui). |
 | `ventas/BuscadorProductos.tsx` | Buscador de artículos en Ventas POS. Catálogo en memoria, búsqueda tokenizada, blindaje anti-rebote de scanner, scroll fix con flechas (13/07). |
 | `ventas/CarritoItems.tsx` | Carrito de Ventas POS. Columna "Precio Unit." (17/07). |
-| `ventas/EditarItemsVentaModal.tsx` | Modal "Editar ítems" (Caso A) — ediciones en ventas Guardadas, delta de stock, auditoría, diferencia de cobro. |
+| `ventas/EditarItemsVentaModal.tsx` | Modal "Editar ítems" (Caso A) — ediciones en ventas Guardadas, delta de stock, auditoría, diferencia de cobro. **12/10:** el descuento general es editable (se puede quitar o cambiar) y se guarda en `ventas.descuento_pct`. |
 | `ventas/PanelPagos.tsx` | Panel de medios de pago multi-pago. Ancho ampliado, "Restan pagar" prominente, edición de pagos ya cargados (17/07). **15/08:** recibe `clienteId`/`clienteTieneCtaCte`; "Cuenta Corriente" solo aparece en el combo si el cliente la tiene habilitada; preselección automática de medio según cliente (editable); aviso ámbar al usarla; cambiar de cliente limpia los pagos cargados. |
 
 ## `src/lib/`
