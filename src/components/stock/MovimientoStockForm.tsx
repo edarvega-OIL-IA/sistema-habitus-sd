@@ -35,6 +35,16 @@ interface Deportista {
   apellido: string
 }
 
+// Quita acentos y mayúsculas para buscar por palabras sueltas (mismo criterio
+// que Artículos, Compras y Editar ítems de venta).
+function normalizar(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+interface ArticuloCatalogo extends Articulo {
+  haystack: string
+}
+
 const ID_INGRESO = 1
 const ID_TRANSFERENCIA = 3
 
@@ -50,8 +60,10 @@ export default function MovimientoStockForm() {
   const [items, setItems] = useState<ItemMovimiento[]>([])
   const [query, setQuery] = useState('')
   const [resultados, setResultados] = useState<Articulo[]>([])
+  const [catalogo, setCatalogo] = useState<ArticuloCatalogo[]>([])
+  const [indiceSeleccionado, setIndiceSeleccionado] = useState(-1)
+  const listaRef = useRef<HTMLDivElement>(null)
   const [observaciones, setObservaciones] = useState('')
-  const [buscando, setBuscando] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [exito, setExito] = useState<string | null>(null)
@@ -79,28 +91,61 @@ export default function MovimientoStockForm() {
     setTiposMovimiento(tipos)
     setSubtipos(subtiposRes.data || [])
     setDeportistas(deportistasRes.data || [])
+    await cargarCatalogo(supabase)
     const egreso = tipos.find(t => t.id === 2)
     if (egreso) setTipoSeleccionado(egreso.id)
     setCargando(false)
   }
 
-  async function buscar(valor: string) {
-    if (!valor.trim()) { setResultados([]); return }
-    setBuscando(true)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('articulos')
-      .select('id, nombre, codigo_interno, codigo_barra')
-      .eq('activo', true)
-      .or(`nombre.ilike.%${valor}%,codigo_interno.ilike.%${valor}%,codigo_barra.ilike.%${valor}%`)
-      .limit(8)
-    setResultados(data || [])
-    setBuscando(false)
-    if (data && data.length === 1) agregarArticulo(data[0])
+  // Se carga una sola vez el catálogo activo (en bloques de 1000, que es el
+  // máximo por consulta) y se busca en memoria por palabras sueltas, sin
+  // acentos. Así "protein frutillas ena" encuentra
+  // "Protein Bar - Frutillas A La Crema - ENA".
+  async function cargarCatalogo(supabase: ReturnType<typeof createClient>) {
+    const todos: ArticuloCatalogo[] = []
+    const TAM = 1000
+    for (let desde = 0; ; desde += TAM) {
+      const { data, error: catError } = await supabase
+        .from('articulos')
+        .select('id, nombre, codigo_interno, codigo_barra')
+        .eq('activo', true)
+        .order('id')
+        .range(desde, desde + TAM - 1)
+      if (catError || !data) break
+      data.forEach((a: Articulo) => todos.push({
+        ...a,
+        haystack: normalizar([a.nombre, a.codigo_interno, a.codigo_barra].filter(Boolean).join(' ')),
+      }))
+      if (data.length < TAM) break
+    }
+    setCatalogo(todos)
+  }
+
+  // Si lo escrito coincide exacto con un código (lector de barras o código
+  // interno) devuelve ese artículo, para agregarlo directo.
+  function coincidenciaExacta(valor: string): Articulo | null {
+    const v = valor.trim().toLowerCase()
+    if (!v) return null
+    const exactos = catalogo.filter(a =>
+      (a.codigo_barra && a.codigo_barra.toLowerCase() === v) ||
+      (a.codigo_interno && a.codigo_interno.toLowerCase() === v)
+    )
+    return exactos.length === 1 ? exactos[0] : null
+  }
+
+  function buscar(valor: string) {
+    if (!valor.trim()) { setResultados([]); setIndiceSeleccionado(-1); return }
+    const exacto = coincidenciaExacta(valor)
+    if (exacto) { agregarArticulo(exacto); return }
+    const tokens = normalizar(valor.trim()).split(/\s+/).filter(Boolean)
+    const filtrados = catalogo.filter(a => tokens.every(t => a.haystack.includes(t)))
+    setResultados(filtrados.slice(0, 15))
+    setIndiceSeleccionado(-1)
   }
 
   async function agregarArticulo(articulo: Articulo) {
     setResultados([])
+    setIndiceSeleccionado(-1)
     setQuery('')
     const existente = items.find(i => i.articulo_id === articulo.id)
     if (existente) {
@@ -134,11 +179,32 @@ export default function MovimientoStockForm() {
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' && query.trim()) {
+    if (e.key === 'ArrowDown' && resultados.length > 0) {
+      e.preventDefault()
+      moverSeleccion(Math.min(indiceSeleccionado + 1, resultados.length - 1))
+    } else if (e.key === 'ArrowUp' && resultados.length > 0) {
+      e.preventDefault()
+      moverSeleccion(Math.max(indiceSeleccionado - 1, 0))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
       if (timerRef.current) clearTimeout(timerRef.current)
-      buscar(query)
+      if (indiceSeleccionado >= 0 && resultados[indiceSeleccionado]) {
+        agregarArticulo(resultados[indiceSeleccionado])
+      } else if (resultados.length === 1) {
+        agregarArticulo(resultados[0])
+      } else if (query.trim()) {
+        buscar(query)
+      }
+    } else if (e.key === 'Escape') {
+      setQuery(''); setResultados([]); setIndiceSeleccionado(-1)
     }
-    if (e.key === 'Escape') { setQuery(''); setResultados([]) }
+  }
+
+  // Mueve el resaltado y lo mantiene visible dentro de la lista con scroll.
+  function moverSeleccion(i: number) {
+    setIndiceSeleccionado(i)
+    const el = listaRef.current?.querySelectorAll('button')[i] as HTMLElement | undefined
+    el?.scrollIntoView({ block: 'nearest' })
   }
 
   function actualizarCantidad(articulo_id: number, valor: string) {
@@ -321,12 +387,11 @@ export default function MovimientoStockForm() {
               autoComplete="off"
             />
             <span className="absolute left-3 top-3 text-[#00a19a]">🔍</span>
-            {buscando && <span className="absolute right-3 top-3 text-gray-400 text-xs">buscando...</span>}
-            {resultados.length > 1 && (
-              <div className="absolute z-20 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-64 overflow-y-auto">
-                {resultados.map(a => (
+            {resultados.length > 0 && (
+              <div ref={listaRef} className="absolute z-20 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-64 overflow-y-auto">
+                {resultados.map((a, i) => (
                   <button key={a.id} type="button" onClick={() => agregarArticulo(a)}
-                    className="w-full text-left px-4 py-3 hover:bg-[#e8f7f6] border-b border-gray-100 last:border-0">
+                    className={`w-full text-left px-4 py-3 hover:bg-[#e8f7f6] border-b border-gray-100 last:border-0 ${i === indiceSeleccionado ? 'bg-[#e8f7f6]' : ''}`}>
                     <div className="text-sm font-medium text-[#3c3c3b]">{a.nombre}</div>
                     {a.codigo_interno && <div className="text-xs text-gray-400">Cód: {a.codigo_interno}</div>}
                   </button>
