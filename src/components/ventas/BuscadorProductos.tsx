@@ -306,15 +306,15 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
               ref={el => { itemRefs.current[idx] = el }}
               onClick={() => abrirPopup(a)}
               className={`w-full text-left px-4 py-3 border-b border-gray-100 last:border-0 ${
-                indiceFoco === idx ? 'bg-[#00a19a] text-white' : 'hover:bg-[#e8f7f6]'
+                indiceFoco === idx ? 'bg-[#e8f7f6]' : 'hover:bg-[#e8f7f6]'
               }`}
             >
-              <div className={`text-sm font-medium ${indiceFoco === idx ? 'text-white' : 'text-[#3c3c3b]'}`}>
+              <div className="text-sm font-medium text-[#3c3c3b]">
                 {a.nombre}
               </div>
-              <div className={`text-xs flex gap-3 mt-0.5 ${indiceFoco === idx ? 'text-white/80' : 'text-gray-500'}`}>
+              <div className="text-xs flex gap-3 mt-0.5 text-gray-500">
                 {a.codigo_interno && <span>Cód: {a.codigo_interno}</span>}
-                <span className={`font-medium ${indiceFoco === idx ? 'text-white' : 'text-[#00a19a]'}`}>
+                <span className="font-medium text-[#00a19a]">
                   ${a.precio_local?.toLocaleString('es-AR')}
                 </span>
               </div>
