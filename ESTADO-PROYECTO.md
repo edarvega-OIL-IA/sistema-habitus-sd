@@ -1441,3 +1441,6 @@ Filtro multiselección de Rubros en `compras/sugerencia/page.tsx`, igual al de R
 
 ### Bloque 24.7 — Corrección de apertura de Caja (12/10/2026)
 Ariel cargó $280.000 en vez de $28.000 al abrir el turno Mañana del 12/10 (fila 170 de `cierres_turno`). Se corrigió por SQL: `apertura`, `apertura_contada` y `diferencia_apertura` (252.000 → 0); `resultado_sistema` ya estaba bien en 28.000. Después se agregó el botón **"Corregir apertura"** en `cierre-turno/page.tsx` (solo Admin, turno abierto y sin movimientos de efectivo). Ojo: Agustín también es `rol_id=1`, así que hoy también lo ve; no deja auditoría de la corrección.
+
+### Bloque 24.8 — Filtro de Marcas en Reportes → Ventas (12/10/2026)
+Filtro multiselección de Marcas en `reportes/ventas/page.tsx`, al lado de Rubros y atado a ellos. Rubros y marcas se combinan (artículos de esos rubros Y de esas marcas), útil para ej. Creatinas + Proteínas de ENA + Gold Nutrition. Aplica a las vistas Por rubro y Por artículo; "Por medio de pago" no lo usa (igual que Rubros).

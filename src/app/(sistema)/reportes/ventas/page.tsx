@@ -10,6 +10,7 @@ interface ItemAgregado {
   nombre: string
   rubroId: number
   rubroNombre: string
+  marcaId: number // 0 = sin marca
   unidades: number
   monto: number
   costo: number
@@ -19,6 +20,13 @@ interface Rubro {
   id: number
   nombre: string
 }
+
+interface Marca {
+  id: number
+  nombre: string
+}
+
+const SIN_MARCA_ID = 0
 
 interface FilaPago {
   id: number
@@ -123,6 +131,31 @@ export default function ReporteVentasPage() {
     })
   }
 
+  // --- Filtro Marcas (multi-select, atado a los Rubros elegidos) ---
+  const [marcas, setMarcas] = useState<Marca[]>([])
+  const [marcasSeleccionadas, setMarcasSeleccionadas] = useState<Set<number>>(new Set())
+  const [dropdownMarcasAbierto, setDropdownMarcasAbierto] = useState(false)
+  const dropdownMarcasRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onClickFuera(e: MouseEvent) {
+      if (dropdownMarcasRef.current && !dropdownMarcasRef.current.contains(e.target as Node)) {
+        setDropdownMarcasAbierto(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickFuera)
+    return () => document.removeEventListener('mousedown', onClickFuera)
+  }, [])
+
+  function toggleMarca(id: number) {
+    setMarcasSeleccionadas(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   // --- Vista y orden ---
   const [vista, setVista] = useState<Vista>('rubro')
   const [busqueda, setBusqueda] = useState('')
@@ -146,7 +179,7 @@ export default function ReporteVentasPage() {
     try {
       const { data: articulosData, error: articulosError } = await supabase
         .from('articulos')
-        .select('id, nombre, nombre_base, rubro_id')
+        .select('id, nombre, nombre_base, rubro_id, marca_id')
 
       if (articulosError) throw articulosError
 
@@ -159,16 +192,25 @@ export default function ReporteVentasPage() {
 
       setRubros(rubrosData || [])
 
+      const { data: marcasData, error: marcasError } = await supabase
+        .from('marcas')
+        .select('id, nombre')
+        .order('nombre')
+
+      if (marcasError) throw marcasError
+
+      setMarcas(marcasData || [])
+
       const rubroNombreMap = new Map<number, string>()
       ;(rubrosData || []).forEach(r => rubroNombreMap.set(r.id, r.nombre))
 
-      const articuloInfoMap = new Map<number, { nombre: string; rubroId: number | null }>()
+      const articuloInfoMap = new Map<number, { nombre: string; rubroId: number | null; marcaId: number | null }>()
       ;(articulosData || []).forEach(a => {
         // IMPORTANTE: usar nombre (armado por el trigger fn_generar_nombre_articulo
         // con base+sabor+marca), NUNCA nombre_base — nombre_base no distingue
         // sabores y hacía que artículos distintos se mostraran repetidos con
         // el mismo texto (ej. varios "Classic Whey Protein - 2 lb").
-        articuloInfoMap.set(a.id, { nombre: a.nombre, rubroId: a.rubro_id })
+        articuloInfoMap.set(a.id, { nombre: a.nombre, rubroId: a.rubro_id, marcaId: a.marca_id })
       })
 
       const query = supabase
@@ -211,7 +253,8 @@ export default function ReporteVentasPage() {
         const nombre = info?.nombre || `Artículo #${articuloId}`
         const rubroId = info?.rubroId ?? 0
         const rubroNombre = rubroId ? (rubroNombreMap.get(rubroId) || 'Sin rubro') : 'Sin rubro'
-        filas.push({ id: articuloId, nombre, rubroId, rubroNombre, unidades: valores.unidades, monto: valores.monto, costo: valores.costo })
+        const marcaId = info?.marcaId ?? SIN_MARCA_ID
+        filas.push({ id: articuloId, nombre, rubroId, rubroNombre, marcaId, unidades: valores.unidades, monto: valores.monto, costo: valores.costo })
       })
 
       setFilasArticuloTodas(filas)
@@ -260,16 +303,40 @@ export default function ReporteVentasPage() {
     }
   }
 
-  // Aplica filtro de rubros (vacío = todos) sobre las filas de artículo
+  // Marcas "atadas" a Rubros: con rubros elegidos, solo se ofrecen las marcas con
+  // ventas en esos rubros (en el período filtrado). Más "Sin marca" si hay.
+  const marcasDisponibles = useMemo(() => {
+    const base = rubrosSeleccionados.size > 0
+      ? filasArticuloTodas.filter(f => rubrosSeleccionados.has(f.rubroId))
+      : filasArticuloTodas
+    const ids = new Set(base.map(f => f.marcaId))
+    const lista = marcas.filter(m => ids.has(m.id))
+    if (ids.has(SIN_MARCA_ID)) lista.push({ id: SIN_MARCA_ID, nombre: 'Sin marca' })
+    return lista
+  }, [filasArticuloTodas, marcas, rubrosSeleccionados])
+
+  // Al cambiar rubros o período, se descartan las marcas elegidas que ya no
+  // corresponden (evita un filtro invisible que deje el reporte vacío).
+  useEffect(() => {
+    if (marcasSeleccionadas.size === 0) return
+    const permitidas = new Set(marcasDisponibles.map(m => m.id))
+    const quedan = [...marcasSeleccionadas].filter(id => permitidas.has(id))
+    if (quedan.length !== marcasSeleccionadas.size) setMarcasSeleccionadas(new Set(quedan))
+  }, [marcasDisponibles, marcasSeleccionadas])
+
+  // Aplica filtros de rubros y marcas (vacío = todos) sobre las filas de artículo.
+  // Ambos se combinan (Y): artículos de los rubros elegidos Y de las marcas elegidas.
   const filasArticuloConRubro = useMemo(() => {
-    if (rubrosSeleccionados.size === 0) return filasArticuloTodas
-    return filasArticuloTodas.filter(f => rubrosSeleccionados.has(f.rubroId))
-  }, [filasArticuloTodas, rubrosSeleccionados])
+    let filas = filasArticuloTodas
+    if (rubrosSeleccionados.size > 0) filas = filas.filter(f => rubrosSeleccionados.has(f.rubroId))
+    if (marcasSeleccionadas.size > 0) filas = filas.filter(f => marcasSeleccionadas.has(f.marcaId))
+    return filas
+  }, [filasArticuloTodas, rubrosSeleccionados, marcasSeleccionadas])
 
   const filasRubro = useMemo(() => {
     const map = new Map<number, ItemAgregado>()
     filasArticuloConRubro.forEach(f => {
-      const prev = map.get(f.rubroId) || { id: f.rubroId, nombre: f.rubroNombre, rubroId: f.rubroId, rubroNombre: f.rubroNombre, unidades: 0, monto: 0, costo: 0 }
+      const prev = map.get(f.rubroId) || { id: f.rubroId, nombre: f.rubroNombre, rubroId: f.rubroId, rubroNombre: f.rubroNombre, marcaId: SIN_MARCA_ID, unidades: 0, monto: 0, costo: 0 }
       prev.unidades += f.unidades
       prev.monto += f.monto
       prev.costo += f.costo
@@ -428,7 +495,7 @@ export default function ReporteVentasPage() {
           )}
         </div>
 
-        {/* Fila 2: rubros (multi-select), vista y buscador */}
+        {/* Fila 2: rubros y marcas (multi-select), vista y buscador */}
         <div className="flex items-center justify-between flex-wrap gap-3 pt-3 border-t border-gray-100">
           <div className="flex items-center gap-3 flex-wrap">
             {/* Dropdown Rubros */}
@@ -465,6 +532,48 @@ export default function ReporteVentasPage() {
                       {r.nombre}
                     </label>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* Dropdown Marcas (atado a Rubros) */}
+            <div className="relative" ref={dropdownMarcasRef}>
+              <button
+                onClick={() => setDropdownMarcasAbierto(prev => !prev)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm border rounded transition-colors ${
+                  marcasSeleccionadas.size > 0
+                    ? 'bg-[#00a19a]/10 border-[#00a19a] text-[#00a19a]'
+                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Marcas{marcasSeleccionadas.size > 0 ? ` (${marcasSeleccionadas.size})` : ''}
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${dropdownMarcasAbierto ? 'rotate-180' : ''}`} />
+              </button>
+              {dropdownMarcasAbierto && (
+                <div className="absolute z-10 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg max-h-80 overflow-y-auto">
+                  <div className="p-2 border-b border-gray-100 flex items-center justify-between">
+                    <span className="text-xs text-gray-500">{marcasSeleccionadas.size === 0 ? 'Mostrando todas' : `${marcasSeleccionadas.size} seleccionadas`}</span>
+                    {marcasSeleccionadas.size > 0 && (
+                      <button onClick={() => setMarcasSeleccionadas(new Set())} className="text-xs text-[#00a19a] hover:underline">
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                  {marcasDisponibles.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-gray-400">No hay marcas con ventas en este período.</p>
+                  ) : (
+                    marcasDisponibles.map(m => (
+                      <label key={m.id} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={marcasSeleccionadas.has(m.id)}
+                          onChange={() => toggleMarca(m.id)}
+                          className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                        />
+                        {m.nombre}
+                      </label>
+                    ))
+                  )}
                 </div>
               )}
             </div>
