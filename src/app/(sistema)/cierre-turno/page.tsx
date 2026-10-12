@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Clock, LogIn, LogOut, AlertCircle, CheckCircle2, Banknote, TrendingUp, TrendingDown, Plus, X } from 'lucide-react'
+import { Clock, LogIn, LogOut, AlertCircle, CheckCircle2, Banknote, TrendingUp, TrendingDown, Plus, X, Pencil } from 'lucide-react'
 
 interface TurnoAbierto {
   id: number
@@ -89,7 +89,7 @@ interface HistorialCierre {
   usuarios: { nombre: string; apellido: string } | null
 }
 
-type Vista = 'principal' | 'abrir' | 'cerrar' | 'retiro' | 'historial' | 'reapertura'
+type Vista = 'principal' | 'abrir' | 'cerrar' | 'retiro' | 'historial' | 'reapertura' | 'corregir'
 
 export default function CierreTurnoPage() {
   const supabase = createClient()
@@ -103,6 +103,7 @@ export default function CierreTurnoPage() {
   const [procesando, setProcesando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [usuarioId, setUsuarioId] = useState<string | null>(null)
+  const [esAdmin, setEsAdmin] = useState(false) // rol_id === 1
   const [sucursalId] = useState(1) // Cinco Saltos
   const [avisoBorradores, setAvisoBorradores] = useState<number | null>(null) // cantidad pendiente, null = sin aviso
 
@@ -119,6 +120,9 @@ export default function CierreTurnoPage() {
   // Formulario cierre
   const [efectivoContado, setEfectivoContado] = useState<string>('')
   const [observacionesCierre, setObservacionesCierre] = useState<string>('')
+
+  // Formulario corregir apertura (solo Admin, turno abierto sin movimientos de efectivo)
+  const [aperturaCorregida, setAperturaCorregida] = useState<string>('')
 
   // Formulario retiro
   const [montoRetiro, setMontoRetiro] = useState<string>('')
@@ -152,7 +156,12 @@ export default function CierreTurnoPage() {
     setLoading(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (user) setUsuarioId(user.id)
+      if (user) {
+        setUsuarioId(user.id)
+        const { data: usuarioData } = await supabase
+          .from('usuarios').select('rol_id').eq('id', user.id).single()
+        setEsAdmin(usuarioData?.rol_id === 1)
+      }
 
       const { data: turnosData } = await supabase
         .from('turnos')
@@ -412,6 +421,54 @@ export default function CierreTurnoPage() {
     }
   }
 
+  // Corrige un error de tipeo en el efectivo contado al abrir. Solo Admin, solo
+  // con el turno abierto y mientras no haya movimientos de efectivo (si ya hubo,
+  // el esperado en caja ya se construyó sobre ese monto). La diferencia de
+  // apertura se recalcula igual que en abrirTurno(): contado - efectivo real
+  // del último cierre.
+  async function corregirApertura() {
+    if (!turnoAbierto || !esAdmin) return
+    const nuevo = parseMonto(aperturaCorregida)
+    if (!aperturaCorregida || isNaN(nuevo) || nuevo < 0) {
+      setError('Ingresá un monto válido')
+      return
+    }
+    if (Math.abs(nuevo - turnoAbierto.apertura) < 0.01) {
+      setError('El monto es igual al actual — no hay nada que corregir')
+      return
+    }
+    const ok = window.confirm(
+      `¿Corregir la apertura de ${fmt(turnoAbierto.apertura)} a ${fmt(nuevo)}?\n\nLa diferencia de apertura contra el cierre anterior (${fmt(ultimaApertura)}) quedará en ${fmt(nuevo - ultimaApertura)}.`
+    )
+    if (!ok) return
+
+    setProcesando(true)
+    setError(null)
+    try {
+      const { data, error: err } = await supabase
+        .from('cierres_turno')
+        .update({
+          apertura: nuevo,
+          apertura_contada: nuevo,
+          diferencia_apertura: nuevo - ultimaApertura,
+        })
+        .eq('id', turnoAbierto.id)
+        .eq('estado_cierre_turno_id', 1) // nunca tocar un turno ya cerrado
+        .select('id')
+      if (err) throw err
+      if (!data || data.length === 0) throw new Error('No se pudo actualizar la apertura (turno cerrado o sin permiso)')
+
+      setAperturaCorregida('')
+      await cargarTurnoAbierto()
+      await cargarHistorialCierres()
+      setVista('principal')
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setProcesando(false)
+    }
+  }
+
   async function reabrirCaja() {
     if (!motivoReapertura.trim()) {
       setError('El motivo de reapertura es obligatorio')
@@ -497,6 +554,9 @@ export default function CierreTurnoPage() {
   const esperadoEnCaja = apertura + totalVentasEfectivo + totalIngresosEfectivo - totalEgresos
   const efectivoNum = parseFloat(efectivoContado.replace(/\./g, '').replace(',', '.')) || 0
   const diferencia = efectivoNum - esperadoEnCaja
+  const puedeCorregirApertura =
+    esAdmin && !!turnoAbierto &&
+    ventasEfectivo.length === 0 && ingresosEfectivo.length === 0 && egresosEfectivo.length === 0
 
   const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
   const fmtFecha = (s: string) => new Date(s).toLocaleTimeString('es-AR', { 
@@ -613,6 +673,98 @@ export default function CierreTurnoPage() {
           >
             <LogIn className="w-4 h-4" />
             {procesando ? 'Abriendo...' : 'Abrir caja'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── VISTA: CORREGIR APERTURA (solo Admin) ─────────────────────
+  if (vista === 'corregir') {
+    if (!puedeCorregirApertura || !turnoAbierto) {
+      return (
+        <div className="max-w-md mx-auto">
+          <p className="text-sm text-gray-500 mb-4">
+            La apertura solo se puede corregir (por un Admin) con el turno abierto y sin movimientos de efectivo.
+          </p>
+          <button onClick={() => { setVista('principal'); setError(null) }} className="text-sm text-[#00a19a] hover:underline">
+            Volver a Caja
+          </button>
+        </div>
+      )
+    }
+    const nuevoNum = parseMonto(aperturaCorregida)
+    const diffNueva = nuevoNum - ultimaApertura
+    return (
+      <div className="max-w-md mx-auto">
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={() => { setVista('principal'); setError(null); setAperturaCorregida('') }}
+            className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+          <h1 className="text-xl font-semibold text-[#3c3c3b]">Corregir apertura</h1>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-5">
+          <div className="space-y-2">
+            <div className="flex justify-between items-center py-2 border-b border-gray-100">
+              <span className="text-sm text-gray-600">Apertura actual</span>
+              <span className="font-medium text-gray-800">{fmt(turnoAbierto.apertura)}</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-gray-100">
+              <span className="text-sm text-gray-600">Esperado (cierre anterior)</span>
+              <span className="font-medium text-gray-800">{fmt(ultimaApertura)}</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Efectivo contado correcto</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoFocus
+              value={aperturaCorregida}
+              onChange={e => {
+                const soloDigitos = e.target.value.replace(/\D/g, '')
+                if (!soloDigitos) { setAperturaCorregida(''); return }
+                setAperturaCorregida(parseInt(soloDigitos, 10).toLocaleString('es-AR'))
+              }}
+              onKeyDown={e => e.key === 'Enter' && corregirApertura()}
+              placeholder="0"
+              className="w-full px-4 py-3 border-2 border-[#00a19a] rounded-lg text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-[#00a19a]/30 text-right"
+            />
+          </div>
+
+          {aperturaCorregida && (
+            <div className={`flex items-center justify-between p-3 rounded-lg border ${
+              Math.abs(diffNueva) < 0.01 ? 'bg-green-50 border-green-200' : diffNueva > 0 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'
+            }`}>
+              <span className={`text-sm font-medium ${
+                Math.abs(diffNueva) < 0.01 ? 'text-green-700' : diffNueva > 0 ? 'text-blue-700' : 'text-red-700'
+              }`}>
+                {Math.abs(diffNueva) < 0.01 ? '✓ Caja cuadrada' : diffNueva > 0 ? 'Sobrante' : 'Faltante'}
+              </span>
+              {Math.abs(diffNueva) >= 0.01 && (
+                <span className={`text-sm font-bold ${diffNueva > 0 ? 'text-blue-700' : 'text-red-700'}`}>
+                  {diffNueva > 0 ? '+' : ''}{fmt(diffNueva)}
+                </span>
+              )}
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3">
+              <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+
+          <button
+            onClick={corregirApertura}
+            disabled={!aperturaCorregida || procesando}
+            className="w-full bg-[#00a19a] text-white py-2.5 rounded font-medium text-sm hover:bg-[#008f89] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {procesando ? 'Guardando...' : 'Corregir apertura'}
           </button>
         </div>
       </div>
@@ -924,13 +1076,24 @@ export default function CierreTurnoPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-semibold text-[#3c3c3b]">Caja</h1>
         {turnoAbierto && (
-          <button
-            onClick={() => { setError(null); setVista('retiro') }}
-            className="border border-gray-300 text-gray-700 px-4 py-2 rounded text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
-          >
-            <Banknote className="w-4 h-4" />
-            Retiro de caja
-          </button>
+          <div className="flex items-center gap-2">
+            {puedeCorregirApertura && (
+              <button
+                onClick={() => { setError(null); setAperturaCorregida(''); setVista('corregir') }}
+                className="border border-gray-300 text-gray-700 px-4 py-2 rounded text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+              >
+                <Pencil className="w-4 h-4" />
+                Corregir apertura
+              </button>
+            )}
+            <button
+              onClick={() => { setError(null); setVista('retiro') }}
+              className="border border-gray-300 text-gray-700 px-4 py-2 rounded text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+            >
+              <Banknote className="w-4 h-4" />
+              Retiro de caja
+            </button>
+          </div>
         )}
       </div>
 
