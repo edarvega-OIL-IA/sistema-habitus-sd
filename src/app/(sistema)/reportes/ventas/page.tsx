@@ -6,7 +6,7 @@ import { Search, Filter, ChevronDown } from 'lucide-react'
 import { FECHA_MIN, fechaMax, fechaFueraDeRango } from '@/lib/fechaLimites'
 
 interface ItemAgregado {
-  id: number
+  id: number | string
   nombre: string
   rubroId: number
   rubroNombre: string
@@ -333,17 +333,26 @@ export default function ReporteVentasPage() {
     return filas
   }, [filasArticuloTodas, rubrosSeleccionados, marcasSeleccionadas])
 
+  // Con marcas elegidas el reporte se muestra separado por marca (una fila por
+  // rubro + marca); sin marcas elegidas se mantiene el total por rubro.
+  const separarPorMarca = marcasSeleccionadas.size > 0
+
+  const nombreMarca = (id: number) =>
+    id === SIN_MARCA_ID ? 'Sin marca' : (marcas.find(m => m.id === id)?.nombre ?? '—')
+
   const filasRubro = useMemo(() => {
-    const map = new Map<number, ItemAgregado>()
+    const map = new Map<string, ItemAgregado>()
     filasArticuloConRubro.forEach(f => {
-      const prev = map.get(f.rubroId) || { id: f.rubroId, nombre: f.rubroNombre, rubroId: f.rubroId, rubroNombre: f.rubroNombre, marcaId: SIN_MARCA_ID, unidades: 0, monto: 0, costo: 0 }
+      const marcaKey = separarPorMarca ? f.marcaId : SIN_MARCA_ID
+      const key = `${f.rubroId}-${marcaKey}`
+      const prev = map.get(key) || { id: key, nombre: f.rubroNombre, rubroId: f.rubroId, rubroNombre: f.rubroNombre, marcaId: marcaKey, unidades: 0, monto: 0, costo: 0 }
       prev.unidades += f.unidades
       prev.monto += f.monto
       prev.costo += f.costo
-      map.set(f.rubroId, prev)
+      map.set(key, prev)
     })
     return Array.from(map.values())
-  }, [filasArticuloConRubro])
+  }, [filasArticuloConRubro, separarPorMarca])
 
   const filasBase = vista === 'rubro' ? filasRubro : filasArticuloConRubro
 
@@ -356,14 +365,14 @@ export default function ReporteVentasPage() {
     return [...filas].sort((a, b) => {
       let va: number | string
       let vb: number | string
-      if (campoOrden === 'nombre') { va = a.nombre; vb = b.nombre }
+      if (campoOrden === 'nombre') { va = a.nombre + ' ' + (separarPorMarca ? nombreMarca(a.marcaId) : ''); vb = b.nombre + ' ' + (separarPorMarca ? nombreMarca(b.marcaId) : '') }
       else if (campoOrden === 'unidades') { va = a.unidades; vb = b.unidades }
       else if (campoOrden === 'utilidad') { va = a.monto - a.costo; vb = b.monto - b.costo }
       else { va = a.monto; vb = b.monto }
       if (typeof va === 'string') return ordenDesc ? (vb as string).localeCompare(va) : va.localeCompare(vb as string)
       return ordenDesc ? (vb as number) - (va as number) : (va as number) - (vb as number)
     })
-  }, [filasBase, busqueda, vista, campoOrden, ordenDesc])
+  }, [filasBase, busqueda, vista, campoOrden, ordenDesc, separarPorMarca, marcas])
 
   const totales = useMemo(() => {
     return filasFiltradas.reduce((acc, f) => {
@@ -701,6 +710,11 @@ export default function ReporteVentasPage() {
                     Rubro
                   </th>
                 )}
+                {separarPorMarca && (
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                    Marca
+                  </th>
+                )}
                 <th
                   onClick={() => toggleOrden('unidades')}
                   className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none whitespace-nowrap"
@@ -738,6 +752,9 @@ export default function ReporteVentasPage() {
                     {vista === 'articulo' && (
                       <td className="px-4 py-2.5 text-gray-500">{f.rubroNombre}</td>
                     )}
+                    {separarPorMarca && (
+                      <td className="px-4 py-2.5 text-gray-500">{nombreMarca(f.marcaId)}</td>
+                    )}
                     <td className="px-4 py-2.5 text-right text-[#3c3c3b]">{f.unidades.toLocaleString('es-AR')}</td>
                     <td className="px-4 py-2.5 text-right text-[#3c3c3b]">{fmt(f.monto)}</td>
                     <td className={`px-4 py-2.5 text-right ${utilidad >= 0 ? 'text-[#00a19a]' : 'text-red-600'}`}>{fmt(utilidad)}</td>
@@ -749,7 +766,7 @@ export default function ReporteVentasPage() {
             </tbody>
             <tfoot>
               <tr className="bg-gray-50 font-semibold border-t-2 border-gray-200">
-                <td className="px-4 py-3 text-[#3c3c3b]" colSpan={vista === 'articulo' ? 2 : 1}>Total</td>
+                <td className="px-4 py-3 text-[#3c3c3b]" colSpan={1 + (vista === 'articulo' ? 1 : 0) + (separarPorMarca ? 1 : 0)}>Total</td>
                 <td className="px-4 py-3 text-right text-[#3c3c3b]">{totales.unidades.toLocaleString('es-AR')}</td>
                 <td className="px-4 py-3 text-right text-[#3c3c3b]">{fmt(totales.monto)}</td>
                 <td className="px-4 py-3 text-right text-[#00a19a]">{fmt(totales.monto - totales.costo)}</td>

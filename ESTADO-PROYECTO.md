@@ -1444,3 +1444,4 @@ Ariel cargó $280.000 en vez de $28.000 al abrir el turno Mañana del 12/10 (fil
 
 ### Bloque 24.8 — Filtro de Marcas en Reportes → Ventas (12/10/2026)
 Filtro multiselección de Marcas en `reportes/ventas/page.tsx`, al lado de Rubros y atado a ellos. Rubros y marcas se combinan (artículos de esos rubros Y de esas marcas), útil para ej. Creatinas + Proteínas de ENA + Gold Nutrition. Aplica a las vistas Por rubro y Por artículo; "Por medio de pago" no lo usa (igual que Rubros).
+- **Separado por marca:** con una o más marcas elegidas, el reporte muestra una fila por rubro + marca (columna nueva "Marca", también en Por artículo) en vez del total combinado; totales, utilidad, margen y % del total se calculan sobre lo mostrado. Sin marcas elegidas, sigue el total por rubro de siempre. Pendiente probar en producción.
