@@ -81,24 +81,46 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
 
   async function cargarCatalogo() {
     const supabase = createClient()
-    const { data } = await supabase
-      .from('articulos')
-      .select('id, nombre, codigo_interno, codigo_barra, precio_local, disponible_local')
-      .eq('activo', true)
-      .eq('disponible_local', true)
-    catalogoRef.current = (data as Articulo[]) || []
+    // Supabase devuelve como máximo 1000 filas por consulta: se pide el
+    // catálogo en bloques para no dejar artículos afuera.
+    const todos: Articulo[] = []
+    const TAM = 1000
+    for (let desde = 0; ; desde += TAM) {
+      const { data, error } = await supabase
+        .from('articulos')
+        .select('id, nombre, codigo_interno, codigo_barra, precio_local, disponible_local')
+        .eq('activo', true)
+        .eq('disponible_local', true)
+        .order('id')
+        .range(desde, desde + TAM - 1)
+      if (error || !data) break
+      todos.push(...(data as Articulo[]))
+      if (data.length < TAM) break
+    }
+    catalogoRef.current = todos
     setCatalogoListo(true)
   }
 
   function filtrar(valor: string): Articulo[] {
     const tokens = normalizar(valor).trim().split(/\s+/).filter(Boolean)
     if (tokens.length === 0) return []
+    const textoNorm = tokens.join(' ')
+    // Orden por relevancia: primero los que EMPIEZAN con lo escrito, después
+    // los que lo contienen tal cual, y al final el resto; dentro de cada
+    // grupo, alfabético. Así "protein" muestra primero "Protein Bar - ...".
+    const puntaje = (a: Articulo) => {
+      const nombreNorm = normalizar(a.nombre)
+      if (nombreNorm.startsWith(textoNorm)) return 0
+      if (nombreNorm.includes(textoNorm)) return 1
+      return 2
+    }
     return catalogoRef.current
       .filter(a => {
         const haystack = normalizar([a.nombre, a.codigo_interno, a.codigo_barra].filter(Boolean).join(' '))
         return tokens.every(t => haystack.includes(t))
       })
-      .slice(0, 8)
+      .sort((a, b) => puntaje(a) - puntaje(b) || a.nombre.localeCompare(b.nombre))
+      .slice(0, 40)
   }
 
   function esEscaneoDuplicado(valor: string): boolean {

@@ -139,7 +139,15 @@ export default function MovimientoStockForm() {
     if (exacto) { agregarArticulo(exacto); return }
     const tokens = normalizar(valor.trim()).split(/\s+/).filter(Boolean)
     const filtrados = catalogo.filter(a => tokens.every(t => a.haystack.includes(t)))
-    setResultados(filtrados.slice(0, 15))
+    // Relevancia: primero los que empiezan con lo escrito, luego los que lo
+    // contienen tal cual, luego el resto; alfabético dentro de cada grupo.
+    const textoNorm = tokens.join(' ')
+    const puntaje = (a: ArticuloCatalogo) => {
+      const n = normalizar(a.nombre)
+      return n.startsWith(textoNorm) ? 0 : n.includes(textoNorm) ? 1 : 2
+    }
+    filtrados.sort((a, b) => puntaje(a) - puntaje(b) || a.nombre.localeCompare(b.nombre))
+    setResultados(filtrados.slice(0, 40))
     setIndiceSeleccionado(-1)
   }
 
