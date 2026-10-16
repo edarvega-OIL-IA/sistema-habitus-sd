@@ -10,6 +10,7 @@ import { MessageCircle, Mail, Check, Trash2, Undo2 } from 'lucide-react'
 interface Aviso {
   id: number
   articulo_id: number
+  nombre: string | null // avisos viejos (anteriores al 16/10/2026) no tienen nombre
   medio_preferido: 'whatsapp' | 'email' | 'ambos'
   whatsapp: string | null
   email: string | null
@@ -81,7 +82,7 @@ export default function AvisosStockPage() {
 
     const { data: avisosData } = await supabase
       .from('avisos_stock')
-      .select('id, articulo_id, medio_preferido, whatsapp, email, creado_en, avisado, avisado_en')
+      .select('id, articulo_id, nombre, medio_preferido, whatsapp, email, creado_en, avisado, avisado_en')
       .order('creado_en', { ascending: true })
     setAvisos(avisosData || [])
 
@@ -198,12 +199,13 @@ export default function AvisosStockPage() {
     return `${URL_TIENDA}/tienda/producto/${armarSlugProducto(articulo.id, titulo)}`
   }
 
-  function mensajeWhatsapp(articulo: Articulo): string {
+  function mensajeWhatsapp(articulo: Articulo, nombrePersona: string | null): string {
     const titulo = articulo.nombre
-    return `Hola! Te escribimos porque nos pediste que te avisemos cuando tengamos stock de *${titulo}*\n\nPodés adquirirlo en Av. Roca 54 - Cinco Saltos o en nuestra página web\n${linkProducto(articulo)}\n\nGracias por elegirnos\n*Hábitus SD* - *Presentes en tu proceso*`
+    const saludo = nombrePersona && nombrePersona.trim() ? `Hola ${nombrePersona.trim()}!` : 'Hola!'
+    return `${saludo} Te escribimos porque nos pediste que te avisemos cuando tengamos stock de *${titulo}*\n\nPodés adquirirlo en Av. Roca 54 - Cinco Saltos o en nuestra página web\n${linkProducto(articulo)}\n\nGracias por elegirnos\n*Hábitus SD* - *Presentes en tu proceso*`
   }
 
-  function linkWhatsapp(whatsapp: string, articulo: Articulo): string {
+  function linkWhatsapp(whatsapp: string, articulo: Articulo, nombrePersona: string | null): string {
     // Los números se guardan normalizados ("+5492995741735", ver src/lib/whatsapp.ts),
     // así que NO hay que volver a anteponer 549 (bug 08/10/2026: generaba
     // 5495492996204144). normalizarWhatsapp respeta lo que ya viene con "+" y
@@ -211,7 +213,7 @@ export default function AvisosStockPage() {
     // wa.me quiere solo dígitos, sin "+".
     const normalizado = normalizarWhatsapp(whatsapp)
     const numero = soloDigitos(normalizado ?? whatsapp)
-    return `https://wa.me/${numero}?text=${encodeURIComponent(mensajeWhatsapp(articulo))}`
+    return `https://wa.me/${numero}?text=${encodeURIComponent(mensajeWhatsapp(articulo, nombrePersona))}`
   }
 
   // Compose web de Gmail en vez de mailto: — mailto: depende de cuál sea el
@@ -442,10 +444,11 @@ export default function AvisosStockPage() {
 
                 <div className="divide-y divide-gray-100 border-t border-gray-100">
                   {grupo.avisos.map(aviso => {
-                    const contacto = [aviso.whatsapp, aviso.email].filter(Boolean).join(' · ') || 'sin datos'
+                    const contacto = [aviso.nombre, aviso.whatsapp, aviso.email].filter(Boolean).join(' · ') || 'sin datos'
                     return (
                       <div key={aviso.id} className="flex items-center justify-between flex-wrap gap-2 py-2">
                         <div className="text-sm text-gray-600">
+                          {aviso.nombre && <span className="font-medium text-[#3c3c3b] mr-2">{aviso.nombre}</span>}
                           {aviso.whatsapp && <span>{aviso.whatsapp}</span>}
                           {aviso.whatsapp && aviso.email && <span className="text-gray-300 mx-1.5">·</span>}
                           {aviso.email && <span>{aviso.email}</span>}
@@ -457,7 +460,7 @@ export default function AvisosStockPage() {
                         <div className="flex items-center gap-3">
                           {enPendientes && aviso.whatsapp && grupo.articulo && (
                             <a
-                              href={linkWhatsapp(aviso.whatsapp, grupo.articulo)}
+                              href={linkWhatsapp(aviso.whatsapp, grupo.articulo, aviso.nombre)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-xs text-[#25D366] hover:underline font-medium"

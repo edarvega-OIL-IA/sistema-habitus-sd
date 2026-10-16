@@ -17,10 +17,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, mensaje: 'Pedido inválido' }, { status: 400 })
     }
 
-    const { articulo_id, medio_preferido, whatsapp, email } = body
+    const { articulo_id, medio_preferido, whatsapp, email, nombre } = body
 
     if (!articulo_id || typeof articulo_id !== 'number') {
       return NextResponse.json({ ok: false, mensaje: 'Falta el artículo' }, { status: 400 })
+    }
+    // Nombre obligatorio (2 a 80 caracteres, espacios repetidos colapsados)
+    const nombreFinal = typeof nombre === 'string' ? nombre.trim().replace(/\s+/g, ' ') : ''
+    if (nombreFinal.length < 2 || nombreFinal.length > 80) {
+      return NextResponse.json({ ok: false, mensaje: 'Ingresá tu nombre' }, { status: 400 })
     }
     if (typeof medio_preferido !== 'string' || !MEDIOS_VALIDOS.includes(medio_preferido)) {
       return NextResponse.json({ ok: false, mensaje: 'Medio de contacto inválido' }, { status: 400 })
@@ -55,6 +60,7 @@ export async function POST(request: Request) {
     const supabase = await createClient()
     const { error } = await supabase.from('avisos_stock').insert({
       articulo_id,
+      nombre: nombreFinal,
       medio_preferido,
       whatsapp: whatsappFinal,
       email: emailFinal,

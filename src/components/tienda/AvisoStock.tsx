@@ -18,6 +18,8 @@ const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export default function AvisoStock({ articuloId }: Props) {
   const [medio, setMedio] = useState<Medio>('whatsapp')
+  const [nombre, setNombre] = useState('')
+  const [nombreTocado, setNombreTocado] = useState(false)
   const [whatsapp, setWhatsapp] = useState('')
   const [codigoPais, setCodigoPais] = useState(CODIGO_PAIS_POR_DEFECTO)
   const [email, setEmail] = useState('')
@@ -33,7 +35,8 @@ export default function AvisoStock({ articuloId }: Props) {
   const whatsappNormalizado = normalizarWhatsapp(whatsapp, codigoPais)
   const whatsappValido = !necesitaWhatsapp || whatsappNormalizado !== null
   const emailValido = !necesitaEmail || EMAIL_VALIDO.test(email.trim())
-  const formularioValido = whatsappValido && emailValido
+  const nombreValido = nombre.trim().length >= 2
+  const formularioValido = nombreValido && whatsappValido && emailValido
 
   function cambiarMedio(nuevo: Medio) {
     setMedio(nuevo)
@@ -41,6 +44,7 @@ export default function AvisoStock({ articuloId }: Props) {
   }
 
   async function enviar() {
+    setNombreTocado(true)
     setWhatsappTocado(necesitaWhatsapp)
     setEmailTocado(necesitaEmail)
     if (!formularioValido) return
@@ -53,6 +57,7 @@ export default function AvisoStock({ articuloId }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           articulo_id: articuloId,
+          nombre: nombre.trim(),
           medio_preferido: medio,
           whatsapp: necesitaWhatsapp ? whatsappNormalizado : null,
           email: necesitaEmail ? email.trim() : null,
@@ -90,6 +95,25 @@ export default function AvisoStock({ articuloId }: Props) {
       <div className="flex items-center gap-2">
         <Bell className="w-5 h-5 text-offer-teal shrink-0" />
         <p className="text-base font-semibold text-charcoal">Avisame cuando haya stock</p>
+      </div>
+
+      <div>
+        <input
+          type="text"
+          autoComplete="given-name"
+          name="nombre-aviso-stock"
+          maxLength={80}
+          placeholder="Tu nombre"
+          value={nombre}
+          onChange={e => { setNombre(e.target.value); setError(null) }}
+          onBlur={() => setNombreTocado(true)}
+          className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 ${
+            nombreTocado && !nombreValido ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-offer-teal'
+          }`}
+        />
+        {nombreTocado && !nombreValido && (
+          <p className="text-xs text-red-600 mt-1">Ingresá tu nombre</p>
+        )}
       </div>
 
       <div className="flex gap-1.5">
