@@ -19,6 +19,9 @@ interface ItemEditable {
   precio_unitario: number
   descuento_pct: number
   subtotal: number
+  // Costo unitario al momento de la venta. Se conserva al editar para que
+  // Utilidad Bruta y los reportes no pierdan el costo de la venta.
+  costo_unitario: number | null
 }
 
 interface ArticuloBusqueda {
@@ -127,7 +130,7 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
     const supabase = createClient()
     const [itemsRes, pagosRes, catalogoRes, emisoresRes] = await Promise.all([
       supabase.from('venta_items')
-        .select('articulo_id, cantidad, precio_unitario, descuento_pct, subtotal, articulos(nombre)')
+        .select('articulo_id, cantidad, precio_unitario, descuento_pct, subtotal, costo_unitario, articulos(nombre)')
         .eq('venta_id', ventaId),
       supabase.from('venta_pagos').select('monto').eq('venta_id', ventaId),
       supabase.from('articulos')
@@ -144,6 +147,7 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
       precio_unitario: it.precio_unitario,
       descuento_pct: it.descuento_pct || 0,
       subtotal: it.subtotal,
+      costo_unitario: it.costo_unitario ?? null,
     }))
     setItemsOriginales(itemsCargados)
     setItems(itemsCargados)
@@ -156,18 +160,32 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
     setCargando(false)
   }
 
-  function agregarArticulo(art: ArticuloBusqueda) {
+  async function agregarArticulo(art: ArticuloBusqueda) {
     if (items.find(i => i.articulo_id === art.id)) { setBusqueda(''); setResultados([]); return }
     const precio = art.precio_local || 0
-    setItems(prev => [...prev, {
-      articulo_id: art.id,
-      articulo_nombre: art.nombre,
-      cantidad: 1,
-      precio_unitario: precio,
-      descuento_pct: 0,
-      subtotal: precio,
-    }])
     setBusqueda(''); setResultados([])
+
+    // Costo vigente del artículo nuevo. Se pide aparte (no en el catálogo) para
+    // que, si el rol no puede leer costos, la búsqueda siga funcionando igual.
+    let costo: number | null = null
+    try {
+      const supabase = createClient()
+      const { data } = await supabase.from('articulos').select('costo_sin_iva').eq('id', art.id).single()
+      costo = data?.costo_sin_iva ?? null
+    } catch { costo = null }
+
+    setItems(prev => {
+      if (prev.find(i => i.articulo_id === art.id)) return prev
+      return [...prev, {
+        articulo_id: art.id,
+        articulo_nombre: art.nombre,
+        cantidad: 1,
+        precio_unitario: precio,
+        descuento_pct: 0,
+        subtotal: precio,
+        costo_unitario: costo,
+      }]
+    })
   }
 
   function actualizarItem(index: number, campo: 'cantidad' | 'precio_unitario' | 'descuento_pct', valor: number) {
@@ -302,6 +320,7 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
           precio_unitario: it.precio_unitario,
           descuento_pct: it.descuento_pct,
           subtotal: it.subtotal,
+          costo_unitario: it.costo_unitario,
         }))
       )
       if (insertError) throw new Error('Error al guardar los artículos nuevos: ' + insertError.message)
