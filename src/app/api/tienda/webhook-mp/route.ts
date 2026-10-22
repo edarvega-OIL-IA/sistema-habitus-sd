@@ -256,15 +256,28 @@ async function procesarNotificacion(request: NextRequest) {
     if (movStockError) {
       console.error('Error al crear movimiento de stock para venta web', venta.id, ':', movStockError.message)
     } else {
-      const { error: stockItemsError } = await admin.from('movimiento_stock_items').insert(
-        items.map((item: any) => ({
-          movimiento_stock_id: movStock.id,
-          articulo_id: item.articulo_id,
-          cantidad: item.cantidad,
-        }))
-      )
+      const filasStock = items.map((item: any) => ({
+        movimiento_stock_id: movStock.id,
+        articulo_id: item.articulo_id,
+        cantidad: item.cantidad,
+      }))
+      // Un reintento corto: si el primer insert falla por algo transitorio
+      // (red, trigger ocupado), el segundo suele pasar.
+      let { error: stockItemsError } = await admin.from('movimiento_stock_items').insert(filasStock)
       if (stockItemsError) {
-        console.error('Error al descontar stock de venta web', venta.id, ':', stockItemsError.message)
+        console.error('[STOCK-WEB] Falló el descuento de stock, reintentando. Venta', venta.id, ':', stockItemsError.message)
+        const reintento = await admin.from('movimiento_stock_items').insert(filasStock)
+        stockItemsError = reintento.error
+      }
+      if (stockItemsError) {
+        // Nunca dejar una cabecera de movimiento sin ítems (queda "huérfana"
+        // y el stock jamás se descuenta, sin que nadie lo vea). Se borra y
+        // se deja un error con marca fija para buscarlo en los logs.
+        console.error('[STOCK-WEB] ERROR FINAL: stock NO descontado. Venta', venta.id, 'pedido', pedido.id, ':', stockItemsError.message)
+        const { error: delError } = await admin.from('movimientos_stock').delete().eq('id', movStock.id)
+        if (delError) {
+          console.error('[STOCK-WEB] No se pudo borrar la cabecera huérfana', movStock.id, ':', delError.message)
+        }
       }
     }
 
