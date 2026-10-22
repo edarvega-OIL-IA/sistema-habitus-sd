@@ -74,6 +74,16 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
   // dejar rastro en historico_precios) y quién hace el cambio.
   const [precioLocalOriginal, setPrecioLocalOriginal] = useState<number | null>(null)
   const [usuarioId, setUsuarioId] = useState<string | null>(null)
+  // Solapa Stock (solo artículos ya guardados): mínimo/máximo de la sucursal
+  // del usuario, tabla articulo_stock. El stock actual es solo lectura (se
+  // mueve con compras, ventas y Movimientos de Stock).
+  const [sucursalId, setSucursalId] = useState<number | null>(null)
+  const [stockActual, setStockActual] = useState<number | null>(null)
+  const [stockFilaExiste, setStockFilaExiste] = useState(false)
+  const [stockMinTexto, setStockMinTexto] = useState('')
+  const [stockMaxTexto, setStockMaxTexto] = useState('')
+  const [stockMinOriginal, setStockMinOriginal] = useState<number>(0)
+  const [stockMaxOriginal, setStockMaxOriginal] = useState<number | null>(null)
 
   const { register, handleSubmit, formState: { errors }, setValue, watch, reset } = useForm<ArticuloFormData>({
     resolver: zodResolver(articuloSchema),
@@ -148,12 +158,17 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
       ? new URLSearchParams(window.location.search).get('duplicar')
       : null
     try {
+      let sucursalActual: number | null = null
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
         setUsuarioId(user.id)
         const { data: usuarioData } = await supabase
-          .from('usuarios').select('rol_id').eq('id', user.id).single()
-        if (usuarioData) setRolUsuario(usuarioData.rol_id)
+          .from('usuarios').select('rol_id, sucursal_id').eq('id', user.id).single()
+        if (usuarioData) {
+          setRolUsuario(usuarioData.rol_id)
+          sucursalActual = usuarioData.sucursal_id ?? null
+          setSucursalId(sucursalActual)
+        }
       }
 
       const [rubrosRes, marcasRes, unidadesRes, ivasRes, saboresRes] = await Promise.all([
@@ -217,6 +232,22 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
             descripcion: articulo.descripcion ?? null,
           })
           setPrecioLocalOriginal(articulo.precio_local ? Number(articulo.precio_local) : null)
+
+          if (sucursalActual !== null) {
+            const { data: st } = await supabase
+              .from('articulo_stock').select('stock_actual, stock_min, stock_max')
+              .eq('articulo_id', articuloId).eq('sucursal_id', sucursalActual).maybeSingle()
+            if (st) {
+              setStockFilaExiste(true)
+              setStockActual(Number(st.stock_actual ?? 0))
+              const min = Number(st.stock_min ?? 0)
+              const max = st.stock_max === null || st.stock_max === undefined ? null : Number(st.stock_max)
+              setStockMinOriginal(min)
+              setStockMaxOriginal(max)
+              setStockMinTexto(min ? String(min).replace('.', ',') : '')
+              setStockMaxTexto(max ? String(max).replace('.', ',') : '')
+            }
+          }
         }
       } else if (duplicarDeId) {
         // Alta nueva a partir de un artículo existente: copia todo excepto
@@ -423,6 +454,24 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
         // otros campos (nombre, disponibilidad, etc.) sin tocar el precio.
         if (payload.precio_local !== (precioLocalOriginal ?? 0)) {
           await registrarHistoricoPrecio(articuloId, payload.precio_local, data.tasa_iva_id ?? null)
+        }
+
+        // Stock mínimo / máximo (solapa Stock): solo se escribe si cambió.
+        if (sucursalId !== null) {
+          const nuevoMin = Math.max(0, parsearMonto(stockMinTexto))
+          const nuevoMax = stockMaxTexto.trim() === '' ? null : Math.max(0, parsearMonto(stockMaxTexto))
+          if (nuevoMin !== stockMinOriginal || nuevoMax !== stockMaxOriginal) {
+            const { error: errStock } = stockFilaExiste
+              ? await supabase.from('articulo_stock')
+                  .update({ stock_min: nuevoMin, stock_max: nuevoMax })
+                  .eq('articulo_id', articuloId).eq('sucursal_id', sucursalId)
+              : await supabase.from('articulo_stock')
+                  .insert({ articulo_id: articuloId, sucursal_id: sucursalId, stock_actual: 0, stock_min: nuevoMin, stock_max: nuevoMax })
+            if (errStock) {
+              alert('El artículo se guardó, pero no se pudo guardar el stock mínimo/máximo: ' + errStock.message)
+              return
+            }
+          }
         }
       } else {
         const { data: nuevoArticulo, error } = await supabase
@@ -724,9 +773,36 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
 
         {/* SOLAPA 3: Stock */}
         {solapaActiva === 3 && (
-          <div className="text-center py-8 text-gray-500">
-            <p className="text-sm">Gestión de stock por sucursal — próximamente</p>
-          </div>
+          articuloId ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Stock actual</label>
+                <input type="text" readOnly value={stockActual === null ? '—' : stockActual.toLocaleString('es-AR')}
+                  className={inputClass + ' bg-gray-100 cursor-not-allowed'} />
+                <p className="text-xs text-gray-500 mt-1">Solo lectura — cambia con compras, ventas y Movimientos de Stock.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Stock mínimo</label>
+                <input type="text" inputMode="decimal" value={stockMinTexto}
+                  onFocus={e => e.target.select()}
+                  onChange={e => setStockMinTexto(e.target.value)}
+                  placeholder="0" className={inputClass} />
+                <p className="text-xs text-gray-500 mt-1">Se usa en los filtros Con mínimo / Bajo mínimo. Dejalo en 0 si no querés mínimo para este artículo.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Stock máximo (opcional)</label>
+                <input type="text" inputMode="decimal" value={stockMaxTexto}
+                  onFocus={e => e.target.select()}
+                  onChange={e => setStockMaxTexto(e.target.value)}
+                  placeholder="Sin máximo" className={inputClass} />
+              </div>
+              {sucursalId === null && (
+                <p className="md:col-span-3 text-xs text-red-600">No se pudo determinar la sucursal del usuario: el mínimo y el máximo no se van a guardar.</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500 italic">Guardá el artículo primero — recién ahí se puede definir el stock mínimo y máximo.</p>
+          )
         )}
 
         {/* SOLAPA 4: Web y extras */}
