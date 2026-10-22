@@ -40,6 +40,26 @@ interface MovimientoArticulo {
   stockCalculado: number // corrido, ya con este movimiento aplicado
 }
 
+// Supabase devuelve como máximo 1000 filas por consulta. Con más movimientos la
+// pantalla quedaba con datos truncados (y marcaba 140 "diferencias" falsas), así
+// que cada tabla grande se pide en bloques de 1000 hasta traer todo. Es
+// obligatorio ordenar por una columna estable (id) para que los bloques no se
+// pisen ni se salteen filas.
+const BLOQUE = 1000
+async function traerTodo<T>(
+  armar: (desde: number, hasta: number) => PromiseLike<{ data: any[] | null; error: any }>
+): Promise<T[]> {
+  const todo: T[] = []
+  for (let desde = 0; ; desde += BLOQUE) {
+    const { data, error } = await armar(desde, desde + BLOQUE - 1)
+    if (error) throw new Error(error.message || 'Error al cargar datos')
+    const filas = (data || []) as T[]
+    todo.push(...filas)
+    if (filas.length < BLOQUE) break
+  }
+  return todo
+}
+
 export default function HistorialArticulosPage() {
   const [articulos, setArticulos] = useState<Articulo[]>([])
   const [rubros, setRubros] = useState<Rubro[]>([])
@@ -49,6 +69,7 @@ export default function HistorialArticulosPage() {
   const [movimientos, setMovimientos] = useState<MovimientoHeader[]>([])
   const [items, setItems] = useState<MovimientoItem[]>([])
   const [cargando, setCargando] = useState(true)
+  const [errorCarga, setErrorCarga] = useState<string | null>(null)
 
   // Filtros
   const [filtroRubro, setFiltroRubro] = useState('')
@@ -66,26 +87,40 @@ export default function HistorialArticulosPage() {
 
   async function cargarDatos() {
     setCargando(true)
+    setErrorCarga(null)
     const supabase = createClient()
-    const [artRes, rubRes, marRes, stockRes, subtiposRes, movRes, itemsRes] = await Promise.all([
-      supabase.from('articulos').select('id, nombre, rubro_id, marca_id, codigo_interno').eq('activo', true).eq('disponible_local', true),
-      supabase.from('rubros').select('id, nombre').order('nombre'),
-      supabase.from('marcas').select('id, nombre'),
-      supabase.from('articulo_stock').select('articulo_id, stock_actual').eq('sucursal_id', 1),
-      supabase.from('subtipos_movimiento_stock').select('id, nombre'),
-      supabase.from('movimientos_stock')
-        .select('id, fecha_utc, creado_en, tipo_movimiento_stock_id, subtipo_movimiento_stock_id, origen_tipo, observaciones')
-        .eq('sucursal_id', 1),
-      supabase.from('movimiento_stock_items').select('movimiento_stock_id, articulo_id, cantidad'),
-    ])
+    try {
+      const [arts, rubRes, marRes, stock, subtiposRes, movs, its] = await Promise.all([
+        traerTodo<Articulo>((d, h) =>
+          supabase.from('articulos').select('id, nombre, rubro_id, marca_id, codigo_interno')
+            .eq('activo', true).eq('disponible_local', true).order('id').range(d, h)),
+        supabase.from('rubros').select('id, nombre').order('nombre'),
+        supabase.from('marcas').select('id, nombre'),
+        traerTodo<StockActual>((d, h) =>
+          supabase.from('articulo_stock').select('articulo_id, stock_actual')
+            .eq('sucursal_id', 1).order('articulo_id').range(d, h)),
+        supabase.from('subtipos_movimiento_stock').select('id, nombre'),
+        traerTodo<MovimientoHeader>((d, h) =>
+          supabase.from('movimientos_stock')
+            .select('id, fecha_utc, creado_en, tipo_movimiento_stock_id, subtipo_movimiento_stock_id, origen_tipo, observaciones')
+            .eq('sucursal_id', 1).order('id').range(d, h)),
+        traerTodo<MovimientoItem>((d, h) =>
+          supabase.from('movimiento_stock_items').select('movimiento_stock_id, articulo_id, cantidad')
+            .order('id').range(d, h)),
+      ])
 
-    setArticulos((artRes.data as any) || [])
-    setRubros((rubRes.data as any) || [])
-    setMarcas((marRes.data as any) || [])
-    setStockActual((stockRes.data as any) || [])
-    setSubtipos((subtiposRes.data as any) || [])
-    setMovimientos((movRes.data as any) || [])
-    setItems((itemsRes.data as any) || [])
+      setArticulos(arts)
+      setRubros((rubRes.data as any) || [])
+      setMarcas((marRes.data as any) || [])
+      setStockActual(stock)
+      setSubtipos((subtiposRes.data as any) || [])
+      setMovimientos(movs)
+      setItems(its)
+    } catch (e: any) {
+      // Si algo falla no se muestran datos parciales: eso es justo lo que
+      // generaba diferencias falsas.
+      setErrorCarga(e.message || 'No se pudieron cargar los datos')
+    }
     setCargando(false)
   }
 
@@ -296,6 +331,12 @@ export default function HistorialArticulosPage() {
         <span>Total Egreso: <span className="font-semibold text-red-500">{totales.egreso}</span></span>
         <span>Total Stock: <span className="font-semibold text-[#3c3c3b]">{totales.stock}</span></span>
       </div>
+
+      {errorCarga && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+          No se pudo cargar el historial completo: {errorCarga}. Los datos que se muestren pueden estar incompletos.
+        </div>
+      )}
 
       {/* Listado */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
