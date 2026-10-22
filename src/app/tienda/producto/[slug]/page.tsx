@@ -161,6 +161,9 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
   const titulo = producto.nombre_base || producto.nombre
   const tieneVariantes = variantes.length > 1
   const sinStock = producto.stock <= 0
+  // Una oferta solo cuenta si el precio de oferta es MENOR al precio normal:
+  // si están iguales (o la oferta es mayor) no se muestra cartel, tachado ni %.
+  const enOferta = producto.en_oferta && producto.precio < producto.precio_original
 
   // Casi todo el contenido de la descripción (composición, beneficios, modo
   // de uso) es igual entre sabores de un mismo producto — solo cambia el
@@ -233,7 +236,7 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
 
         <div className="bg-white border border-border-gray rounded-xl overflow-hidden grid grid-cols-1 md:grid-cols-2 gap-0">
           {/* Galería de fotos */}
-          <GaleriaProducto titulo={titulo} fotos={fotos} enOferta={producto.en_oferta} sinStock={sinStock} />
+          <GaleriaProducto titulo={titulo} fotos={fotos} enOferta={enOferta} sinStock={sinStock} />
 
           {/* Datos */}
           <div className="p-6 flex flex-col">
@@ -275,7 +278,7 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
               <p className="text-sm text-medium-gray mt-2">{producto.atributo_valor}</p>
             )}
 
-            {producto.en_oferta ? (
+            {enOferta ? (
               <div className="flex items-baseline gap-2 flex-wrap mt-4">
                 <p className="text-2xl font-bold text-offer-teal">{fmt(producto.precio)}</p>
                 <p className="text-base text-medium-gray line-through">{fmt(producto.precio_original)}</p>

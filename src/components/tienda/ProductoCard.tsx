@@ -38,6 +38,9 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
   const seleccionada = variantes.find(v => v.id === seleccionadaId) ?? inicial
   const sinStock = seleccionada.stock <= 0
   const tieneVariantes = variantes.length > 1
+  // Una oferta solo cuenta si el precio de oferta es MENOR al precio normal:
+  // si están iguales (o la oferta es mayor) no se muestra cartel, tachado ni %.
+  const enOferta = seleccionada.en_oferta && seleccionada.precio < seleccionada.precio_original
 
   function cambiarSabor(id: number) {
     setSeleccionadaId(id)
@@ -71,7 +74,7 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
         ) : (
           <Package className="w-10 h-10 text-gray-300" />
         )}
-        {seleccionada.en_oferta && !sinStock && (
+        {enOferta && !sinStock && (
           <span className="absolute top-2 left-2 bg-offer-teal text-white text-xs font-semibold px-2 py-0.5 rounded-full">
             OFERTA
           </span>
@@ -119,7 +122,7 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
         )}
 
         <div className="mt-auto pt-2">
-          {seleccionada.en_oferta ? (
+          {enOferta ? (
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <p className="text-base font-bold text-offer-teal">{fmt(seleccionada.precio)}</p>
               <p className="text-xs text-medium-gray line-through">{fmt(seleccionada.precio_original)}</p>
