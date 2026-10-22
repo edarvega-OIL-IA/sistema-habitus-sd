@@ -17,6 +17,7 @@ interface Articulo {
   costo_sin_iva: number | null; tasa_iva_id: number | null
   precio_local: number | null; precio_web: number | null
   precio_mayorista: number | null; precio_oferta_web: number | null
+  disponible_local: boolean | null
 }
 interface ItemOrden {
   articulo_id: number; articulo_nombre: string
@@ -25,6 +26,31 @@ interface ItemOrden {
   precio_mayorista: number | null; precio_oferta_web: number | null
   cant_facturada: number; cant_recibida: number
   precio_unitario: number; descuento_pct: number; descuento_monto: number; subtotal: number
+}
+
+// Quita acentos y pasa a minúsculas para que la búsqueda no dependa de tildes
+// ni mayúsculas (mismo criterio que el buscador del POS).
+function normalizar(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+// Supabase devuelve como máximo 1000 filas por consulta: el catálogo se pide
+// en bloques para no dejar artículos afuera del buscador.
+async function cargarCatalogoArticulos(): Promise<any[]> {
+  const supabase = createClient()
+  const todos: any[] = []
+  const TAM = 1000
+  for (let desde = 0; ; desde += TAM) {
+    const { data, error } = await supabase.from('articulos').select(`
+      id, nombre, codigo_interno, codigo_barra, costo_sin_iva, tasa_iva_id,
+      precio_local, precio_web, precio_mayorista, precio_oferta_web, disponible_local,
+      rubros ( nombre ), marcas ( nombre )
+    `).eq('activo', true).order('nombre').order('id').range(desde, desde + TAM - 1)
+    if (error || !data) break
+    todos.push(...data)
+    if (data.length < TAM) break
+  }
+  return todos
 }
 
 const MEDIOS_PAGO = [
@@ -96,13 +122,29 @@ export default function ComprasNuevaPage() {
   useEffect(() => {
     const termino = busqueda.trim()
     if (!termino) { setResultados([]); setIndiceSeleccionado(-1); return }
-    const tokens = termino.toLowerCase().split(/\s+/)
-    const filtrados = articulos.filter(a => {
-      const haystack = [a.nombre, a.codigo_interno, a.codigo_barra, a.rubro_nombre, a.marca_nombre]
-        .filter(Boolean).join(' ').toLowerCase()
-      return tokens.every(t => haystack.includes(t))
-    })
-    setResultados(filtrados.slice(0, 12))
+    const tokens = normalizar(termino).split(/\s+/).filter(Boolean)
+    const textoNorm = tokens.join(' ')
+    // Orden: primero los artículos activos en el local (disponible_local), y
+    // dentro de cada grupo por relevancia (empieza con lo escrito → lo
+    // contiene tal cual → el resto), después alfabético. Así los productos
+    // que hace mucho no se venden quedan al final de la lista.
+    const puntaje = (a: Articulo) => {
+      const nombreNorm = normalizar(a.nombre)
+      if (nombreNorm.startsWith(textoNorm)) return 0
+      if (nombreNorm.includes(textoNorm)) return 1
+      return 2
+    }
+    const filtrados = articulos
+      .filter(a => {
+        const haystack = normalizar([a.nombre, a.codigo_interno, a.codigo_barra, a.rubro_nombre, a.marca_nombre]
+          .filter(Boolean).join(' '))
+        return tokens.every(t => haystack.includes(t))
+      })
+      .sort((a, b) =>
+        (a.disponible_local ? 0 : 1) - (b.disponible_local ? 0 : 1) ||
+        puntaje(a) - puntaje(b) ||
+        a.nombre.localeCompare(b.nombre))
+    setResultados(filtrados.slice(0, 40))
     setIndiceSeleccionado(-1)
   }, [busqueda, articulos])
 
@@ -111,17 +153,13 @@ export default function ComprasNuevaPage() {
     const [provRes, transRes, artRes, tasasRes] = await Promise.all([
       supabase.from('proveedores').select('id, nombre_comercial').eq('activo', true).order('nombre_comercial'),
       supabase.from('transportistas').select('id, nombre').eq('activo', true).order('nombre'),
-      supabase.from('articulos').select(`
-        id, nombre, codigo_interno, codigo_barra, costo_sin_iva, tasa_iva_id,
-        precio_local, precio_web, precio_mayorista, precio_oferta_web,
-        rubros ( nombre ), marcas ( nombre )
-      `).eq('activo', true).order('nombre'),
+      cargarCatalogoArticulos(),
       supabase.from('tasas_iva').select('id, porcentaje'),
     ])
     setProveedores(provRes.data || [])
     setTransportistas(transRes.data || [])
     setTasasIva(tasasRes.data || [])
-    setArticulos((artRes.data || []).map((a: any) => ({
+    setArticulos((artRes || []).map((a: any) => ({
       ...a,
       rubro_nombre: a.rubros?.nombre || null,
       marca_nombre: a.marcas?.nombre || null,
@@ -759,6 +797,7 @@ export default function ComprasNuevaPage() {
                   <div className="font-medium text-[#3c3c3b]">{art.nombre}</div>
                   <div className="text-xs text-gray-400">
                     {[art.rubro_nombre, art.marca_nombre, art.codigo_interno, art.codigo_barra].filter(Boolean).join(' · ')}
+                      {!art.disponible_local && <span className="ml-2 text-gray-300">· fuera del local</span>}
                   </div>
                 </button>
               ))}
