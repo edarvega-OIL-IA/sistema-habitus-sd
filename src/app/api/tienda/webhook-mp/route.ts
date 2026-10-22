@@ -270,14 +270,10 @@ async function procesarNotificacion(request: NextRequest) {
         stockItemsError = reintento.error
       }
       if (stockItemsError) {
-        // Nunca dejar una cabecera de movimiento sin ítems (queda "huérfana"
-        // y el stock jamás se descuenta, sin que nadie lo vea). Se borra y
-        // se deja un error con marca fija para buscarlo en los logs.
-        console.error('[STOCK-WEB] ERROR FINAL: stock NO descontado. Venta', venta.id, 'pedido', pedido.id, ':', stockItemsError.message)
-        const { error: delError } = await admin.from('movimientos_stock').delete().eq('id', movStock.id)
-        if (delError) {
-          console.error('[STOCK-WEB] No se pudo borrar la cabecera huérfana', movStock.id, ':', delError.message)
-        }
+        // Error con marca fija para buscarlo en los logs de Vercel. La
+        // cabecera queda (service_role no tiene DELETE sobre
+        // movimientos_stock): se detecta después como "movimiento sin ítems".
+        console.error('[STOCK-WEB] ERROR FINAL: stock NO descontado. Venta', venta.id, 'pedido', pedido.id, 'mov', movStock.id, ':', stockItemsError.message)
       }
     }
 
