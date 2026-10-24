@@ -52,6 +52,42 @@ function normalizar(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 }
 
+// Equivalencias de búsqueda: cada grupo son raíces de palabras que significan
+// lo mismo (español / inglés / ortografías distintas). Se escriben ya
+// normalizadas (sin tildes, minúsculas). Para sumar una equivalencia nueva,
+// agregar un grupo acá: no hay que tocar nada más.
+const EQUIVALENCIAS: string[][] = [
+  ['colag', 'collag'],                 // colágeno, colageno, collagen
+  ['protein', 'whey'],                 // proteína, protein, whey
+  ['creatin'],                         // creatina, creatine (por si se escribe en inglés)
+  ['quemad', 'burner', 'termogen'],    // quemador, fat burner
+  ['aminoacid', 'amino'],              // aminoácidos, amino
+  ['isoton', 'hidrat'],                // isotónica, hidratación
+]
+
+// Un término escrito por el cliente puede coincidir con más de una forma.
+// Si es raíz (o empieza con la raíz) de un grupo, se aceptan todas las del
+// grupo. Mínimo 3 letras para no abrir la búsqueda de más con "co" o "pr".
+function formasDelTermino(t: string): string[] {
+  const formas = new Set<string>([t])
+  if (t.length >= 3) {
+    for (const grupo of EQUIVALENCIAS) {
+      if (grupo.some(raiz => raiz.startsWith(t) || t.startsWith(raiz))) {
+        grupo.forEach(raiz => formas.add(raiz))
+      }
+    }
+  }
+  return [...formas]
+}
+
+// Todas las palabras escritas deben aparecer (en cualquier orden y en
+// cualquiera de sus formas equivalentes).
+function coincideBusqueda(texto: string, busqueda: string): boolean {
+  return busqueda.split(/\s+/).filter(Boolean).every(t =>
+    formasDelTermino(t).some(forma => texto.includes(forma))
+  )
+}
+
 function agrupar(articulos: ArticuloCatalogo[]): GrupoProducto[] {
   const mapa = new Map<string, GrupoProducto>()
   for (const a of articulos) {
@@ -144,8 +180,8 @@ export default async function TiendaPage({
     if (marcasSeleccionadas.length > 0 && (!g.marca || !marcasSeleccionadas.includes(g.marca))) return false
     if (soloConStock && !g.variantes.some(v => v.stock > 0)) return false
     if (busqueda) {
-      const texto = normalizar(`${g.titulo} ${g.marca || ''}`)
-      if (!texto.includes(busqueda)) return false
+      const texto = normalizar(`${g.titulo} ${g.marca || ''} ${g.rubro || ''}`)
+      if (!coincideBusqueda(texto, busqueda)) return false
     }
     return true
   })
