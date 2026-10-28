@@ -89,7 +89,7 @@ export default function DashboardPage() {
   const [ultimaDiferenciaCaja, setUltimaDiferenciaCaja] = useState<number | null>(null)
   const [ritmoVentas, setRitmoVentas] = useState<number | null>(null)
   const [pedidosPendientes, setPedidosPendientes] = useState(0)
-  const [avisosStock, setAvisosStock] = useState({ personas: 0, productos: 0 })
+  const [avisosStock, setAvisosStock] = useState({ personas: 0, productos: 0, locales: 0 })
 
   const [mostrarStockValorizado, setMostrarStockValorizado] = useState(false)
   const [mostrarStockMinimo, setMostrarStockMinimo] = useState(false)
@@ -540,7 +540,7 @@ export default function DashboardPage() {
     // avisado = false). Se cuentan personas (filas) y productos distintos.
     const { data, error } = await supabase
       .from('avisos_stock')
-      .select('articulo_id')
+      .select('articulo_id, origen')
       .eq('avisado', false)
 
     if (error) throw error
@@ -548,6 +548,8 @@ export default function DashboardPage() {
     setAvisosStock({
       personas: filas.length,
       productos: new Set(filas.map(f => f.articulo_id)).size,
+      // pedidos cargados en el local (origen = 'local'), prioritarios
+      locales: filas.filter(f => f.origen === 'local').length,
     })
   }
 
@@ -684,6 +686,9 @@ export default function DashboardPage() {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-amber-900">
               Aviso de stock · {avisosStock.personas} {avisosStock.personas === 1 ? 'cliente' : 'clientes'} · {avisosStock.productos} {avisosStock.productos === 1 ? 'producto' : 'productos'}
+              {avisosStock.locales > 0 && (
+                <> · <span className="font-bold">{avisosStock.locales} del local</span></>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-1 text-amber-700 shrink-0">

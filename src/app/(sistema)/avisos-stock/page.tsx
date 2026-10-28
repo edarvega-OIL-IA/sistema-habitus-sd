@@ -5,18 +5,21 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { armarSlugProducto } from '@/lib/slug'
 import { normalizarWhatsapp } from '@/lib/whatsapp'
-import { MessageCircle, Mail, Check, Trash2, Undo2, Pencil } from 'lucide-react'
+import { MessageCircle, Mail, Check, Trash2, Undo2, Pencil, Plus, Store } from 'lucide-react'
 
 interface Aviso {
   id: number
   articulo_id: number
   nombre: string | null // avisos viejos (anteriores al 16/10/2026) no tienen nombre
-  medio_preferido: 'whatsapp' | 'email' | 'ambos'
+  medio_preferido: 'whatsapp' | 'email' | 'ambos' | 'ninguno' // 'ninguno' solo en pedidos del local sin datos de contacto
   whatsapp: string | null
   email: string | null
   creado_en: string
   avisado: boolean
   avisado_en: string | null
+  origen: 'web' | 'local' // 'local' = lo cargaron Ariel/Agustín desde esta pantalla
+  nota: string | null // solo pedidos del local: para reconocer quién lo pidió
+  registrado_por: string | null // solo pedidos del local: quién lo cargó
 }
 
 interface Articulo {
@@ -34,8 +37,23 @@ interface Grupo {
 }
 
 type Solapa = 'pendientes' | 'avisados'
+type OrigenFiltro = 'todos' | 'local' | 'web'
 
 const URL_TIENDA = 'https://www.habitussd.com'
+
+// Mismo criterio de validación que la API de la tienda (api/avisos-stock/route.ts)
+const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+// Formulario "Nuevo pedido del local"
+interface FormNuevo {
+  articulo: Articulo | null
+  busqueda: string
+  nombre: string
+  whatsapp: string
+  email: string
+  nota: string
+}
+const FORM_NUEVO_VACIO: FormNuevo = { articulo: null, busqueda: '', nombre: '', whatsapp: '', email: '', nota: '' }
 
 function soloDigitos(s: string): string {
   return s.replace(/\D/g, '')
@@ -59,7 +77,7 @@ export default function AvisosStockPage() {
   const [stockMap, setStockMap] = useState<Map<number, number>>(new Map())
   const [trabajando, setTrabajando] = useState<number | null>(null)
   const [busqueda, setBusqueda] = useState('')
-  const [orden, setOrden] = useState<'stock' | 'cantidad'>('stock')
+  const [orden, setOrden] = useState<'local' | 'stock' | 'cantidad'>('local')
   const [solapa, setSolapa] = useState<Solapa>('pendientes')
   const [esAdmin, setEsAdmin] = useState(false)
   const [notif, setNotif] = useState<{ tipo: 'error' | 'ok'; msg: string } | null>(null)
@@ -69,11 +87,19 @@ export default function AvisosStockPage() {
   const [catalogo, setCatalogo] = useState<Articulo[] | null>(null)
   const [cargandoCatalogo, setCargandoCatalogo] = useState(false)
   const [busquedaCambio, setBusquedaCambio] = useState('')
+  // Pedidos del local: filtro por origen, nombre de quien está logueado
+  // (se guarda en registrado_por) y formulario de carga
+  const [origenFiltro, setOrigenFiltro] = useState<OrigenFiltro>('todos')
+  const [usuarioNombre, setUsuarioNombre] = useState('')
+  const [mostrarNuevo, setMostrarNuevo] = useState(false)
+  const [nuevo, setNuevo] = useState<FormNuevo>(FORM_NUEVO_VACIO)
+  const [guardandoNuevo, setGuardandoNuevo] = useState(false)
 
   useEffect(() => { cargarDatos() }, [])
 
-  async function cargarDatos() {
-    setLoading(true)
+  // silencioso = true: recarga sin tapar la pantalla con "Cargando..."
+  async function cargarDatos(silencioso = false) {
+    if (!silencioso) setLoading(true)
     const supabase = createClient()
 
     // Borrar es solo para el Admin (rol_id = 1, mismo criterio que
@@ -82,13 +108,14 @@ export default function AvisosStockPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
       const { data: usuarioData } = await supabase
-        .from('usuarios').select('rol_id').eq('id', user.id).single()
+        .from('usuarios').select('rol_id, nombre, apellido').eq('id', user.id).single()
       setEsAdmin(usuarioData?.rol_id === 1)
+      setUsuarioNombre([usuarioData?.nombre, usuarioData?.apellido].filter(Boolean).join(' '))
     }
 
     const { data: avisosData } = await supabase
       .from('avisos_stock')
-      .select('id, articulo_id, nombre, medio_preferido, whatsapp, email, creado_en, avisado, avisado_en')
+      .select('id, articulo_id, nombre, medio_preferido, whatsapp, email, creado_en, avisado, avisado_en, origen, nota, registrado_por')
       .order('creado_en', { ascending: true })
     setAvisos(avisosData || [])
 
@@ -200,6 +227,90 @@ export default function AvisosStockPage() {
     setNotif({ tipo: 'ok', msg: borrados.size === 1 ? 'Aviso eliminado.' : `${borrados.size} avisos eliminados.` })
   }
 
+  // ── Nuevo pedido del local ────────────────────────────────────────────
+  // Cuando alguien pide en el local un producto sin stock. Se guarda con
+  // origen = 'local', una nota para reconocer quién lo pidió y quién lo cargó.
+  // Si el cliente deja el celular se agenda; si no, queda sin datos de contacto
+  // (medio_preferido = 'ninguno', solo permitido para origen = 'local').
+  async function abrirNuevo() {
+    if (mostrarNuevo) { cerrarNuevo(); return }
+    setMostrarNuevo(true)
+    if (catalogo === null && !cargandoCatalogo) await cargarCatalogo()
+  }
+
+  function cerrarNuevo() {
+    setMostrarNuevo(false)
+    setNuevo(FORM_NUEVO_VACIO)
+  }
+
+  async function guardarPedidoLocal() {
+    if (!nuevo.articulo) {
+      setNotif({ tipo: 'error', msg: 'Elegí el producto que pidieron.' })
+      return
+    }
+    const nombre = nuevo.nombre.trim().replace(/\s+/g, ' ')
+    const nota = nuevo.nota.trim()
+    const whatsappTxt = nuevo.whatsapp.trim()
+    const emailTxt = nuevo.email.trim().toLowerCase()
+
+    if (nombre.length > 80) {
+      setNotif({ tipo: 'error', msg: 'El nombre es demasiado largo (máximo 80 caracteres).' })
+      return
+    }
+    let whatsappFinal: string | null = null
+    if (whatsappTxt) {
+      whatsappFinal = normalizarWhatsapp(whatsappTxt)
+      if (!whatsappFinal) {
+        setNotif({ tipo: 'error', msg: 'El WhatsApp no parece válido.' })
+        return
+      }
+    }
+    if (emailTxt && !EMAIL_VALIDO.test(emailTxt)) {
+      setNotif({ tipo: 'error', msg: 'El email no parece válido.' })
+      return
+    }
+    // Aunque no dejen teléfono, tiene que haber algo para reconocer quién lo pidió
+    if (!nombre && !nota && !whatsappFinal && !emailTxt) {
+      setNotif({ tipo: 'error', msg: 'Poné al menos el nombre, un teléfono o una nota para reconocer quién lo pidió.' })
+      return
+    }
+
+    const medio = whatsappFinal && emailTxt ? 'ambos' : whatsappFinal ? 'whatsapp' : emailTxt ? 'email' : 'ninguno'
+
+    setGuardandoNuevo(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('avisos_stock').insert({
+      articulo_id: nuevo.articulo.id,
+      nombre: nombre || null,
+      medio_preferido: medio,
+      whatsapp: whatsappFinal,
+      email: emailTxt || null,
+      origen: 'local',
+      nota: nota || null,
+      registrado_por: usuarioNombre || null,
+    })
+
+    if (error) {
+      // 23505 = índice único parcial: esa persona (mismo WhatsApp o email)
+      // ya tiene un aviso pendiente para este producto.
+      if (error.code === '23505') {
+        setNotif({
+          tipo: 'error',
+          msg: 'Ya hay un pedido pendiente de ese producto con ese WhatsApp/email. Si es otra persona, usá su propio contacto o dejalo sin teléfono con una nota.',
+        })
+      } else {
+        setNotif({ tipo: 'error', msg: 'No se pudo guardar el pedido: ' + error.message })
+      }
+    } else {
+      const nombreProducto = nuevo.articulo.nombre
+      await cargarDatos(true)
+      setSolapa('pendientes')
+      cerrarNuevo()
+      setNotif({ tipo: 'ok', msg: `Pedido del local anotado: "${nombreProducto}".` })
+    }
+    setGuardandoNuevo(false)
+  }
+
   // ── Cambiar el producto de un aviso ───────────────────────────────────
   // Caso típico: se anotó "Magnesio Mega" pero el cliente pedía "Magnesio Seven".
   // Solo cambia articulo_id del aviso; no toca el artículo ni el contacto/fecha.
@@ -246,7 +357,7 @@ export default function AvisosStockPage() {
       return
     }
     const actual = articulosMap.get(aviso.articulo_id)
-    const quien = aviso.nombre || aviso.whatsapp || aviso.email || 'sin datos'
+    const quien = aviso.nombre || aviso.whatsapp || aviso.email || aviso.nota || 'sin datos'
     const ok = window.confirm(
       `¿Cambiar el producto del pedido de ${quien}?\n\nDe: ${actual ? actual.nombre : '#' + aviso.articulo_id}\nA: ${nuevo.nombre}`
     )
@@ -330,11 +441,16 @@ export default function AvisosStockPage() {
   const cantPendientes = avisos.filter(a => !a.avisado).length
   const cantAvisados = avisos.filter(a => a.avisado).length
   const enPendientes = solapa === 'pendientes'
+  // Cantidades por origen dentro de la solapa actual (para los botones de filtro)
+  const avisosDeSolapa = avisos.filter(a => a.avisado !== enPendientes)
+  const cantLocal = avisosDeSolapa.filter(a => a.origen === 'local').length
+  const cantWeb = avisosDeSolapa.length - cantLocal
 
   const grupos: Grupo[] = (() => {
     const mapa = new Map<number, Grupo>()
     for (const aviso of avisos) {
       if (aviso.avisado === enPendientes) continue // pendientes: avisado=false; avisados: avisado=true
+      if (origenFiltro !== 'todos' && aviso.origen !== origenFiltro) continue
       const existente = mapa.get(aviso.articulo_id)
       if (existente) {
         existente.avisos.push(aviso)
@@ -356,6 +472,12 @@ export default function AvisosStockPage() {
         // Avisados: el último en ser avisado primero
         g.avisos.sort((a, b) => (b.avisado_en || '').localeCompare(a.avisado_en || ''))
         g.ultimoAvisoEn = g.avisos[0]?.avisado_en || ''
+      } else {
+        // Pendientes: primero los pedidos del local; dentro de cada tipo, el más antiguo primero
+        g.avisos.sort((a, b) =>
+          (a.origen === 'local' ? 0 : 1) - (b.origen === 'local' ? 0 : 1) ||
+          a.creado_en.localeCompare(b.creado_en)
+        )
       }
     }
 
@@ -377,6 +499,18 @@ export default function AvisosStockPage() {
         return nombreA.localeCompare(nombreB)
       }
 
+      if (orden === 'local') {
+        // Local primero: los productos con pedidos del local arriba (prioridad
+        // al cliente que uno ve seguido); después, los que ya tienen stock
+        const localA = a.avisos.some(x => x.origen === 'local') ? 0 : 1
+        const localB = b.avisos.some(x => x.origen === 'local') ? 0 : 1
+        if (localA !== localB) return localA - localB
+        const stockA = a.stock > 0 ? 0 : 1
+        const stockB = b.stock > 0 ? 0 : 1
+        if (stockA !== stockB) return stockA - stockB
+        return nombreA.localeCompare(nombreB)
+      }
+
       if (orden === 'cantidad') {
         if (a.avisos.length !== b.avisos.length) return b.avisos.length - a.avisos.length
         return nombreA.localeCompare(nombreB)
@@ -390,17 +524,20 @@ export default function AvisosStockPage() {
     })
   })()
 
-  // Búsqueda del panel "Cambiar producto": tokenizada, sin acentos/mayúsculas
-  const resultadosCambio: Articulo[] = (() => {
-    if (!catalogo || !busquedaCambio.trim()) return []
-    const tokens = normalizar(busquedaCambio.trim()).split(/\s+/).filter(Boolean)
+  // Búsqueda de productos (paneles "Cambiar producto" y "Nuevo pedido del
+  // local"): tokenizada, sin acentos/mayúsculas
+  function filtrarCatalogo(texto: string): Articulo[] {
+    if (!catalogo || !texto.trim()) return []
+    const tokens = normalizar(texto.trim()).split(/\s+/).filter(Boolean)
     return catalogo
       .filter(a => {
         const n = normalizar(a.nombre)
         return tokens.every(t => n.includes(t))
       })
       .slice(0, 8)
-  })()
+  }
+  const resultadosCambio = filtrarCatalogo(busquedaCambio)
+  const resultadosNuevo = filtrarCatalogo(nuevo.busqueda)
 
   if (loading) return <div className="p-6 text-sm text-gray-500">Cargando...</div>
 
@@ -420,14 +557,139 @@ export default function AvisosStockPage() {
 
   return (
     <div>
-      <div className="mb-4">
+      <div className="mb-4 flex items-start justify-between flex-wrap gap-3">
+        <div>
         <h1 className="text-xl font-semibold text-[#3c3c3b]">Avisos de Stock</h1>
         <p className="text-sm text-gray-500 mt-1">
           {enPendientes
             ? 'Gente que pidió que le avisemos cuando vuelva a haber stock de un producto. Los que ya tienen stock disponible aparecen primero.'
             : 'Gente a la que ya se le avisó. Quedan acá como historial, agrupados por producto.'}
         </p>
+        </div>
+        <button
+          type="button"
+          onClick={abrirNuevo}
+          className="inline-flex items-center gap-1.5 bg-[#00a19a] text-white px-3 py-2 rounded text-sm font-medium hover:bg-[#008f89] transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          Nuevo pedido del local
+        </button>
       </div>
+
+      {mostrarNuevo && (
+        <div className="bg-white rounded-lg border border-[#00a19a] p-4 mb-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-[#3c3c3b]">Nuevo pedido del local</p>
+            <button type="button" onClick={cerrarNuevo} className="text-xs text-gray-400 hover:text-gray-600">
+              Cancelar
+            </button>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Producto que pidieron</label>
+            {nuevo.articulo ? (
+              <div className="flex items-center justify-between gap-2 px-3 py-2 bg-[#00a19a]/10 border border-[#00a19a]/30 rounded text-sm text-[#3c3c3b]">
+                <span>{nuevo.articulo.nombre}</span>
+                <button
+                  type="button"
+                  onClick={() => setNuevo(n => ({ ...n, articulo: null, busqueda: '' }))}
+                  className="text-xs text-gray-500 hover:text-gray-700"
+                >
+                  Cambiar
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Buscar el producto..."
+                  value={nuevo.busqueda}
+                  onChange={e => setNuevo(n => ({ ...n, busqueda: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+                />
+                {cargandoCatalogo ? (
+                  <p className="text-xs text-gray-500 mt-2">Cargando productos...</p>
+                ) : nuevo.busqueda.trim() && resultadosNuevo.length === 0 ? (
+                  <p className="text-xs text-gray-500 mt-2">No hay productos activos que coincidan.</p>
+                ) : (
+                  resultadosNuevo.length > 0 && (
+                    <div className="mt-2 divide-y divide-gray-100 bg-white border border-gray-200 rounded">
+                      {resultadosNuevo.map(a => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => setNuevo(n => ({ ...n, articulo: a, busqueda: '' }))}
+                          className="w-full text-left px-3 py-2 text-sm text-[#3c3c3b] hover:bg-[#00a19a]/10"
+                        >
+                          {a.nombre}
+                        </button>
+                      ))}
+                    </div>
+                  )
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Nombre (si lo dio)</label>
+              <input
+                type="text"
+                value={nuevo.nombre}
+                onChange={e => setNuevo(n => ({ ...n, nombre: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">WhatsApp (si lo dejó)</label>
+              <input
+                type="text"
+                inputMode="tel"
+                placeholder="Ej: 299 4567214"
+                value={nuevo.whatsapp}
+                onChange={e => setNuevo(n => ({ ...n, whatsapp: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Email (si lo dejó)</label>
+              <input
+                type="email"
+                value={nuevo.email}
+                onChange={e => setNuevo(n => ({ ...n, email: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Nota para reconocerlo</label>
+              <input
+                type="text"
+                placeholder="Ej: viene a la tarde, entrena en Energym"
+                value={nuevo.nota}
+                onChange={e => setNuevo(n => ({ ...n, nota: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <p className="text-xs text-gray-400">
+              Si no dejó datos, alcanza con una nota. Queda registrado que lo cargó {usuarioNombre || 'vos'}.
+            </p>
+            <button
+              type="button"
+              onClick={guardarPedidoLocal}
+              disabled={guardandoNuevo}
+              className="inline-flex items-center gap-1.5 bg-[#00a19a] text-white px-4 py-2 rounded text-sm font-medium hover:bg-[#008f89] transition-colors disabled:opacity-50"
+            >
+              <Check className="w-4 h-4" />
+              {guardandoNuevo ? 'Guardando...' : 'Anotar pedido'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {notif && (
         <div className={`rounded-lg border px-4 py-3 flex items-center justify-between gap-3 mb-4 ${
@@ -451,8 +713,31 @@ export default function AvisosStockPage() {
           onChange={e => setBusqueda(e.target.value)}
           className="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
         />
+        <div className="flex gap-1.5">
+          {([['todos', 'Todos', cantLocal + cantWeb], ['local', 'Local', cantLocal], ['web', 'Web', cantWeb]] as const).map(([id, texto, cant]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setOrigenFiltro(id)}
+              className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
+                origenFiltro === id ? 'bg-[#3c3c3b] text-white border-[#3c3c3b]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {texto} <span className="opacity-70">({cant})</span>
+            </button>
+          ))}
+        </div>
         {enPendientes && (
           <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => setOrden('local')}
+              className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
+                orden === 'local' ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              Local primero
+            </button>
             <button
               type="button"
               onClick={() => setOrden('stock')}
@@ -505,6 +790,11 @@ export default function AvisosStockPage() {
                       ) : (
                         <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Todavía sin stock</span>
                       ))}
+                      {enPendientes && grupo.avisos.some(a => a.origen === 'local') && (
+                        <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-medium">
+                          Pedido en local ({grupo.avisos.filter(a => a.origen === 'local').length})
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
                       {enPendientes
@@ -553,21 +843,40 @@ export default function AvisosStockPage() {
 
                 <div className="divide-y divide-gray-100 border-t border-gray-100">
                   {grupo.avisos.map(aviso => {
-                    const contacto = [aviso.nombre, aviso.whatsapp, aviso.email].filter(Boolean).join(' · ') || 'sin datos'
+                    const contacto = [aviso.nombre, aviso.whatsapp, aviso.email, aviso.nota].filter(Boolean).join(' · ') || 'sin datos'
                     return (
                       <div key={aviso.id} className="py-2">
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="text-sm text-gray-600">
+                          {aviso.origen === 'local' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded mr-2">
+                              <Store className="w-3 h-3" />
+                              Local
+                            </span>
+                          )}
                           {aviso.nombre && <span className="font-medium text-[#3c3c3b] mr-2">{aviso.nombre}</span>}
                           {aviso.whatsapp && <span>{aviso.whatsapp}</span>}
                           {aviso.whatsapp && aviso.email && <span className="text-gray-300 mx-1.5">·</span>}
                           {aviso.email && <span>{aviso.email}</span>}
+                          {!aviso.nombre && !aviso.whatsapp && !aviso.email && (
+                            <span className="italic text-gray-400">sin datos de contacto</span>
+                          )}
                           <span className="text-gray-400 text-xs ml-2">
                             pidió el {fmtFecha(aviso.creado_en)}
                             {!enPendientes && <> · avisado el {fmtFecha(aviso.avisado_en)}</>}
                           </span>
+                          {aviso.origen === 'local' && (aviso.nota || aviso.registrado_por) && (
+                            <div className="text-xs text-gray-500 mt-0.5">
+                              {aviso.nota && <span className="italic">“{aviso.nota}”</span>}
+                              {aviso.nota && aviso.registrado_por && ' · '}
+                              {aviso.registrado_por && <>cargado por {aviso.registrado_por}</>}
+                            </div>
+                          )}
                         </div>
                         <div className="flex items-center gap-3">
+                          {enPendientes && !aviso.whatsapp && !aviso.email && (
+                            <span className="text-xs text-amber-700">Avisar en el local</span>
+                          )}
                           {enPendientes && aviso.whatsapp && grupo.articulo && (
                             <a
                               href={linkWhatsapp(aviso.whatsapp, grupo.articulo, aviso.nombre)}
