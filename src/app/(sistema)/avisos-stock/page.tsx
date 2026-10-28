@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { armarSlugProducto } from '@/lib/slug'
 import { normalizarWhatsapp } from '@/lib/whatsapp'
-import { MessageCircle, Mail, Check, Trash2, Undo2 } from 'lucide-react'
+import { MessageCircle, Mail, Check, Trash2, Undo2, Pencil } from 'lucide-react'
 
 interface Aviso {
   id: number
@@ -63,6 +63,12 @@ export default function AvisosStockPage() {
   const [solapa, setSolapa] = useState<Solapa>('pendientes')
   const [esAdmin, setEsAdmin] = useState(false)
   const [notif, setNotif] = useState<{ tipo: 'error' | 'ok'; msg: string } | null>(null)
+  // Cambiar producto de un aviso: aviso que tiene el panel abierto + catálogo
+  // (se carga recién la primera vez que se abre el panel)
+  const [cambiandoId, setCambiandoId] = useState<number | null>(null)
+  const [catalogo, setCatalogo] = useState<Articulo[] | null>(null)
+  const [cargandoCatalogo, setCargandoCatalogo] = useState(false)
+  const [busquedaCambio, setBusquedaCambio] = useState('')
 
   useEffect(() => { cargarDatos() }, [])
 
@@ -194,6 +200,97 @@ export default function AvisosStockPage() {
     setNotif({ tipo: 'ok', msg: borrados.size === 1 ? 'Aviso eliminado.' : `${borrados.size} avisos eliminados.` })
   }
 
+  // ── Cambiar el producto de un aviso ───────────────────────────────────
+  // Caso típico: se anotó "Magnesio Mega" pero el cliente pedía "Magnesio Seven".
+  // Solo cambia articulo_id del aviso; no toca el artículo ni el contacto/fecha.
+  async function cargarCatalogo() {
+    setCargandoCatalogo(true)
+    const supabase = createClient()
+    const todos: Articulo[] = []
+    const TAM = 1000 // límite de filas de Supabase por consulta
+    let fallo = false
+    for (let desde = 0; ; desde += TAM) {
+      const { data, error } = await supabase
+        .from('articulos')
+        .select('id, nombre, nombre_base')
+        .eq('activo', true)
+        .order('id', { ascending: true })
+        .range(desde, desde + TAM - 1)
+      if (error) {
+        setNotif({ tipo: 'error', msg: 'No se pudo cargar el listado de productos: ' + error.message })
+        fallo = true
+        break
+      }
+      todos.push(...(data || []))
+      if (!data || data.length < TAM) break
+    }
+    if (!fallo) setCatalogo(todos)
+    setCargandoCatalogo(false)
+  }
+
+  async function abrirCambio(avisoId: number) {
+    if (cambiandoId === avisoId) { cerrarCambio(); return }
+    setCambiandoId(avisoId)
+    setBusquedaCambio('')
+    if (catalogo === null && !cargandoCatalogo) await cargarCatalogo()
+  }
+
+  function cerrarCambio() {
+    setCambiandoId(null)
+    setBusquedaCambio('')
+  }
+
+  async function cambiarProducto(aviso: Aviso, nuevo: Articulo) {
+    if (nuevo.id === aviso.articulo_id) {
+      setNotif({ tipo: 'error', msg: 'Ese ya es el producto de este aviso.' })
+      return
+    }
+    const actual = articulosMap.get(aviso.articulo_id)
+    const quien = aviso.nombre || aviso.whatsapp || aviso.email || 'sin datos'
+    const ok = window.confirm(
+      `¿Cambiar el producto del pedido de ${quien}?\n\nDe: ${actual ? actual.nombre : '#' + aviso.articulo_id}\nA: ${nuevo.nombre}`
+    )
+    if (!ok) return
+
+    setTrabajando(aviso.id)
+    const supabase = createClient()
+    // .select('id') para detectar si RLS dejó 0 filas modificadas sin dar error
+    const { data, error } = await supabase
+      .from('avisos_stock')
+      .update({ articulo_id: nuevo.id })
+      .eq('id', aviso.id)
+      .select('id')
+
+    if (error) {
+      // 23505 = índice único parcial: esa persona ya tiene otro aviso
+      // pendiente para el producto elegido.
+      if (error.code === '23505') {
+        setNotif({
+          tipo: 'error',
+          msg: 'Esa persona ya tiene un aviso pendiente para ese producto. Si es el mismo pedido, eliminá este aviso duplicado.',
+        })
+      } else {
+        setNotif({ tipo: 'error', msg: 'No se pudo cambiar el producto: ' + error.message })
+      }
+    } else if (!data || data.length === 0) {
+      setNotif({ tipo: 'error', msg: 'No se modificó nada (sin permiso o el aviso ya no existe).' })
+    } else {
+      // Stock del producto nuevo (por si no estaba en la lista cargada)
+      const { data: stockData } = await supabase
+        .from('articulo_stock')
+        .select('stock_actual')
+        .eq('articulo_id', nuevo.id)
+      const stockNuevo = (stockData || []).reduce((acc, f) => acc + (f.stock_actual || 0), 0)
+
+      setAvisos(prev => prev.map(a => a.id === aviso.id ? { ...a, articulo_id: nuevo.id } : a))
+      setArticulosMap(prev => new Map(prev).set(nuevo.id, nuevo))
+      setStockMap(prev => new Map(prev).set(nuevo.id, stockNuevo))
+      cerrarCambio()
+      setNotif({ tipo: 'ok', msg: `Producto cambiado a "${nuevo.nombre}".` })
+    }
+    setTrabajando(null)
+  }
+
   function linkProducto(articulo: Articulo): string {
     const titulo = articulo.nombre
     return `${URL_TIENDA}/tienda/producto/${armarSlugProducto(articulo.id, titulo)}`
@@ -291,6 +388,18 @@ export default function AvisosStockPage() {
       if (listoA !== listoB) return listoA - listoB
       return nombreA.localeCompare(nombreB)
     })
+  })()
+
+  // Búsqueda del panel "Cambiar producto": tokenizada, sin acentos/mayúsculas
+  const resultadosCambio: Articulo[] = (() => {
+    if (!catalogo || !busquedaCambio.trim()) return []
+    const tokens = normalizar(busquedaCambio.trim()).split(/\s+/).filter(Boolean)
+    return catalogo
+      .filter(a => {
+        const n = normalizar(a.nombre)
+        return tokens.every(t => n.includes(t))
+      })
+      .slice(0, 8)
   })()
 
   if (loading) return <div className="p-6 text-sm text-gray-500">Cargando...</div>
@@ -446,7 +555,8 @@ export default function AvisosStockPage() {
                   {grupo.avisos.map(aviso => {
                     const contacto = [aviso.nombre, aviso.whatsapp, aviso.email].filter(Boolean).join(' · ') || 'sin datos'
                     return (
-                      <div key={aviso.id} className="flex items-center justify-between flex-wrap gap-2 py-2">
+                      <div key={aviso.id} className="py-2">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="text-sm text-gray-600">
                           {aviso.nombre && <span className="font-medium text-[#3c3c3b] mr-2">{aviso.nombre}</span>}
                           {aviso.whatsapp && <span>{aviso.whatsapp}</span>}
@@ -468,6 +578,17 @@ export default function AvisosStockPage() {
                               <MessageCircle className="w-3.5 h-3.5" />
                               WhatsApp
                             </a>
+                          )}
+                          {enPendientes && (
+                            <button
+                              type="button"
+                              onClick={() => abrirCambio(aviso.id)}
+                              disabled={trabajando === aviso.id}
+                              className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-[#00a19a] transition-colors disabled:opacity-40"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                              Cambiar producto
+                            </button>
                           )}
                           {enPendientes ? (
                             <button
@@ -500,6 +621,51 @@ export default function AvisosStockPage() {
                             </button>
                           )}
                         </div>
+                      </div>
+                      {enPendientes && cambiandoId === aviso.id && (
+                        <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded">
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <p className="text-xs text-gray-600">
+                              Elegí el producto correcto para este pedido (el contacto y la fecha se mantienen).
+                            </p>
+                            <button
+                              type="button"
+                              onClick={cerrarCambio}
+                              className="text-xs text-gray-400 hover:text-gray-600"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                          <input
+                            type="text"
+                            autoFocus
+                            placeholder="Buscar el producto correcto..."
+                            value={busquedaCambio}
+                            onChange={e => setBusquedaCambio(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+                          />
+                          {cargandoCatalogo ? (
+                            <p className="text-xs text-gray-500 mt-2">Cargando productos...</p>
+                          ) : busquedaCambio.trim() && resultadosCambio.length === 0 ? (
+                            <p className="text-xs text-gray-500 mt-2">No hay productos activos que coincidan.</p>
+                          ) : (
+                            <div className="mt-2 divide-y divide-gray-100 bg-white border border-gray-200 rounded">
+                              {resultadosCambio.map(a => (
+                                <button
+                                  key={a.id}
+                                  type="button"
+                                  onClick={() => cambiarProducto(aviso, a)}
+                                  disabled={trabajando === aviso.id || a.id === aviso.articulo_id}
+                                  className="w-full text-left px-3 py-2 text-sm text-[#3c3c3b] hover:bg-[#00a19a]/10 disabled:opacity-40 disabled:hover:bg-transparent"
+                                >
+                                  {a.nombre}
+                                  {a.id === aviso.articulo_id && <span className="text-xs text-gray-400 ml-2">(producto actual)</span>}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       </div>
                     )
                   })}
