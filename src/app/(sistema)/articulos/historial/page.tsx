@@ -339,13 +339,25 @@ export default function HistorialArticulosPage() {
       )}
 
       {/* Listado */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
         {cargando ? (
           <div className="p-8 text-center text-gray-400 text-sm">Cargando...</div>
         ) : filasArticulos.length === 0 ? (
           <div className="p-8 text-center text-gray-400 text-sm">Sin artículos que coincidan con los filtros</div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[900px] table-fixed text-sm">
+            {/* Anchos fijos en %: el detalle expandido usa la misma grilla (ver más abajo),
+                así Ingreso/Egreso/Stock Calculado/Stock quedan alineados en vertical
+                en todos los artículos, estén abiertos o cerrados. */}
+            <colgroup>
+              <col style={{ width: '32%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '13%' }} />
+            </colgroup>
             <thead className="bg-gray-50 text-xs text-gray-500 uppercase border-b border-gray-200">
               <tr>
                 <th className="px-4 py-3 text-left">Artículo</th>
@@ -391,7 +403,16 @@ export default function HistorialArticulosPage() {
                               Sin movimientos en el rango de fechas seleccionado.
                             </div>
                           ) : (
-                            <table className="w-full text-xs bg-blue-50/40">
+                            <table className="w-full table-fixed text-xs bg-blue-50/40">
+                              <colgroup>
+                                <col style={{ width: '10%' }} />
+                                <col style={{ width: '10%' }} />
+                                <col style={{ width: '14%' }} />
+                                <col style={{ width: '22%' }} />
+                                <col style={{ width: '18%' }} />
+                                <col style={{ width: '13%' }} />
+                                <col style={{ width: '13%' }} />
+                              </colgroup>
                               <thead className="text-gray-500 uppercase border-y border-blue-100">
                                 <tr>
                                   <th className="px-4 py-2 text-left pl-10">Fecha</th>
@@ -400,6 +421,7 @@ export default function HistorialArticulosPage() {
                                   <th className="px-4 py-2 text-left">Detalle</th>
                                   <th className="px-4 py-2 text-right">Cantidad</th>
                                   <th className="px-4 py-2 text-right">Stock Calculado</th>
+                                  <th className="px-4 py-2" />
                                 </tr>
                               </thead>
                               <tbody>
@@ -410,11 +432,12 @@ export default function HistorialArticulosPage() {
                                       {m.tipo_movimiento_stock_id === 1 ? 'Ingreso' : m.tipo_movimiento_stock_id === 2 ? 'Egreso' : 'Transferencia'}
                                     </td>
                                     <td className="px-4 py-2 text-gray-600">{m.motivo}</td>
-                                    <td className="px-4 py-2 text-gray-500">{m.detalle}</td>
+                                    <td className="px-4 py-2 text-gray-500 break-words">{m.detalle}</td>
                                     <td className={`px-4 py-2 text-right font-medium ${m.cantidadConSigno < 0 ? 'text-red-500' : 'text-[#00a19a]'}`}>
                                       {m.cantidadConSigno > 0 ? '+' : ''}{m.cantidadConSigno}
                                     </td>
                                     <td className="px-4 py-2 text-right text-gray-600">{m.stockCalculado}</td>
+                                    <td className="px-4 py-2" />
                                   </tr>
                                 ))}
                               </tbody>
