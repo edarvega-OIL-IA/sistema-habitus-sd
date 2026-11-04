@@ -19,6 +19,7 @@ interface ArticuloFoto {
   disponible_local: boolean
   disponible_web: boolean
   stock: number
+  stockMin: number | null
   imagenPrincipalUrl: string | null
   cantidadFotos: number
 }
@@ -29,6 +30,18 @@ interface Marca { id: number; nombre: string }
 // Mismo criterio de búsqueda que Artículos/Actualizar Precios: tokenizada, sin acentos/mayúsculas.
 function normalizar(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+// Semáforo de stock: rojo = en cero (o negativo), naranja = por debajo del mínimo,
+// verde = el resto (incluye los artículos sin mínimo cargado: no hay con qué comparar).
+function estadoStock(stock: number, stockMin: number | null) {
+  if (stock <= 0) return { clases: 'border-red-300 bg-red-50 text-red-600', etiqueta: 'Sin stock' }
+  if (stockMin !== null && stockMin > 0 && stock < stockMin) return { clases: 'border-orange-300 bg-orange-50 text-orange-600', etiqueta: 'Bajo el mínimo' }
+  return { clases: 'border-green-300 bg-green-50 text-green-700', etiqueta: 'Stock normal' }
+}
+
+function formatearStock(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toLocaleString('es-AR', { maximumFractionDigits: 3 })
 }
 
 export default function ActualizarFotosPage() {
@@ -63,7 +76,7 @@ export default function ActualizarFotosPage() {
         supabase.from('articulos')
           .select('id, nombre, codigo_interno, codigo_barra, rubro_id, marca_id, disponible_local, disponible_web')
           .eq('activo', true).order('nombre'),
-        supabase.from('articulo_stock').select('articulo_id, stock_actual').eq('sucursal_id', 1),
+        supabase.from('articulo_stock').select('articulo_id, stock_actual, stock_min').eq('sucursal_id', 1),
         supabase.from('rubros').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('marcas').select('id, nombre').eq('activo', true).order('nombre'),
         supabase.from('articulo_imagenes').select('articulo_id, url, es_principal'),
@@ -71,7 +84,8 @@ export default function ActualizarFotosPage() {
 
       if (articulosError) throw articulosError
 
-      const mapStock = new Map<number, number>((stockData || []).map(s => [s.articulo_id, s.stock_actual]))
+      const mapStock = new Map<number, number>((stockData || []).map(s => [s.articulo_id, Number(s.stock_actual)]))
+      const mapStockMin = new Map<number, number | null>((stockData || []).map(s => [s.articulo_id, s.stock_min === null || s.stock_min === undefined ? null : Number(s.stock_min)]))
       const mapRubros = new Map<number, string>((rubrosData || []).map((r: Rubro) => [r.id, r.nombre]))
       const mapMarcas = new Map<number, string>((marcasData || []).map((m: Marca) => [m.id, m.nombre]))
 
@@ -97,6 +111,7 @@ export default function ActualizarFotosPage() {
         disponible_local: a.disponible_local,
         disponible_web: a.disponible_web,
         stock: mapStock.get(a.id) ?? 0,
+        stockMin: mapStockMin.get(a.id) ?? null,
         imagenPrincipalUrl: mapImagenPrincipal.get(a.id) || null,
         cantidadFotos: mapCantidadFotos.get(a.id) || 0,
       })))
@@ -295,24 +310,40 @@ export default function ActualizarFotosPage() {
               <div className="p-2.5 flex flex-col gap-1.5 flex-1">
                 {it.marcaNombre && <p className="text-[10px] text-gray-400 uppercase tracking-wide">{it.marcaNombre}</p>}
                 <p className="text-xs font-medium text-[#3c3c3b] leading-snug line-clamp-2">{it.nombre}</p>
-                <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-auto pt-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={it.disponible_local}
-                    onChange={() => toggleDisponibilidad(it.articulo_id, 'disponible_local', it.disponible_local)}
-                    className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
-                  />
-                  Disponible en local
-                </label>
-                <label className="flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={it.disponible_web}
-                    onChange={() => toggleDisponibilidad(it.articulo_id, 'disponible_web', it.disponible_web)}
-                    className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
-                  />
-                  Visible en tienda
-                </label>
+                <div className="flex items-end justify-between gap-2 mt-auto pt-1">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={it.disponible_local}
+                        onChange={() => toggleDisponibilidad(it.articulo_id, 'disponible_local', it.disponible_local)}
+                        className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                      />
+                      Disponible en local
+                    </label>
+                    <label className="flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={it.disponible_web}
+                        onChange={() => toggleDisponibilidad(it.articulo_id, 'disponible_web', it.disponible_web)}
+                        className="rounded border-gray-300 text-[#00a19a] focus:ring-[#00a19a]"
+                      />
+                      Visible en tienda
+                    </label>
+                  </div>
+                  {(() => {
+                    const est = estadoStock(it.stock, it.stockMin)
+                    return (
+                      <div
+                        title={`${est.etiqueta}${it.stockMin !== null ? ` · mínimo ${formatearStock(it.stockMin)}` : ' · sin mínimo cargado'}`}
+                        className={`shrink-0 min-w-[2.75rem] rounded-md border px-2 py-0.5 text-center leading-none ${est.clases}`}
+                      >
+                        <span className="block text-[8px] font-medium uppercase tracking-wider opacity-70">Stock</span>
+                        <span className="block text-xl font-semibold tabular-nums mt-0.5">{formatearStock(it.stock)}</span>
+                      </div>
+                    )
+                  })()}
+                </div>
               </div>
             </div>
           ))}
