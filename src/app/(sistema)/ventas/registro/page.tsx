@@ -34,6 +34,15 @@ interface Comprobante {
 // tipos_comprobante.id — verificado contra producción
 const TIPO_COMPROBANTE_ID_FACTURA = 1
 
+// fecha_utc es DATE ('YYYY-MM-DD'): el día de la semana se calcula en UTC puro
+// para que la zona horaria del navegador nunca corra la fecha un día.
+const DIAS_SEMANA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+function etiquetaDia(fecha: string): string {
+  const [y, m, d] = fecha.split('-').map(Number)
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+  return `${DIAS_SEMANA[dow]} ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
+}
+
 export default function RegistroVentasPage() {
   const [ventas, setVentas] = useState<Venta[]>([])
   const [comprobantes, setComprobantes] = useState<Map<number, Comprobante>>(new Map())
@@ -60,6 +69,9 @@ export default function RegistroVentasPage() {
   const [canalFiltro, setCanalFiltro] = useState<'todos' | 'local' | 'web'>('todos')
   const [cierreActivoId, setCierreActivoId] = useState<number | null>(null)
   const [esAdmin, setEsAdmin] = useState(false)
+  // Agrupar el listado por día (con total y cantidad de cada día)
+  const [agruparPorDia, setAgruparPorDia] = useState(false)
+  const [diasPlegados, setDiasPlegados] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     // Filtro de turno prefijado por URL (ej. desde las tarjetas del Dashboard:
@@ -421,166 +433,44 @@ export default function RegistroVentasPage() {
     .filter(v => v.estado_venta_id !== 3)
     .reduce((s, v) => s + v.total, 0)
 
+  // Agrupación por día — mismo criterio que los totales de arriba: las ventas
+  // anuladas (estado 3) se listan pero no suman ni cuentan.
+  const gruposPorDia = agruparPorDia
+    ? (() => {
+        const mapa = new Map<string, Venta[]>()
+        for (const v of ventasFiltradas) {
+          const lista = mapa.get(v.fecha_utc)
+          if (lista) lista.push(v)
+          else mapa.set(v.fecha_utc, [v])
+        }
+        return [...mapa.entries()]
+          .sort((a, b) => b[0].localeCompare(a[0]))
+          .map(([fecha, lista]) => {
+            const validas = lista.filter(v => v.estado_venta_id !== 3)
+            return {
+              fecha,
+              ventas: lista,
+              cantidad: validas.length,
+              anuladas: lista.length - validas.length,
+              total: validas.reduce((s, v) => s + v.total, 0),
+            }
+          })
+      })()
+    : []
+
+  function toggleDia(fecha: string) {
+    setDiasPlegados(prev => {
+      const nuevo = new Set(prev)
+      nuevo.has(fecha) ? nuevo.delete(fecha) : nuevo.add(fecha)
+      return nuevo
+    })
+  }
+
   const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
   const fmtHora = (s: string) => new Date(s).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })
 
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-[#3c3c3b]">Registro de ventas</h1>
-      </div>
-
-      {/* Filtros */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="w-4 h-4 text-gray-500" />
-          <h2 className="text-sm font-semibold text-gray-700">Filtros</h2>
-        </div>
-
-        {/* Período */}
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          {(['dia', 'mes', 'anio', 'libre'] as const).map(m => (
-            <div key={m} className="flex items-center">
-              {m !== 'libre' && modoPeriodo === m && (
-                <button onClick={retroceder} className="w-7 h-7 flex items-center justify-center rounded-l border border-r-0 border-gray-300 hover:bg-gray-100 text-gray-600 text-sm">‹</button>
-              )}
-              <button
-                onClick={() => {
-                  setModoPeriodo(m)
-                  if (m === 'mes' || m === 'anio') setTurnoFiltro('todos')
-                }}
-                className={`px-3 py-1.5 text-sm font-medium border transition-colors ${
-                  modoPeriodo === m ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-                } ${m !== 'libre' && modoPeriodo === m ? '' : 'rounded'}`}
-              >
-                {modoPeriodo === m && m !== 'libre' ? labelFechaRef() : m === 'dia' ? 'Día' : m === 'mes' ? 'Mes' : m === 'anio' ? 'Año' : 'Libre'}
-              </button>
-              {m !== 'libre' && modoPeriodo === m && (
-                <button onClick={avanzar} className="w-7 h-7 flex items-center justify-center rounded-r border border-l-0 border-gray-300 hover:bg-gray-100 text-gray-600 text-sm">›</button>
-              )}
-            </div>
-          ))}
-          <button
-            onClick={() => setModoPeriodo('todos')}
-            className={`px-3 py-1.5 text-sm font-medium border rounded transition-colors ${
-              modoPeriodo === 'todos' ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
-            }`}
-          >
-            Todos
-          </button>
-          {modoPeriodo !== 'todos' && (
-            <div className="flex flex-col gap-1 ml-2">
-              <div className="flex items-center gap-2">
-                <input type="date" value={desde}
-                  onChange={e => { setModoPeriodo('libre'); setFechaDesde(e.target.value) }}
-                  min={FECHA_MIN} max={fechaMax()}
-                  onBlur={e => {
-                    if (fechaFueraDeRango(e.target.value)) { setFechaDesde(''); setErrFechaDesde(true) }
-                    else setErrFechaDesde(false)
-                  }}
-                  className={`px-2 py-1.5 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaDesde && !fechaDesde && modoPeriodo === 'libre' ? 'border-red-500' : 'border-gray-300'}`} />
-                <span className="text-gray-400 text-sm">—</span>
-                <input type="date" value={hasta}
-                  onChange={e => { setModoPeriodo('libre'); setFechaHasta(e.target.value) }}
-                  min={FECHA_MIN} max={fechaMax()}
-                  onBlur={e => {
-                    if (fechaFueraDeRango(e.target.value)) { setFechaHasta(''); setErrFechaHasta(true) }
-                    else setErrFechaHasta(false)
-                  }}
-                  className={`px-2 py-1.5 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaHasta && !fechaHasta && modoPeriodo === 'libre' ? 'border-red-500' : 'border-gray-300'}`} />
-              </div>
-              {errFechaDesde && !fechaDesde && modoPeriodo === 'libre' && (
-                <p className="text-xs text-red-600">Desde: fecha fuera de rango, revisá el año</p>
-              )}
-              {errFechaHasta && !fechaHasta && modoPeriodo === 'libre' && (
-                <p className="text-xs text-red-600">Hasta: fecha fuera de rango, revisá el año</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Filtros secundarios */}
-        <div className="grid grid-cols-4 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Turno</label>
-            <select value={turnoFiltro} onChange={e => setTurnoFiltro(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
-              <option value="todos">Todos</option>
-              <option value="1">Mañana</option>
-              <option value="2">Tarde</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Canal</label>
-            <select value={canalFiltro} onChange={e => setCanalFiltro(e.target.value as 'todos' | 'local' | 'web')}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
-              <option value="todos">Todos</option>
-              <option value="local">Local</option>
-              <option value="web">Web</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Medio de pago</label>
-            <select value={medioPago} onChange={e => setMedioPago(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
-              <option value="todos">Todos</option>
-              <option value="Efectivo">Efectivo</option>
-              <option value="Débito">Débito</option>
-              <option value="Crédito">Crédito</option>
-              <option value="Transferencia">Transferencia</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Estado</label>
-            <select value={estadoFiltro} onChange={e => setEstadoFiltro(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
-              <option value="todos">Todos</option>
-              <option value="1">Pendiente fiscal</option>
-              <option value="2">Guardada</option>
-              <option value="3">Anulada</option>
-              <option value="4">Fiscalizada</option>
-              <option value="5">Fiscalizado externamente</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Totales */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-        <div className="grid grid-cols-3 gap-4">
-          <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-            <p className="text-xs text-green-600 font-medium mb-1">Total ventas</p>
-            <p className="text-2xl font-bold text-green-700">{fmt(totalVentas)}</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <p className="text-xs text-gray-500 font-medium mb-1">Cantidad</p>
-            <p className="text-2xl font-bold text-[#3c3c3b]">{ventasFiltradas.filter(v => v.estado_venta_id !== 3).length}</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <p className="text-xs text-gray-500 font-medium mb-1">Ticket promedio</p>
-            <p className="text-2xl font-bold text-[#3c3c3b]">
-              {ventasFiltradas.filter(v => v.estado_venta_id !== 3).length > 0
-                ? fmt(totalVentas / ventasFiltradas.filter(v => v.estado_venta_id !== 3).length)
-                : '$0,00'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Listado */}
-      {loading ? (
-        <p className="text-sm text-gray-400 text-center py-8">Cargando ventas...</p>
-      ) : ventasFiltradas.length === 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-          <p className="text-sm text-gray-500">No se encontraron ventas con los filtros aplicados.</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-            <span className="text-xs text-gray-500">{ventasFiltradas.filter(v => v.estado_venta_id !== 3).length} {ventasFiltradas.filter(v => v.estado_venta_id !== 3).length === 1 ? 'venta' : 'ventas'}</span>
-          </div>
-          <div className="divide-y divide-gray-100">
-            {ventasFiltradas.map(v => {
+  // Fila de una venta (la usan el listado plano y el agrupado por día)
+  const renderVenta = (v: Venta) => {
               const abierta = expandida === v.id
               const turnoNombre = (v.cierres_turno as any)?.turnos?.nombre || (v.cierre_turno_id === null ? 'Web' : '—')
               const medios = (v.venta_pagos || []).map(p => p.medios_pago?.nombre).filter(Boolean)
@@ -770,7 +660,214 @@ export default function RegistroVentasPage() {
                   )}
                 </div>
               )
-            })}
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-semibold text-[#3c3c3b]">Registro de ventas</h1>
+      </div>
+
+      {/* Filtros */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-gray-500" />
+            <h2 className="text-sm font-semibold text-gray-700">Filtros</h2>
+          </div>
+          <div className="flex items-center gap-4">
+            {agruparPorDia && (
+              <div className="flex items-center gap-3 text-xs text-gray-500">
+                <button onClick={() => setDiasPlegados(new Set(gruposPorDia.map(g => g.fecha)))} className="hover:text-[#00a19a] underline">Plegar todos</button>
+                <button onClick={() => setDiasPlegados(new Set())} className="hover:text-[#00a19a] underline">Desplegar todos</button>
+              </div>
+            )}
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={agruparPorDia}
+                onChange={e => { setAgruparPorDia(e.target.checked); setDiasPlegados(new Set()) }}
+                className="w-4 h-4 accent-[#00a19a]"
+              />
+              Agrupar por día
+            </label>
+          </div>
+        </div>
+
+        {/* Período */}
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {(['dia', 'mes', 'anio', 'libre'] as const).map(m => (
+            <div key={m} className="flex items-center">
+              {m !== 'libre' && modoPeriodo === m && (
+                <button onClick={retroceder} className="w-7 h-7 flex items-center justify-center rounded-l border border-r-0 border-gray-300 hover:bg-gray-100 text-gray-600 text-sm">‹</button>
+              )}
+              <button
+                onClick={() => {
+                  setModoPeriodo(m)
+                  if (m === 'mes' || m === 'anio') setTurnoFiltro('todos')
+                }}
+                className={`px-3 py-1.5 text-sm font-medium border transition-colors ${
+                  modoPeriodo === m ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                } ${m !== 'libre' && modoPeriodo === m ? '' : 'rounded'}`}
+              >
+                {modoPeriodo === m && m !== 'libre' ? labelFechaRef() : m === 'dia' ? 'Día' : m === 'mes' ? 'Mes' : m === 'anio' ? 'Año' : 'Libre'}
+              </button>
+              {m !== 'libre' && modoPeriodo === m && (
+                <button onClick={avanzar} className="w-7 h-7 flex items-center justify-center rounded-r border border-l-0 border-gray-300 hover:bg-gray-100 text-gray-600 text-sm">›</button>
+              )}
+            </div>
+          ))}
+          <button
+            onClick={() => setModoPeriodo('todos')}
+            className={`px-3 py-1.5 text-sm font-medium border rounded transition-colors ${
+              modoPeriodo === 'todos' ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Todos
+          </button>
+          {modoPeriodo !== 'todos' && (
+            <div className="flex flex-col gap-1 ml-2">
+              <div className="flex items-center gap-2">
+                <input type="date" value={desde}
+                  onChange={e => { setModoPeriodo('libre'); setFechaDesde(e.target.value) }}
+                  min={FECHA_MIN} max={fechaMax()}
+                  onBlur={e => {
+                    if (fechaFueraDeRango(e.target.value)) { setFechaDesde(''); setErrFechaDesde(true) }
+                    else setErrFechaDesde(false)
+                  }}
+                  className={`px-2 py-1.5 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaDesde && !fechaDesde && modoPeriodo === 'libre' ? 'border-red-500' : 'border-gray-300'}`} />
+                <span className="text-gray-400 text-sm">—</span>
+                <input type="date" value={hasta}
+                  onChange={e => { setModoPeriodo('libre'); setFechaHasta(e.target.value) }}
+                  min={FECHA_MIN} max={fechaMax()}
+                  onBlur={e => {
+                    if (fechaFueraDeRango(e.target.value)) { setFechaHasta(''); setErrFechaHasta(true) }
+                    else setErrFechaHasta(false)
+                  }}
+                  className={`px-2 py-1.5 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a] ${errFechaHasta && !fechaHasta && modoPeriodo === 'libre' ? 'border-red-500' : 'border-gray-300'}`} />
+              </div>
+              {errFechaDesde && !fechaDesde && modoPeriodo === 'libre' && (
+                <p className="text-xs text-red-600">Desde: fecha fuera de rango, revisá el año</p>
+              )}
+              {errFechaHasta && !fechaHasta && modoPeriodo === 'libre' && (
+                <p className="text-xs text-red-600">Hasta: fecha fuera de rango, revisá el año</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Filtros secundarios */}
+        <div className="grid grid-cols-4 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Turno</label>
+            <select value={turnoFiltro} onChange={e => setTurnoFiltro(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
+              <option value="todos">Todos</option>
+              <option value="1">Mañana</option>
+              <option value="2">Tarde</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Canal</label>
+            <select value={canalFiltro} onChange={e => setCanalFiltro(e.target.value as 'todos' | 'local' | 'web')}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
+              <option value="todos">Todos</option>
+              <option value="local">Local</option>
+              <option value="web">Web</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Medio de pago</label>
+            <select value={medioPago} onChange={e => setMedioPago(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
+              <option value="todos">Todos</option>
+              <option value="Efectivo">Efectivo</option>
+              <option value="Débito">Débito</option>
+              <option value="Crédito">Crédito</option>
+              <option value="Transferencia">Transferencia</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Estado</label>
+            <select value={estadoFiltro} onChange={e => setEstadoFiltro(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]">
+              <option value="todos">Todos</option>
+              <option value="1">Pendiente fiscal</option>
+              <option value="2">Guardada</option>
+              <option value="3">Anulada</option>
+              <option value="4">Fiscalizada</option>
+              <option value="5">Fiscalizado externamente</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Totales */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
+        <div className="grid grid-cols-3 gap-4">
+          <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+            <p className="text-xs text-green-600 font-medium mb-1">Total ventas</p>
+            <p className="text-2xl font-bold text-green-700">{fmt(totalVentas)}</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <p className="text-xs text-gray-500 font-medium mb-1">Cantidad</p>
+            <p className="text-2xl font-bold text-[#3c3c3b]">{ventasFiltradas.filter(v => v.estado_venta_id !== 3).length}</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <p className="text-xs text-gray-500 font-medium mb-1">Ticket promedio</p>
+            <p className="text-2xl font-bold text-[#3c3c3b]">
+              {ventasFiltradas.filter(v => v.estado_venta_id !== 3).length > 0
+                ? fmt(totalVentas / ventasFiltradas.filter(v => v.estado_venta_id !== 3).length)
+                : '$0,00'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Listado */}
+      {loading ? (
+        <p className="text-sm text-gray-400 text-center py-8">Cargando ventas...</p>
+      ) : ventasFiltradas.length === 0 ? (
+        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+          <p className="text-sm text-gray-500">No se encontraron ventas con los filtros aplicados.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+            <span className="text-xs text-gray-500">{ventasFiltradas.filter(v => v.estado_venta_id !== 3).length} {ventasFiltradas.filter(v => v.estado_venta_id !== 3).length === 1 ? 'venta' : 'ventas'}</span>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {agruparPorDia ? (
+              gruposPorDia.map(g => {
+                const plegado = diasPlegados.has(g.fecha)
+                return (
+                  <div key={g.fecha}>
+                    <div
+                      onClick={() => toggleDia(g.fecha)}
+                      className="flex items-center px-4 py-2.5 bg-[#00a19a]/5 border-y border-[#00a19a]/20 hover:bg-[#00a19a]/10 transition-colors cursor-pointer"
+                    >
+                      <span className="w-6 text-[#00a19a]">
+                        {plegado ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </span>
+                      <span className="font-semibold text-sm text-[#3c3c3b] capitalize">{etiquetaDia(g.fecha)}</span>
+                      <span className="ml-3 flex-1 text-xs text-gray-500">
+                        {g.cantidad} {g.cantidad === 1 ? 'venta' : 'ventas'}
+                        {g.anuladas > 0 && ` · ${g.anuladas} ${g.anuladas === 1 ? 'anulada' : 'anuladas'}`}
+                      </span>
+                      <span className="w-32 text-right font-bold text-sm text-[#00a19a]">{fmt(g.total)}</span>
+                      <span className="w-28" />
+                    </div>
+                    {!plegado && (
+                      <div className="divide-y divide-gray-100">
+                        {g.ventas.map(renderVenta)}
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            ) : (
+              ventasFiltradas.map(renderVenta)
+            )}
           </div>
         </div>
       )}
