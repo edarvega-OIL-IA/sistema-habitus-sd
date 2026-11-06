@@ -56,10 +56,12 @@ export function generateStaticParams() {
   return []
 }
 
-// Solo las columnas que esta página usa (la vista tiene más, p. ej. rubro_id y
-// peso_kg, que acá no se muestran).
-const COLUMNAS_FICHA =
-  'id, nombre, nombre_base, descripcion, precio, precio_original, en_oferta, rubro, marca_id, marca, atributo_nombre, atributo_valor, sabor, stock, imagen_url'
+// Se vuelve a pedir '*' de la vista (como estaba antes del cambio de caché): una
+// lista explícita de columnas rompió la ficha (404 en todos los productos)
+// porque la vista no expone alguna de ellas. Es seguro: la vista ya excluye
+// costo y demás datos internos, y ahora la consulta corre solo al regenerar
+// la ficha, no en cada visita.
+const COLUMNAS_FICHA = '*'
 
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
 
@@ -101,11 +103,16 @@ const buscarProducto = cache(async (slug: string) => {
   if (id === null) return null
 
   const supabase = createPublicClient()
-  const { data: producto } = await supabase
+  const { data: producto, error: errorProducto } = await supabase
     .from('articulos_catalogo_web')
     .select(COLUMNAS_FICHA)
     .eq('id', id)
     .maybeSingle()
+
+  // Un error de consulta NO es "producto inexistente": si se tratara igual, un
+  // fallo pasajero guardaría un 404 en caché. Se lanza para que Next conserve
+  // la versión anterior (o muestre error sin cachearlo).
+  if (errorProducto) throw new Error('Error al leer el producto ' + id + ': ' + errorProducto.message)
 
   if (!producto) return null
 
