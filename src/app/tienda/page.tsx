@@ -8,219 +8,47 @@
 // de Sabores (5 rubros por ahora: Proteínas, Creatinas, Barras, Geles, Bebidas
 // Isotónicas) — ProductoCard muestra un selector de sabor. El resto del
 // catálogo (nombre_base = null) se sigue mostrando suelto, sin agrupar.
+//
+// CACHÉ (06/11/2026): esta página ya NO se calcula en cada visita. Es estática
+// y Vercel la regenera como máximo cada 10 minutos (ISR) o al instante cuando
+// el panel guarda un artículo/precio/foto o se concreta una venta (ver
+// lib/tienda/revalidarTiendaServidor.ts). Por eso:
+//   - no lee searchParams ni cookies (cualquiera de las dos la volvería dinámica);
+//   - el servidor entrega el catálogo en orden alfabético fijo y TODO lo demás
+//     (filtros, búsqueda, orden y el mezclado aleatorio) lo hace el navegador
+//     en components/tienda/CatalogoTienda.tsx.
 
-import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
-import ProductoCard from '@/components/tienda/ProductoCard'
-import CarruselCategorias from '@/components/tienda/CarruselCategorias'
 import CarritoBoton from '@/components/tienda/CarritoBoton'
-import FiltrosTienda from '@/components/tienda/FiltrosTienda'
-import OrdenTienda from '@/components/tienda/OrdenTienda'
+import CatalogoTienda from '@/components/tienda/CatalogoTienda'
 import { Mail, Phone, MapPin } from 'lucide-react'
-import { compararSabores } from '@/lib/ordenSabores'
+import { traerFilasCatalogo } from '@/lib/tienda/catalogo'
+import { agrupar } from '@/lib/tienda/catalogoUtil'
 
-interface ArticuloCatalogo {
-  id: number
-  nombre: string
-  nombre_base: string | null
-  descripcion: string | null
-  precio: number
-  precio_original: number
-  en_oferta: boolean
-  rubro_id: number | null
-  rubro: string | null
-  marca_id: number | null
-  marca: string | null
-  peso_kg: number | null
-  atributo_valor: string | null
-  sabor: string | null
-  stock: number
-  imagen_url: string | null
-}
+export const revalidate = 600
 
-interface GrupoProducto {
-  key: string
-  titulo: string
-  marca: string | null
-  rubro: string | null
-  variantes: ArticuloCatalogo[]
-}
-
-// Mismo criterio de búsqueda que el resto del sistema: tokenizada, sin
-// acentos/mayúsculas (ver Artículos, Actualizar Precios, Actualizar Fotos).
-function normalizar(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-}
-
-// Equivalencias de búsqueda: cada grupo son raíces de palabras que significan
-// lo mismo (español / inglés / ortografías distintas). Se escriben ya
-// normalizadas (sin tildes, minúsculas). Para sumar una equivalencia nueva,
-// agregar un grupo acá: no hay que tocar nada más.
-const EQUIVALENCIAS: string[][] = [
-  ['colag', 'collag'],                 // colágeno, colageno, collagen
-  ['protein', 'whey'],                 // proteína, protein, whey
-  ['creatin'],                         // creatina, creatine (por si se escribe en inglés)
-  ['quemad', 'burner', 'termogen'],    // quemador, fat burner
-  ['aminoacid', 'amino'],              // aminoácidos, amino
-  ['isoton', 'hidrat'],                // isotónica, hidratación
-]
-
-// Un término escrito por el cliente puede coincidir con más de una forma.
-// Si es raíz (o empieza con la raíz) de un grupo, se aceptan todas las del
-// grupo. Mínimo 3 letras para no abrir la búsqueda de más con "co" o "pr".
-function formasDelTermino(t: string): string[] {
-  const formas = new Set<string>([t])
-  if (t.length >= 3) {
-    for (const grupo of EQUIVALENCIAS) {
-      if (grupo.some(raiz => raiz.startsWith(t) || t.startsWith(raiz))) {
-        grupo.forEach(raiz => formas.add(raiz))
-      }
-    }
-  }
-  return [...formas]
-}
-
-// Todas las palabras escritas deben aparecer (en cualquier orden y en
-// cualquiera de sus formas equivalentes).
-function coincideBusqueda(texto: string, busqueda: string): boolean {
-  return busqueda.split(/\s+/).filter(Boolean).every(t =>
-    formasDelTermino(t).some(forma => texto.includes(forma))
-  )
-}
-
-function agrupar(articulos: ArticuloCatalogo[]): GrupoProducto[] {
-  const mapa = new Map<string, GrupoProducto>()
-  for (const a of articulos) {
-    const key = a.nombre_base ? `${a.nombre_base}||${a.marca_id ?? ''}` : `single-${a.id}`
-    const existente = mapa.get(key)
-    if (existente) {
-      existente.variantes.push(a)
-    } else {
-      mapa.set(key, {
-        key,
-        titulo: a.nombre_base || a.nombre,
-        marca: a.marca,
-        rubro: a.rubro,
-        variantes: [a],
-      })
-    }
-  }
-  // Sabor alfabético dentro de cada grupo; "Neutro" siempre al final de los
-  // sabores y los sin sabor después (ver lib/ordenSabores.ts)
-  for (const g of mapa.values()) {
-    g.variantes.sort((a, b) => compararSabores(a.sabor, b.sabor))
-  }
-  return [...mapa.values()]
-}
-
-function precioMinimo(g: GrupoProducto): number {
-  return Math.min(...g.variantes.map(v => v.precio))
-}
-
-// Fisher-Yates: barajado uniforme de verdad (a diferencia de usar
-// Math.random() como comparador de .sort(), que da resultados sesgados
-// según el algoritmo de ordenamiento del motor).
-function barajar<T>(arr: T[]): T[] {
-  const copia = [...arr]
-  for (let i = copia.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[copia[i], copia[j]] = [copia[j], copia[i]]
-  }
-  return copia
-}
-
-// Banners de categoría — se muestran en el carrusel de dos filas contrapuestas
-// (ver CarruselCategorias). Cada uno enlaza a /tienda?rubro=X. Las de
-// "Cafeínas" se dejaron afuera para no generar ambigüedad de nombre con el
-// rubro real "Energía"; las de "Envíos a toda Argentina" quedan pendientes
-// hasta que se implemente la fase de envíos a domicilio.
-const CATEGORIAS_BANNER = [
-  { rubro: 'Proteínas', imagen: '/categorias/proteinas.png' },
-  { rubro: 'Creatinas', imagen: '/categorias/creatinas.png' },
-  { rubro: 'Pre-entrenamiento', imagen: '/categorias/pre-entreno.png' },
-  { rubro: 'Colágenos', imagen: '/categorias/colagenos.png' },
-  { rubro: 'Quemadores', imagen: '/categorias/quemadores.png' },
-  { rubro: 'Bebidas Isotónicas', imagen: '/categorias/isotonicas.png' },
-  { rubro: 'Geles', imagen: '/categorias/geles.png' },
-]
-
-export default async function TiendaPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ rubro?: string; marca?: string; stock?: string; q?: string; orden?: string }>
-}) {
-  const { rubro: rubroParam, marca: marcaParam, stock: stockParam, q: busquedaParam, orden: ordenParam } = await searchParams
-  const rubrosSeleccionados = (rubroParam || '').split(',').filter(Boolean)
-  const marcasSeleccionadas = (marcaParam || '').split(',').filter(Boolean)
-  const soloConStock = stockParam === 'con'
-  const busqueda = normalizar((busquedaParam || '').trim())
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
-    .from('articulos_catalogo_web')
-    .select('*')
-    .order('nombre')
-
-  const articulos: ArticuloCatalogo[] = data || []
-  const grupos = agrupar(articulos)
+export default async function TiendaPage() {
+  const filas = await traerFilasCatalogo()
+  const grupos = agrupar(filas)
 
   // .sort() sin comparador ordena por código UTF-16: las mayúsculas acentuadas
   // (ej. "Ó" en "Óxido Nítrico") quedan después de la Z en vez de junto a la O.
   // localeCompare con locale 'es' ordena como espera un hablante de español.
-  const rubros = [...new Set(articulos.map(a => a.rubro).filter((r): r is string => !!r))]
+  const rubros = [...new Set(filas.map(a => a.rubro).filter((r): r is string => !!r))]
     .sort((a, b) => a.localeCompare(b, 'es'))
   // Marca es un filtro que cruza todos los rubros (igual que en Empretienda:
   // /productos?marca=X mezcla categorías) — por eso la lista sale de TODO el
   // catálogo, no solo del rubro elegido, para poder combinar ambos filtros.
-  const marcas = [...new Set(articulos.map(a => a.marca).filter((m): m is string => !!m))]
+  const marcas = [...new Set(filas.map(a => a.marca).filter((m): m is string => !!m))]
     .sort((a, b) => a.localeCompare(b, 'es'))
-
-  let gruposFiltrados = grupos.filter(g => {
-    if (rubrosSeleccionados.length > 0 && (!g.rubro || !rubrosSeleccionados.includes(g.rubro))) return false
-    if (marcasSeleccionadas.length > 0 && (!g.marca || !marcasSeleccionadas.includes(g.marca))) return false
-    if (soloConStock && !g.variantes.some(v => v.stock > 0)) return false
-    if (busqueda) {
-      const texto = normalizar(`${g.titulo} ${g.marca || ''} ${g.rubro || ''}`)
-      if (!coincideBusqueda(texto, busqueda)) return false
-    }
-    return true
-  })
-
-  // Sin orden explícito ("Relevancia", o el dropdown recién cargado): orden
-  // aleatorio, distinto en cada visita/recarga, para dar sensación de
-  // catálogo vivo en vez de mostrar siempre lo mismo primero. Los SIN STOCK
-  // siguen yendo al final en los dos casos. Si el usuario elige un criterio
-  // puntual del dropdown (nombre o precio), ese se respeta tal cual.
-  const ordenExplicito = ordenParam && ordenParam !== 'relevancia'
-
-  if (!ordenExplicito) {
-    const conStock = gruposFiltrados.filter(g => g.variantes.some(v => v.stock > 0))
-    const sinStock = gruposFiltrados.filter(g => !g.variantes.some(v => v.stock > 0))
-    gruposFiltrados = [...barajar(conStock), ...barajar(sinStock)]
-  } else {
-    gruposFiltrados = [...gruposFiltrados].sort((a, b) => {
-      const stockA = a.variantes.some(v => v.stock > 0) ? 1 : 0
-      const stockB = b.variantes.some(v => v.stock > 0) ? 1 : 0
-
-      // Primer nivel: productos con stock primero
-      if (stockA !== stockB) return stockB - stockA
-
-      // Segundo nivel: criterio del dropdown
-      if (ordenParam === 'precio_asc') {
-        return precioMinimo(a) - precioMinimo(b)
-      } else if (ordenParam === 'precio_desc') {
-        return precioMinimo(b) - precioMinimo(a)
-      } else if (ordenParam === 'nombre_desc') {
-        return b.titulo.localeCompare(a.titulo)
-      } else {
-        // 'nombre_asc'
-        return a.titulo.localeCompare(b.titulo)
-      }
-    })
-  }
 
   return (
     <div className="min-h-screen bg-surface-subtle">
+      {/* Sin JavaScript la grilla no se oculta nunca (ver CatalogoTienda) */}
+      <noscript>
+        <style>{'.catalogo-oculto{opacity:1!important}'}</style>
+      </noscript>
+
       {/* Header */}
       <header className="bg-charcoal text-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 relative flex items-center justify-center">
@@ -239,58 +67,8 @@ export default async function TiendaPage({
         Saltar al catálogo
       </a>
 
-      {/* Carrusel de categorías — solo en la vista "landing", sin filtro ni búsqueda activa */}
-      {rubrosSeleccionados.length === 0 && marcasSeleccionadas.length === 0 && !busqueda && (
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-6">
-          <CarruselCategorias categorias={CATEGORIAS_BANNER} />
-        </div>
-      )}
-
-      {/* Sidebar de filtros + grid de productos */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col md:flex-row gap-6">
-        <FiltrosTienda rubros={rubros} marcas={marcas} />
-
-        <main id="productos" className="flex-1 min-w-0">
-          <h2 className="sr-only">Resultados</h2>
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-sm text-medium-gray">
-              {gruposFiltrados.length} {gruposFiltrados.length === 1 ? 'producto' : 'productos'}
-            </p>
-            <OrdenTienda />
-          </div>
-
-          {error ? (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center text-sm text-red-700">
-              No se pudo cargar el catálogo. Probá de nuevo en un momento.
-            </div>
-          ) : gruposFiltrados.length === 0 ? (
-            <div className="bg-white border border-border-gray rounded-lg p-12 text-center text-sm text-medium-gray">
-              No hay productos con los filtros aplicados.
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {gruposFiltrados.map(g => (
-                <ProductoCard
-                  key={g.key}
-                  titulo={g.titulo}
-                  marca={g.marca}
-                  rubro={g.rubro}
-                  variantes={g.variantes.map(v => ({
-                    id: v.id,
-                    sabor: v.sabor,
-                    atributo_valor: v.atributo_valor,
-                    precio: v.precio,
-                    precio_original: v.precio_original,
-                    en_oferta: v.en_oferta,
-                    stock: v.stock,
-                    imagen_url: v.imagen_url,
-                  }))}
-                />
-              ))}
-            </div>
-          )}
-        </main>
-      </div>
+      {/* Carrusel + filtros + grilla (filtrado y orden aleatorio en el navegador) */}
+      <CatalogoTienda grupos={grupos} rubros={rubros} marcas={marcas} />
 
       <footer className="bg-charcoal text-white mt-6">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 text-sm">

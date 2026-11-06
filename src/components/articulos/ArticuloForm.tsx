@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation'
 import { Save, X } from 'lucide-react'
 import { RECUPERA_IVA_COMPRAS } from '@/lib/config'
 import ImagenesArticulo from './ImagenesArticulo'
+import { revalidarTienda } from '@/lib/tienda/revalidarTienda'
 
 const articuloSchema = z.object({
   nombre: z.string().min(1, 'El nombre es requerido'),
@@ -482,6 +483,7 @@ export default function ArticuloForm({ articuloId }: ArticuloFormProps) {
         // "Actualizado" en la pantalla de precios no queda vacío desde el día 1.
         await registrarHistoricoPrecio(nuevoArticulo.id, payload.precio_local, data.tasa_iva_id ?? null)
       }
+      revalidarTienda() // la Vitrina está en caché: avisarle que este artículo cambió
       router.push('/articulos')
       router.refresh()
     } catch (error: any) {

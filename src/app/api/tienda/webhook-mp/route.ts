@@ -6,6 +6,7 @@ import { matchOCrearClienteWeb } from '@/lib/tienda/clientes'
 import { ARTICULO_ENVIO_ID, CORREO_ARGENTINO_CAJA_ESTANDAR, REMITENTE_MICORREO } from '@/lib/config'
 import { importarEnvio, PROVINCIAS_MICORREO } from '@/lib/correoargentino/micorreo'
 import { calcularPesoCarritoGramos } from '@/lib/correoargentino/pesoCarrito'
+import { revalidarTiendaServidor } from '@/lib/tienda/revalidarTiendaServidor'
 
 const PROVINCIA_CODIGO_MAP = new Map(PROVINCIAS_MICORREO.map(p => [p.nombre, p.codigo]))
 
@@ -440,6 +441,9 @@ async function procesarNotificacion(request: NextRequest) {
         // pendiente para este caso puntual.
       }
     }
+
+    // La compra web bajó stock: la Vitrina (que está en caché) debe enterarse.
+    revalidarTiendaServidor()
 
     return NextResponse.json({ ok: true, ventaId: venta.id })
   } catch (error: any) {

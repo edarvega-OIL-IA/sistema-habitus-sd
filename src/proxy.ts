@@ -65,8 +65,15 @@ export async function proxy(request: NextRequest) {
   return supabaseResponse
 }
 
+// El matcher deja FUERA del proxy a las rutas 100 % públicas de la Vitrina
+// (/tienda y sus páginas, /api/tienda/*, /api/avisos-stock) y a robots.txt /
+// sitemap.xml. En Vercel el proxy corre antes que la caché: si las incluyera,
+// cada visita pública —aun con la página cacheada— ejecutaría una función y
+// consumiría CPU activa por nada, porque estas rutas nunca necesitan sesión.
+// (Ojo: '/api/tienda-revalidar' NO se excluye a propósito: exige login.)
+// Todo lo demás (panel, /api/ventas, etc.) sigue pasando por el chequeo de login.
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|robots\\.txt|sitemap\\.xml|tienda(?:/|$)|api/tienda(?:/|$)|api/avisos-stock(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

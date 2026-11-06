@@ -5,7 +5,17 @@
 // nunca de la tabla articulos directo (esa vista ya excluye costo_sin_iva
 // y demás columnas internas).
 
-import { createClient } from '@/lib/supabase/server'
+//
+// CACHÉ (06/11/2026): la ficha ya NO se calcula en cada visita. Se genera la
+// primera vez que alguien (o un bot) la pide, queda en caché de Vercel y se
+// regenera como máximo cada hora (ISR) o al instante cuando el panel guarda un
+// artículo/precio/foto o se concreta una venta (lib/tienda/revalidarTiendaServidor.ts).
+// Por eso usa el cliente público sin cookies (createPublicClient): leer
+// cookies() la volvería dinámica de nuevo. El stock que se ve acá puede
+// atrasar unos minutos, pero el checkout vuelve a validarlo en tiempo real.
+
+import { cache } from 'react'
+import { createPublicClient } from '@/lib/supabase/publico'
 import { idDesdeSlugProducto, armarSlugProducto } from '@/lib/slug'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
@@ -25,17 +35,31 @@ interface ArticuloCatalogo {
   precio: number
   precio_original: number
   en_oferta: boolean
-  rubro_id: number | null
   rubro: string | null
   marca_id: number | null
   marca: string | null
-  peso_kg: number | null
   atributo_nombre: string | null
   atributo_valor: string | null
   sabor: string | null
   stock: number
   imagen_url: string | null
 }
+
+export const revalidate = 3600
+
+// Sin generateStaticParams Next trata esta ruta como dinámica (ƒ) y la
+// recalcula en cada visita aunque tenga revalidate. Devolver una lista vacía
+// no genera nada al compilar (no consulta la base), pero habilita que cada
+// ficha se genere la primera vez que alguien la pide y quede en caché.
+// dynamicParams queda en true (valor por defecto): cualquier id válido funciona.
+export function generateStaticParams() {
+  return []
+}
+
+// Solo las columnas que esta página usa (la vista tiene más, p. ej. rubro_id y
+// peso_kg, que acá no se muestran).
+const COLUMNAS_FICHA =
+  'id, nombre, nombre_base, descripcion, precio, precio_original, en_oferta, rubro, marca_id, marca, atributo_nombre, atributo_valor, sabor, stock, imagen_url'
 
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
 
@@ -69,14 +93,17 @@ function renderDescripcion(texto: string) {
   )
 }
 
-async function buscarProducto(slug: string) {
+// cache() de React: generateMetadata y la página llaman a esta función con el
+// mismo slug en el mismo render; así las consultas se hacen una sola vez en
+// vez de dos (antes eran 6 consultas por visita, ahora 3).
+const buscarProducto = cache(async (slug: string) => {
   const id = idDesdeSlugProducto(slug)
   if (id === null) return null
 
-  const supabase = await createClient()
+  const supabase = createPublicClient()
   const { data: producto } = await supabase
     .from('articulos_catalogo_web')
-    .select('*')
+    .select(COLUMNAS_FICHA)
     .eq('id', id)
     .maybeSingle()
 
@@ -95,7 +122,7 @@ async function buscarProducto(slug: string) {
   if (producto.nombre_base) {
     let query = supabase
       .from('articulos_catalogo_web')
-      .select('*')
+      .select(COLUMNAS_FICHA)
       .eq('nombre_base', producto.nombre_base)
 
     query = producto.marca_id === null ? query.is('marca_id', null) : query.eq('marca_id', producto.marca_id)
@@ -113,8 +140,8 @@ async function buscarProducto(slug: string) {
     ? [{ url: producto.imagen_url, alt: '' }]
     : []
 
-  return { producto: producto as ArticuloCatalogo, variantes: variantes as ArticuloCatalogo[], fotos }
-}
+  return { producto: producto as unknown as ArticuloCatalogo, variantes: variantes as unknown as ArticuloCatalogo[], fotos }
+})
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params

@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { Search, ArrowLeft, ImageOff, Camera } from 'lucide-react'
 import ImagenesArticulo from '@/components/articulos/ImagenesArticulo'
+import { revalidarTienda } from '@/lib/tienda/revalidarTienda'
 
 interface ArticuloFoto {
   articulo_id: number
@@ -142,6 +143,8 @@ export default function ActualizarFotosPage() {
       setItems(prev => prev.map(it => it.articulo_id === articuloId ? { ...it, [campo]: valorActual } : it))
       const etiqueta = campo === 'disponible_web' ? 'Visible en tienda' : 'Disponible en local'
       setError(`No se pudo actualizar "${etiqueta}": ` + updError.message)
+    } else {
+      revalidarTienda() // "Visible en tienda" cambia lo que muestra la Vitrina (en caché)
     }
   }
 

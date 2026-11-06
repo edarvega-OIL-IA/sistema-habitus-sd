@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Star, Trash2, Upload } from 'lucide-react'
+import { revalidarTienda } from '@/lib/tienda/revalidarTienda'
 
 interface Imagen {
   id: number
@@ -67,6 +68,7 @@ export default function ImagenesArticulo({ articuloId }: { articuloId: number })
 
     setSubiendo(false)
     if (inputRef.current) inputRef.current.value = ''
+    revalidarTienda() // las fotos se ven en la Vitrina (en caché)
     cargarImagenes()
   }
 
@@ -75,6 +77,7 @@ export default function ImagenesArticulo({ articuloId }: { articuloId: number })
     // Solo puede haber una principal por artículo
     await supabase.from('articulo_imagenes').update({ es_principal: false }).eq('articulo_id', articuloId)
     await supabase.from('articulo_imagenes').update({ es_principal: true }).eq('id', id)
+    revalidarTienda()
     cargarImagenes()
   }
 
@@ -89,6 +92,7 @@ export default function ImagenesArticulo({ articuloId }: { articuloId: number })
       await supabase.storage.from(BUCKET).remove([path])
     }
     await supabase.from('articulo_imagenes').delete().eq('id', imagen.id)
+    revalidarTienda()
     cargarImagenes()
   }
 

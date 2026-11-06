@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { fiscalizarVenta } from '@/lib/tusfacturas/fiscalizar'
+import { revalidarTiendaServidor } from '@/lib/tienda/revalidarTiendaServidor'
 
 // Cliente por defecto del POS de mostrador cuando no se selecciona uno
 // puntual (venta común) — id=1, Consumidor Final.
@@ -246,6 +247,9 @@ export async function POST(request: NextRequest) {
         ? resultado.mensaje
         : 'La venta se guardó pero la fiscalización no se completó — revisar en Fiscalización'
     }
+
+    // La venta bajó stock: la Vitrina (que está en caché) debe enterarse.
+    revalidarTiendaServidor()
 
     return NextResponse.json({
       ok: true,

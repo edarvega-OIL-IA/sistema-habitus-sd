@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { Search, ArrowLeft } from 'lucide-react'
 import { RECUPERA_IVA_COMPRAS } from '@/lib/config'
+import { revalidarTienda } from '@/lib/tienda/revalidarTienda'
 
 interface ArticuloPrecio {
   articulo_id: number
@@ -467,6 +468,7 @@ function ActualizarPreciosContent() {
         .update({ precio_local: nuevoPrecio, precio_web: nuevoPrecioWeb })
         .eq('id', articuloId)
       if (updError) throw updError
+      revalidarTienda() // el precio web cambió: la Vitrina está en caché
 
       const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
       // Insertar en histórico solo el precio_local (para no duplicar registros)

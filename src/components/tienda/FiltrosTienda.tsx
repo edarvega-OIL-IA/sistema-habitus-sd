@@ -1,35 +1,56 @@
 // Ruta destino: C:\Users\Usuario\Documents\sistema-habitus-sd\src\components\tienda\FiltrosTienda.tsx
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Search } from 'lucide-react'
 
-export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; marcas: string[] }) {
-  const router = useRouter()
-  const searchParams = useSearchParams()
+// Componente controlado: ya no lee ni escribe la URL por su cuenta (antes
+// usaba useRouter/useSearchParams y cada cambio le pedía una página nueva al
+// servidor). Ahora el estado vive en CatalogoTienda, que filtra en el
+// navegador y actualiza la URL sin ir al servidor.
+interface Props {
+  rubros: string[]
+  marcas: string[]
+  rubro: string   // valores separados por coma, igual que en la URL
+  marca: string
+  stock: string   // 'con' o ''
+  q: string
+  onCambio: (clave: 'rubro' | 'marca' | 'stock' | 'q', valor: string | null) => void
+  onLimpiar: () => void
+}
+
+export default function FiltrosTienda({ rubros, marcas, rubro, marca, stock, q, onCambio, onLimpiar }: Props) {
   // Categorías y Marca arrancan cerradas — con ~20 rubros desplegados de
   // entrada, el sidebar tapaba toda la pantalla antes de ver un producto.
   const [categoriasAbierto, setCategoriasAbierto] = useState(false)
   const [marcaAbierto, setMarcaAbierto] = useState(false)
-  const [busqueda, setBusqueda] = useState(searchParams.get('q') || '')
+  const [busqueda, setBusqueda] = useState(q)
+  // Último valor que este componente mandó hacia arriba: sirve para distinguir
+  // un cambio propio (lo que el usuario tipeó) de uno externo (botón Atrás del
+  // navegador, "Limpiar filtros") y no pisar lo que se está escribiendo.
+  const ultimoEmitido = useRef(q)
 
-  const rubrosSeleccionados = (searchParams.get('rubro') || '').split(',').filter(Boolean)
-  const marcasSeleccionadas = (searchParams.get('marca') || '').split(',').filter(Boolean)
-  const soloStock = searchParams.get('stock') === 'con'
-  const hayFiltrosActivos = rubrosSeleccionados.length > 0 || marcasSeleccionadas.length > 0 || soloStock || !!searchParams.get('q')
+  const rubrosSeleccionados = rubro.split(',').filter(Boolean)
+  const marcasSeleccionadas = marca.split(',').filter(Boolean)
+  const soloStock = stock === 'con'
+  const hayFiltrosActivos = rubrosSeleccionados.length > 0 || marcasSeleccionadas.length > 0 || soloStock || !!q
 
-  function actualizarParam(clave: string, valor: string | null) {
-    const params = new URLSearchParams(searchParams.toString())
-    if (valor) params.set(clave, valor)
-    else params.delete(clave)
-    router.push(`/tienda?${params.toString()}`)
-  }
+  // Si la búsqueda cambió desde afuera (Atrás, Limpiar, o la URL leída al
+  // cargar la página), se refleja en el cuadro de texto.
+  useEffect(() => {
+    if (q !== ultimoEmitido.current) {
+      ultimoEmitido.current = q
+      setBusqueda(q)
+    }
+  }, [q])
 
-  // Buscador con debounce — no navega en cada tecla, espera una pausa breve.
+  // Buscador con debounce — no filtra en cada tecla, espera una pausa breve.
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (busqueda !== (searchParams.get('q') || '')) actualizarParam('q', busqueda || null)
+      if (busqueda !== ultimoEmitido.current) {
+        ultimoEmitido.current = busqueda
+        onCambio('q', busqueda || null)
+      }
     }, 400)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -39,12 +60,13 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
     const nuevos = seleccionados.includes(valor)
       ? seleccionados.filter(x => x !== valor)
       : [...seleccionados, valor]
-    actualizarParam(clave, nuevos.length > 0 ? nuevos.join(',') : null)
+    onCambio(clave, nuevos.length > 0 ? nuevos.join(',') : null)
   }
 
   function limpiarTodo() {
+    ultimoEmitido.current = ''
     setBusqueda('')
-    router.push('/tienda')
+    onLimpiar()
   }
 
   // Encabezado de sección: mismo estilo para Categorías y Marca, con más
@@ -93,7 +115,7 @@ export default function FiltrosTienda({ rubros, marcas }: { rubros: string[]; ma
           <input
             type="checkbox"
             checked={soloStock}
-            onChange={e => actualizarParam('stock', e.target.checked ? 'con' : null)}
+            onChange={e => onCambio('stock', e.target.checked ? 'con' : null)}
             className="rounded border-gray-300 text-offer-teal focus:ring-offer-teal"
           />
           Solo con stock
