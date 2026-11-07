@@ -9,6 +9,7 @@ interface Articulo {
   nombre: string
   codigo_interno: string | null
   codigo_barra: string | null
+  costo_sin_iva: number | null
 }
 
 interface ItemMovimiento {
@@ -16,6 +17,7 @@ interface ItemMovimiento {
   nombre: string
   cantidad: number
   stock_actual: number
+  costo: number
 }
 
 interface SubtipoMovimiento {
@@ -29,6 +31,9 @@ interface Deportista {
   nombre: string
   apellido: string
 }
+
+// Formato de moneda argentina ($ 1.234,56)
+const fmtMoneda = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' })
 
 export default function StockEditarPage() {
   const router = useRouter()
@@ -55,6 +60,8 @@ export default function StockEditarPage() {
 
   const subtiposFiltrados = subtipos.filter(s => s.tipo_movimiento_stock_id === tipoId)
   const subtipoNombre = subtipos.find(s => s.id === subtipoSeleccionado)?.nombre ?? ''
+  const costoTotal = items.reduce((acc, i) => acc + i.cantidad * i.costo, 0)
+  const itemsSinCosto = items.filter(i => i.costo <= 0 && i.cantidad > 0).length
   const esSponsoreо = subtipoNombre === 'Sponsoreo'
 
   useEffect(() => { cargarDatos() }, [])
@@ -70,7 +77,7 @@ export default function StockEditarPage() {
           tipo_movimiento_stock:tipos_movimiento_stock(id, nombre),
           subtipo_movimiento_stock:subtipos_movimiento_stock(id),
           deportista:deportistas(id),
-          movimiento_stock_items(cantidad, articulo:articulos(id, nombre))
+          movimiento_stock_items(cantidad, costo_unitario, articulo:articulos(id, nombre, costo_sin_iva))
         `)
         .eq('id', movimientoId)
         .single(),
@@ -106,6 +113,8 @@ export default function StockEditarPage() {
           nombre: item.articulo.nombre,
           cantidad: item.cantidad,
           stock_actual: stockData?.stock_actual ?? 0,
+          // Costo guardado en el movimiento; si no tenía, el costo actual del artículo.
+          costo: Number(item.costo_unitario ?? item.articulo.costo_sin_iva) || 0,
         }
       })
     )
@@ -119,7 +128,7 @@ export default function StockEditarPage() {
     const supabase = createClient()
     const { data } = await supabase
       .from('articulos')
-      .select('id, nombre, codigo_interno, codigo_barra')
+      .select('id, nombre, codigo_interno, codigo_barra, costo_sin_iva')
       .eq('activo', true)
       .or(`nombre.ilike.%${valor}%,codigo_interno.ilike.%${valor}%,codigo_barra.ilike.%${valor}%`)
       .limit(8)
@@ -151,6 +160,7 @@ export default function StockEditarPage() {
       nombre: articulo.nombre,
       cantidad: 1,
       stock_actual: data?.stock_actual ?? 0,
+      costo: Number(articulo.costo_sin_iva) || 0,
     }])
     setTimeout(() => inputRef.current?.focus(), 50)
   }
@@ -194,7 +204,11 @@ export default function StockEditarPage() {
         p_subtipo_id: subtipoSeleccionado || null,
         p_deportista_id: esSponsoreо ? deportistaSeleccionado : null,
         p_observaciones: observaciones || null,
-        p_items: items.map(i => ({ articulo_id: i.articulo_id, cantidad: i.cantidad })),
+        p_items: items.map(i => ({
+          articulo_id: i.articulo_id,
+          cantidad: i.cantidad,
+          costo_unitario: i.costo > 0 ? i.costo : null,
+        })),
       })
 
       if (fnError) throw new Error(fnError.message)
@@ -215,7 +229,7 @@ export default function StockEditarPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-[#3c3c3b]">Editar movimiento de stock</h1>
         <button type="button" onClick={() => router.push('/stock')}
@@ -314,6 +328,8 @@ export default function StockEditarPage() {
                   <th className="px-4 py-2 text-left">Artículo</th>
                   <th className="px-4 py-2 text-center w-32">Cantidad</th>
                   <th className="px-4 py-2 text-center w-24">Stock actual</th>
+                  <th className="px-3 py-2 text-right w-28">Costo unit.</th>
+                  <th className="px-3 py-2 text-right w-28">Costo total</th>
                   <th className="w-10"></th>
                 </tr>
               </thead>
@@ -329,6 +345,12 @@ export default function StockEditarPage() {
                       />
                     </td>
                     <td className="px-4 py-3 text-center text-gray-500">{item.stock_actual}</td>
+                    <td className="px-3 py-3 text-right text-gray-500 whitespace-nowrap">
+                      {item.costo > 0 ? fmtMoneda.format(item.costo) : <span className="text-amber-600 text-xs">Sin costo</span>}
+                    </td>
+                    <td className="px-3 py-3 text-right font-medium text-[#3c3c3b] whitespace-nowrap">
+                      {item.costo > 0 ? fmtMoneda.format(item.cantidad * item.costo) : '—'}
+                    </td>
                     <td className="px-2 py-3 text-center">
                       <button type="button" onClick={() => eliminarItem(item.articulo_id)}
                         className="text-gray-300 hover:text-red-500">✕</button>
@@ -346,6 +368,22 @@ export default function StockEditarPage() {
           <textarea value={observaciones} onChange={e => setObservaciones(e.target.value)}
             rows={2} className={inputClass} placeholder="Observaciones opcionales" />
         </div>
+
+        {items.length > 0 && (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600">
+                {`Costo total${subtipoNombre ? ` (${subtipoNombre})` : ''}`}
+              </span>
+              <span className="text-lg font-semibold text-[#3c3c3b]">{fmtMoneda.format(costoTotal)}</span>
+            </div>
+            {itemsSinCosto > 0 && (
+              <p className="text-xs text-amber-600 mt-1">
+                {itemsSinCosto} artículo{itemsSinCosto > 1 ? 's' : ''} sin costo cargado: no suma{itemsSinCosto > 1 ? 'n' : ''} en el total.
+              </p>
+            )}
+          </div>
+        )}
 
         {error && <p className="text-red-500 text-sm">{error}</p>}
 

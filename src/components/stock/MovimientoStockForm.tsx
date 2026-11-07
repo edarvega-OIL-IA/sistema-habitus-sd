@@ -9,6 +9,7 @@ interface Articulo {
   nombre: string
   codigo_interno: string | null
   codigo_barra: string | null
+  costo_sin_iva: number | null
 }
 
 interface ItemMovimiento {
@@ -16,6 +17,7 @@ interface ItemMovimiento {
   nombre: string
   cantidad: number
   stock_actual: number
+  costo: number
 }
 
 interface TipoMovimiento {
@@ -40,6 +42,9 @@ interface Deportista {
 function normalizar(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 }
+
+// Formato de moneda argentina ($ 1.234,56)
+const fmtMoneda = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' })
 
 interface ArticuloCatalogo extends Articulo {
   haystack: string
@@ -75,6 +80,11 @@ export default function MovimientoStockForm() {
   const tipoNombre = tiposMovimiento.find(t => t.id === tipoSeleccionado)?.nombre ?? ''
   const subtipoNombre = subtipos.find(s => s.id === subtipoSeleccionado)?.nombre ?? ''
   const esAjuste = tipoNombre === 'Ajuste'
+  // En Ajuste la cantidad que se carga es el stock real, así que lo que mueve
+  // costo es la diferencia contra el sistema (negativa = faltante).
+  const cantidadEfectiva = (i: ItemMovimiento) => esAjuste ? i.cantidad - i.stock_actual : i.cantidad
+  const costoTotal = items.reduce((acc, i) => acc + cantidadEfectiva(i) * i.costo, 0)
+  const itemsSinCosto = items.filter(i => i.costo <= 0 && cantidadEfectiva(i) !== 0).length
   const esSponsoreо = subtipoNombre === 'Sponsoreo'
 
   useEffect(() => { cargarDatos() }, [])
@@ -107,7 +117,7 @@ export default function MovimientoStockForm() {
     for (let desde = 0; ; desde += TAM) {
       const { data, error: catError } = await supabase
         .from('articulos')
-        .select('id, nombre, codigo_interno, codigo_barra')
+        .select('id, nombre, codigo_interno, codigo_barra, costo_sin_iva')
         .eq('activo', true)
         .order('id')
         .range(desde, desde + TAM - 1)
@@ -175,6 +185,7 @@ export default function MovimientoStockForm() {
       nombre: articulo.nombre,
       cantidad: 1,
       stock_actual: data?.stock_actual ?? 0,
+      costo: Number(articulo.costo_sin_iva) || 0,
     }])
     setTimeout(() => inputRef.current?.focus(), 50)
   }
@@ -290,6 +301,9 @@ export default function MovimientoStockForm() {
             movimiento_stock_id: movimiento.id,
             articulo_id: item.articulo_id,
             cantidad: item.cantidadFinal,
+            // Costo unitario del artículo al momento de confirmar (queda fijo,
+            // aunque el costo cambie después). Sin costo cargado → null.
+            costo_unitario: item.costo > 0 ? item.costo : null,
           })))
 
         if (itemsError) throw new Error('Error al guardar items: ' + itemsError.message)
@@ -312,7 +326,7 @@ export default function MovimientoStockForm() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-[#3c3c3b]">Movimiento de stock</h1>
         <button type="button" onClick={() => router.push('/stock')}
@@ -417,6 +431,8 @@ export default function MovimientoStockForm() {
                   <th className="px-4 py-2 text-left">Artículo</th>
                   <th className="px-4 py-2 text-center w-32">{esAjuste ? 'Stock real' : 'Cantidad'}</th>
                   {!esAjuste && <th className="px-4 py-2 text-center w-24">Stock actual</th>}
+                  <th className="px-3 py-2 text-right w-28">Costo unit.</th>
+                  <th className="px-3 py-2 text-right w-28">{esAjuste ? 'Impacto' : 'Costo total'}</th>
                   <th className="w-10"></th>
                 </tr>
               </thead>
@@ -437,6 +453,12 @@ export default function MovimientoStockForm() {
                       )}
                     </td>
                     {!esAjuste && <td className="px-4 py-3 text-center text-gray-500">{item.stock_actual}</td>}
+                    <td className="px-3 py-3 text-right text-gray-500 whitespace-nowrap">
+                      {item.costo > 0 ? fmtMoneda.format(item.costo) : <span className="text-amber-600 text-xs">Sin costo</span>}
+                    </td>
+                    <td className="px-3 py-3 text-right font-medium text-[#3c3c3b] whitespace-nowrap">
+                      {item.costo > 0 ? fmtMoneda.format(cantidadEfectiva(item) * item.costo) : '—'}
+                    </td>
                     <td className="px-2 py-3 text-center">
                       <button type="button" onClick={() => eliminarItem(item.articulo_id)}
                         className="text-gray-300 hover:text-red-500">✕</button>
@@ -459,6 +481,24 @@ export default function MovimientoStockForm() {
             }
           />
         </div>
+
+        {items.length > 0 && (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600">
+                {esAjuste ? 'Impacto en costo del ajuste' : `Costo total${subtipoNombre ? ` (${subtipoNombre})` : ''}`}
+              </span>
+              <span className={`text-lg font-semibold ${esAjuste && costoTotal < 0 ? 'text-red-500' : 'text-[#3c3c3b]'}`}>
+                {fmtMoneda.format(costoTotal)}
+              </span>
+            </div>
+            {itemsSinCosto > 0 && (
+              <p className="text-xs text-amber-600 mt-1">
+                {itemsSinCosto} artículo{itemsSinCosto > 1 ? 's' : ''} sin costo cargado: no suma{itemsSinCosto > 1 ? 'n' : ''} en el total.
+              </p>
+            )}
+          </div>
+        )}
 
         {error && <p className="text-red-500 text-sm">{error}</p>}
 

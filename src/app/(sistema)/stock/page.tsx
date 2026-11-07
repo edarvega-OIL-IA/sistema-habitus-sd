@@ -12,7 +12,26 @@ interface MovimientoStock {
   subtipo_movimiento_stock: { nombre: string } | null
   deportista: { nombre: string; apellido: string } | null
   observaciones: string | null
-  movimiento_stock_items: { cantidad: number; articulo: { nombre: string } }[]
+  movimiento_stock_items: { cantidad: number; costo_unitario: number | null; articulo: { nombre: string } }[]
+}
+
+// Formato de moneda argentina ($ 1.234,56)
+const fmtMoneda = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' })
+
+// Costo de un movimiento = suma de cantidad × costo_unitario guardado en cada
+// ítem. Los ítems sin costo guardado (artículo sin costo, o movimiento
+// automático de venta/compra) no suman y se cuentan aparte.
+function costoMovimiento(m: MovimientoStock) {
+  const items = m.movimiento_stock_items || []
+  let total = 0
+  let conCosto = 0
+  items.forEach(i => {
+    if (i.costo_unitario != null) {
+      total += Number(i.cantidad) * Number(i.costo_unitario)
+      conCosto++
+    }
+  })
+  return { total, conCosto, sinCosto: items.length - conCosto }
 }
 
 export default function StockPage() {
@@ -21,28 +40,34 @@ export default function StockPage() {
   const [cargando, setCargando] = useState(true)
   const [filtroTipo, setFiltroTipo] = useState('')
   const [filtroTexto, setFiltroTexto] = useState('')
+  const [filtroMotivo, setFiltroMotivo] = useState('')
+  const [fechaDesde, setFechaDesde] = useState('')
+  const [fechaHasta, setFechaHasta] = useState('')
   const [excluirAutomaticos, setExcluirAutomaticos] = useState(true)
   const [eliminando, setEliminando] = useState<number | null>(null)
   const [expandidos, setExpandidos] = useState<Set<number>>(new Set())
 
-  useEffect(() => { cargarMovimientos() }, [])
+  useEffect(() => { cargarMovimientos() }, [excluirAutomaticos])
 
   async function cargarMovimientos() {
     const supabase = createClient()
-    const { data } = await supabase
+    let consulta = supabase
       .from('movimientos_stock')
       .select(`
         id, fecha_utc, observaciones, origen_tipo,
         tipo_movimiento_stock:tipos_movimiento_stock(nombre),
         subtipo_movimiento_stock:subtipos_movimiento_stock(nombre),
         deportista:deportistas(nombre, apellido),
-        movimiento_stock_items(cantidad, articulo:articulos(nombre))
+        movimiento_stock_items(cantidad, costo_unitario, articulo:articulos(nombre))
       `)
-      // Trae TODOS los movimientos (manuales + venta + compra) para permitir
-      // seguimiento por artículo. El filtro de "solo manuales" ahora se
-      // aplica en cliente vía el checkbox "Excluir venta/compra".
+    // Con "Excluir venta/compra" tildado se piden solo los movimientos manuales
+    // (origen_tipo nulo), así los totales de costo cubren todo el historial y no
+    // solo los últimos movimientos de venta/compra. Destildado trae TODO
+    // (manuales + venta + compra) para seguimiento por artículo.
+    if (excluirAutomaticos) consulta = consulta.is('origen_tipo', null)
+    const { data } = await consulta
       .order('fecha_utc', { ascending: false })
-      .limit(300)
+      .limit(1000)
 
     setMovimientos((data as any) || [])
     setCargando(false)
@@ -79,8 +104,25 @@ export default function StockPage() {
       m.movimiento_stock_items?.some(i => i.articulo?.nombre.toLowerCase().includes(filtroTexto.toLowerCase())) ||
       m.deportista?.apellido.toLowerCase().includes(filtroTexto.toLowerCase()) ||
       m.subtipo_movimiento_stock?.nombre.toLowerCase().includes(filtroTexto.toLowerCase())
-    return matchOrigen && matchTipo && matchTexto
+    const matchMotivo = !filtroMotivo || m.subtipo_movimiento_stock?.nombre === filtroMotivo
+    // fecha_utc y los inputs date son 'YYYY-MM-DD': se comparan como texto.
+    const matchFecha = (!fechaDesde || m.fecha_utc >= fechaDesde) && (!fechaHasta || m.fecha_utc <= fechaHasta)
+    return matchOrigen && matchTipo && matchTexto && matchMotivo && matchFecha
   })
+
+  const motivosDisponibles = Array.from(new Set(
+    movimientos.map(m => m.subtipo_movimiento_stock?.nombre).filter((n): n is string => !!n)
+  )).sort((a, b) => a.localeCompare(b))
+
+  // Totales de costo de lo que se ve en pantalla (respeta todos los filtros).
+  const totales = movimientosFiltrados.reduce((acc, m) => {
+    const c = costoMovimiento(m)
+    const nombre = m.tipo_movimiento_stock?.nombre
+    if (nombre === 'Egreso') acc.egresos += c.total
+    else if (nombre === 'Ingreso') acc.ingresos += c.total
+    if (!m.origen_tipo) acc.sinCosto += c.sinCosto // solo manuales: en venta/compra no se guarda costo
+    return acc
+  }, { egresos: 0, ingresos: 0, sinCosto: 0 })
 
   // fecha_utc es tipo DATE (sin hora) — nunca usar new Date() sobre este
   // valor, corre un día para atrás por conversión de huso horario.
@@ -105,7 +147,7 @@ export default function StockPage() {
       </div>
 
       {/* Filtros */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 flex gap-4 items-end">
+      <div className="bg-white rounded-lg border border-gray-200 p-4 flex flex-wrap gap-4 items-end">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Tipo</label>
           <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}
@@ -116,7 +158,25 @@ export default function StockPage() {
             <option value="Ajuste">Ajuste</option>
           </select>
         </div>
-        <div className="flex-1">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Motivo</label>
+          <select value={filtroMotivo} onChange={e => setFiltroMotivo(e.target.value)}
+            className="h-8 px-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-[#00a19a]">
+            <option value="">Todos</option>
+            {motivosDisponibles.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Desde</label>
+          <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
+            className="h-8 px-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-[#00a19a]" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Hasta</label>
+          <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
+            className="h-8 px-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-[#00a19a]" />
+        </div>
+        <div className="flex-1 min-w-[200px]">
           <label className="block text-xs text-gray-500 mb-1">Buscar artículo o deportista</label>
           <input type="text" value={filtroTexto} onChange={e => setFiltroTexto(e.target.value)}
             placeholder="Nombre del artículo o deportista..."
@@ -128,10 +188,27 @@ export default function StockPage() {
             className="w-4 h-4 accent-[#00a19a]" />
           Excluir venta/compra
         </label>
-        <button onClick={() => { setFiltroTipo(''); setFiltroTexto('') }}
+        <button onClick={() => { setFiltroTipo(''); setFiltroTexto(''); setFiltroMotivo(''); setFechaDesde(''); setFechaHasta('') }}
           className="h-8 px-3 border border-gray-300 rounded text-sm text-gray-500 hover:bg-gray-50">
           Limpiar
         </button>
+      </div>
+
+      {/* Totales de costo (de lo filtrado) */}
+      <div className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex flex-wrap gap-x-8 gap-y-1 items-baseline">
+        <div className="flex items-baseline gap-2">
+          <span className="text-xs text-gray-500 uppercase">Costo egresos</span>
+          <span className="text-base font-semibold text-red-500">{fmtMoneda.format(totales.egresos)}</span>
+        </div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-xs text-gray-500 uppercase">Costo ingresos</span>
+          <span className="text-base font-semibold text-[#00a19a]">{fmtMoneda.format(totales.ingresos)}</span>
+        </div>
+        {totales.sinCosto > 0 && (
+          <span className="text-xs text-amber-600">
+            {totales.sinCosto} artículo{totales.sinCosto > 1 ? 's' : ''} sin costo guardado: no suma{totales.sinCosto > 1 ? 'n' : ''}
+          </span>
+        )}
       </div>
 
       {/* Listado */}
@@ -148,6 +225,7 @@ export default function StockPage() {
                 <th className="px-4 py-3 text-center">Tipo</th>
                 <th className="px-4 py-3 text-center">Motivo</th>
                 <th className="px-4 py-3 text-left">Artículos</th>
+                <th className="px-4 py-3 text-right">Costo</th>
                 <th className="px-4 py-3 text-left">Deportista / Obs.</th>
                 <th className="px-4 py-3 text-center w-32">Acciones</th>
               </tr>
@@ -160,6 +238,7 @@ export default function StockPage() {
                   ? `${items[0].articulo?.nombre} (${items[0].cantidad})`
                   : `${items.length} artículos`
                 const esManual = !m.origen_tipo && m.subtipo_movimiento_stock?.nombre !== 'Saldo inicial'
+                const costo = costoMovimiento(m)
 
                 return (
                   <React.Fragment key={m.id}>
@@ -180,6 +259,15 @@ export default function StockPage() {
                             <span className="ml-1 text-gray-400">{expandido ? '▲' : '▼'}</span>
                           )}
                         </button>
+                      </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap text-[#3c3c3b]">
+                        {costo.conCosto === 0 ? (
+                          <span className="text-gray-300">—</span>
+                        ) : (
+                          <span title={costo.sinCosto > 0 ? `${costo.sinCosto} artículo(s) sin costo guardado` : undefined}>
+                            {fmtMoneda.format(costo.total)}{costo.sinCosto > 0 ? ' *' : ''}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs">
                         {m.deportista
@@ -207,6 +295,11 @@ export default function StockPage() {
                         <td></td>
                         <td className="px-4 py-2 text-xs text-gray-600 pl-8">
                           — {item.articulo?.nombre}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-gray-500 text-right whitespace-nowrap">
+                          {item.costo_unitario != null
+                            ? fmtMoneda.format(Number(item.cantidad) * Number(item.costo_unitario))
+                            : '—'}
                         </td>
                         <td className="px-4 py-2 text-xs text-gray-500">{item.cantidad} u.</td>
                         <td></td>
