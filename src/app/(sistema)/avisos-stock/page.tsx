@@ -785,14 +785,14 @@ export default function AvisosStockPage() {
                       <span className="font-medium text-[#3c3c3b]">{titulo}</span>
                       {enPendientes && (hayStock ? (
                         <span className="text-xs bg-[#00a19a]/10 text-[#00a19a] px-2 py-0.5 rounded-full font-medium">
-                          Hay stock ({stock})
+                          Stock ({stock})
                         </span>
                       ) : (
-                        <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Todavía sin stock</span>
+                        <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Sin stock</span>
                       ))}
                       {enPendientes && grupo.avisos.some(a => a.origen === 'local') && (
                         <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-medium">
-                          Pedido en local ({grupo.avisos.filter(a => a.origen === 'local').length})
+                          Local ({grupo.avisos.filter(a => a.origen === 'local').length})
                         </span>
                       )}
                     </div>
