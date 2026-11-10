@@ -71,7 +71,9 @@ export default function RegistroVentasPage() {
   const [esAdmin, setEsAdmin] = useState(false)
   // Agrupar el listado por día (con total y cantidad de cada día)
   const [agruparPorDia, setAgruparPorDia] = useState(false)
-  const [diasPlegados, setDiasPlegados] = useState<Set<string>>(new Set())
+  // Se guardan los días DESPLEGADOS (no los plegados): así, por defecto, todos
+  // los días arrancan plegados — también los que aparecen al cambiar filtros.
+  const [diasDesplegados, setDiasDesplegados] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     // Filtro de turno prefijado por URL (ej. desde las tarjetas del Dashboard:
@@ -459,7 +461,7 @@ export default function RegistroVentasPage() {
     : []
 
   function toggleDia(fecha: string) {
-    setDiasPlegados(prev => {
+    setDiasDesplegados(prev => {
       const nuevo = new Set(prev)
       nuevo.has(fecha) ? nuevo.delete(fecha) : nuevo.add(fecha)
       return nuevo
@@ -678,15 +680,15 @@ export default function RegistroVentasPage() {
           <div className="flex items-center gap-4">
             {agruparPorDia && (
               <div className="flex items-center gap-3 text-xs text-gray-500">
-                <button onClick={() => setDiasPlegados(new Set(gruposPorDia.map(g => g.fecha)))} className="hover:text-[#00a19a] underline">Plegar todos</button>
-                <button onClick={() => setDiasPlegados(new Set())} className="hover:text-[#00a19a] underline">Desplegar todos</button>
+                <button onClick={() => setDiasDesplegados(new Set())} className="hover:text-[#00a19a] underline">Plegar todos</button>
+                <button onClick={() => setDiasDesplegados(new Set(gruposPorDia.map(g => g.fecha)))} className="hover:text-[#00a19a] underline">Desplegar todos</button>
               </div>
             )}
             <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={agruparPorDia}
-                onChange={e => { setAgruparPorDia(e.target.checked); setDiasPlegados(new Set()) }}
+                onChange={e => { setAgruparPorDia(e.target.checked); setDiasDesplegados(new Set()) }}
                 className="w-4 h-4 accent-[#00a19a]"
               />
               Agrupar por día
@@ -839,7 +841,7 @@ export default function RegistroVentasPage() {
           <div className="divide-y divide-gray-100">
             {agruparPorDia ? (
               gruposPorDia.map(g => {
-                const plegado = diasPlegados.has(g.fecha)
+                const plegado = !diasDesplegados.has(g.fecha)
                 return (
                   <div key={g.fecha}>
                     <div
