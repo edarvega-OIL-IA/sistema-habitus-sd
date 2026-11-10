@@ -4,7 +4,21 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { ShoppingCart, TrendingUp, TrendingDown, Package, Clock, AlertTriangle, Target, Wallet, ChevronDown, ChevronUp, Percent, Activity, Globe, Bell } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } from 'recharts'
+
+// Colores de las 3 series del gráfico "Ventas por día" (mismos tonos del verde
+// de marca que usa "Ventas mensuales" en Reportes: de claro a oscuro)
+const COLOR_MANANA = '#7fd4cf'
+const COLOR_TARDE = '#00a19a'
+const COLOR_WEB = '#00615d'
+
+interface VentaDia {
+  dia: string
+  manana: number
+  tarde: number
+  web: number
+  total: number
+}
 
 interface VentasTurno {
   total: number
@@ -77,7 +91,7 @@ export default function DashboardPage() {
   const [ventasTarde, setVentasTarde] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasDia, setVentasDia] = useState<VentasTurno>({ total: 0, cantidad: 0 })
   const [ventasWeb, setVentasWeb] = useState<VentasWeb>({ total: 0, cantidad: 0, acumuladoMensual: 0 })
-  const [ventasPorDia, setVentasPorDia] = useState<{ dia: string; total: number }[]>([])
+  const [ventasPorDia, setVentasPorDia] = useState<VentaDia[]>([])
   const [ventasPorMes, setVentasPorMes] = useState<{ mes: string; total: number }[]>([])
   const [resumenMes, setResumenMes] = useState<ResumenMes>({ ventas: 0, ingresos: 0, egresos: 0, costoMercaderia: 0, margenPct: 0, costosFijos: 0 })
   const [stockMinimo, setStockMinimo] = useState<ArticuloStockMinimo[]>([])
@@ -251,7 +265,7 @@ export default function DashboardPage() {
   async function cargarVentasPorDia() {
     const { data, error } = await supabase
       .from('ventas')
-      .select('total, fecha_utc')
+      .select('total, fecha_utc, cierre_turno_id')
       .eq('sucursal_id', 1)
       .neq('estado_venta_id', 3)
       .gte('fecha_utc', mesDesde)
@@ -259,17 +273,35 @@ export default function DashboardPage() {
 
     if (error) throw error
 
-    const totalesPorDia = new Map<string, number>()
+    // Turno de cada venta: cierre_turno_id → cierres_turno.turno_id (1 = Mañana,
+    // 2 = Tarde). Web = sin cierre_turno_id (mismo criterio que las tarjetas de arriba).
+    const cierreIds = [...new Set((data || []).map(v => v.cierre_turno_id).filter(Boolean))]
+    const cierreTurnoMap = new Map<number, number>()
+    if (cierreIds.length > 0) {
+      const { data: cierres, error: cierresError } = await supabase
+        .from('cierres_turno')
+        .select('id, turno_id')
+        .in('id', cierreIds as number[])
+      if (cierresError) throw cierresError
+      ;(cierres || []).forEach(c => cierreTurnoMap.set(c.id, c.turno_id))
+    }
+
+    const porDia = new Map<string, { manana: number; tarde: number; web: number }>()
     ;(data || []).forEach(v => {
-      totalesPorDia.set(v.fecha_utc, (totalesPorDia.get(v.fecha_utc) || 0) + v.total)
+      const acum = porDia.get(v.fecha_utc) || { manana: 0, tarde: 0, web: 0 }
+      if (v.cierre_turno_id === null) acum.web += v.total
+      else if (cierreTurnoMap.get(v.cierre_turno_id) === 1) acum.manana += v.total
+      else if (cierreTurnoMap.get(v.cierre_turno_id) === 2) acum.tarde += v.total
+      porDia.set(v.fecha_utc, acum)
     })
 
     const [anio, mes] = mesDesde.split('-').map(Number)
     const diasDelMes = new Date(anio, mes, 0).getDate() // día 0 del mes siguiente = último día de este mes
-    const resultado: { dia: string; total: number }[] = []
+    const resultado: VentaDia[] = []
     for (let d = 1; d <= diasDelMes; d++) {
       const fecha = `${mesDesde.slice(0, 8)}${String(d).padStart(2, '0')}`
-      resultado.push({ dia: String(d), total: totalesPorDia.get(fecha) || 0 })
+      const { manana, tarde, web } = porDia.get(fecha) || { manana: 0, tarde: 0, web: 0 }
+      resultado.push({ dia: String(d), manana, tarde, web, total: manana + tarde + web })
     }
     setVentasPorDia(resultado)
   }
@@ -823,10 +855,10 @@ export default function DashboardPage() {
             Ventas por día — {new Date().toLocaleDateString('es-AR', { month: 'long', timeZone: 'America/Argentina/Buenos_Aires' })}
           </h2>
           <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={ventasPorDia} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={ventasPorDia} margin={{ top: 18, right: 8, left: 8, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                <XAxis dataKey="dia" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                <XAxis dataKey="dia" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} interval={0} />
                 <YAxis
                   tick={{ fontSize: 11, fill: '#9ca3af' }}
                   axisLine={false}
@@ -834,11 +866,54 @@ export default function DashboardPage() {
                   tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
                 />
                 <Tooltip
-                  formatter={(value) => [fmt(Number(value) || 0), 'Total']}
-                  labelFormatter={(dia) => `Día ${dia}`}
-                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                  content={({ active, payload, label }: any) => {
+                    if (!active || !payload || payload.length === 0) return null
+                    const d = payload[0].payload as VentaDia
+                    return (
+                      <div className="bg-white border border-gray-200 rounded shadow-sm px-3 py-2 text-xs text-[#3c3c3b]">
+                        <p className="font-semibold mb-1">Día {label}</p>
+                        <p><span style={{ color: COLOR_MANANA }}>■</span> Turno mañana: {fmt(d.manana)}</p>
+                        <p><span style={{ color: COLOR_TARDE }}>■</span> Turno tarde: {fmt(d.tarde)}</p>
+                        <p><span style={{ color: COLOR_WEB }}>■</span> Web: {fmt(d.web)}</p>
+                        <p className="font-semibold mt-1 pt-1 border-t border-gray-100">Total: {fmt(d.total)}</p>
+                      </div>
+                    )
+                  }}
                 />
-                <Bar dataKey="total" fill="#00a19a" radius={[3, 3, 0, 0]} />
+                <Legend
+                  content={() => (
+                    <div className="flex items-center justify-center flex-wrap gap-x-4 gap-y-1 text-xs text-[#3c3c3b] mt-2">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm inline-block" style={{ background: COLOR_MANANA }} />
+                        Ventas turno mañana
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm inline-block" style={{ background: COLOR_TARDE }} />
+                        Ventas turno tarde
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm inline-block" style={{ background: COLOR_WEB }} />
+                        Ventas web
+                      </span>
+                    </div>
+                  )}
+                />
+                {/* Una sola columna por día, apilada en 3 segmentos. El total del día
+                    va como etiqueta sobre el último segmento (el de más arriba) y se
+                    oculta cuando el día no tuvo ventas. */}
+                <Bar dataKey="manana" name="Ventas turno mañana" stackId="ventas" fill={COLOR_MANANA} />
+                <Bar dataKey="tarde" name="Ventas turno tarde" stackId="ventas" fill={COLOR_TARDE} />
+                <Bar dataKey="web" name="Ventas web" stackId="ventas" fill={COLOR_WEB} radius={[3, 3, 0, 0]}>
+                  <LabelList
+                    dataKey="total"
+                    position="top"
+                    formatter={(v: any) => {
+                      const n = Number(v ?? 0)
+                      return n > 0 ? `${Math.round(n / 1000)}k` : ''
+                    }}
+                    style={{ fontSize: 9, fill: '#3c3c3b' }}
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
