@@ -918,24 +918,24 @@ export default function DashboardPage() {
                     <div className="flex items-center justify-center flex-wrap gap-x-4 gap-y-1 text-xs text-[#3c3c3b] mt-2">
                       <span className="flex items-center gap-1.5">
                         <span className="w-3 h-3 rounded-sm inline-block" style={{ background: COLOR_MANANA }} />
-                        Ventas turno mañana
+                        Turno mañana
                       </span>
                       <span className="flex items-center gap-1.5">
                         <span className="w-3 h-3 rounded-sm inline-block" style={{ background: COLOR_TARDE }} />
-                        Ventas turno tarde
+                        Turno tarde
                       </span>
                       <span className="flex items-center gap-1.5">
                         <span className="w-3 h-3 rounded-sm inline-block" style={{ background: COLOR_WEB }} />
-                        Ventas web
+                        Web
                       </span>
                     </div>
                   )}
                 />
                 {/* Una sola columna por día, apilada en 3 segmentos (el total del
                     día se ve en el tooltip) */}
-                <Bar dataKey="manana" name="Ventas turno mañana" stackId="ventas" fill={COLOR_MANANA} />
-                <Bar dataKey="tarde" name="Ventas turno tarde" stackId="ventas" fill={COLOR_TARDE} />
-                <Bar dataKey="web" name="Ventas web" stackId="ventas" fill={COLOR_WEB} radius={[3, 3, 0, 0]} />
+                <Bar dataKey="manana" name="Turno mañana" stackId="ventas" fill={COLOR_MANANA} />
+                <Bar dataKey="tarde" name="Turno tarde" stackId="ventas" fill={COLOR_TARDE} />
+                <Bar dataKey="web" name="Web" stackId="ventas" fill={COLOR_WEB} radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
