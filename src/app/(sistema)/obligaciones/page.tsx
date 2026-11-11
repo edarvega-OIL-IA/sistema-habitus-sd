@@ -42,6 +42,51 @@ function fechaEfectiva(o: Obligacion): string {
   return o.fecha_vencimiento || o.periodo || o.creado_en.slice(0, 10)
 }
 
+interface GrupoConcepto {
+  conceptoId: number
+  nombre: string
+  cantidad: number
+  cargos: number
+  pagos: number
+  saldo: number
+  movimientos: (Obligacion & { saldoCorrido: number })[]
+}
+
+// Agrupa los movimientos de un acreedor por concepto. `items` debe venir en
+// orden cronológico ascendente: el saldo corrido de cada concepto se calcula
+// solo con los movimientos de ese concepto, y recién después se invierte para
+// mostrar primero lo más reciente. Los grupos salen ordenados por saldo
+// pendiente (mayor primero).
+function armarGruposConcepto(items: Obligacion[]): GrupoConcepto[] {
+  const mapa = new Map<number, Obligacion[]>()
+  for (const o of items) {
+    const lista = mapa.get(o.concepto_gasto_id)
+    if (lista) lista.push(o)
+    else mapa.set(o.concepto_gasto_id, [o])
+  }
+  return [...mapa.entries()]
+    .map(([conceptoId, lista]) => {
+      let corrido = 0
+      let cargos = 0
+      let pagos = 0
+      const conSaldo = lista.map(o => {
+        if (o.tipo === 'Cargo') { cargos += o.monto; corrido += o.monto }
+        else { pagos += o.monto; corrido -= o.monto }
+        return { ...o, saldoCorrido: corrido }
+      })
+      return {
+        conceptoId,
+        nombre: lista[0].concepto_nombre || 'Sin concepto',
+        cantidad: lista.length,
+        cargos,
+        pagos,
+        saldo: Math.round((cargos - pagos) * 100) / 100,
+        movimientos: conSaldo.reverse(),
+      }
+    })
+    .sort((a, b) => b.saldo - a.saldo || a.nombre.localeCompare(b.nombre, 'es'))
+}
+
 function fmtFecha(f: string) {
   return f.slice(0, 10).split('-').reverse().join('/')
 }
@@ -58,6 +103,9 @@ export default function ObligacionesPage() {
   const [mediosPago, setMediosPago] = useState<{ id: number; nombre: string }[]>([])
   const [expandido, setExpandido] = useState<Set<number>>(new Set())
   const [categoriasAbiertas, setCategoriasAbiertas] = useState<Set<string>>(new Set())
+  // Subgrupos por concepto dentro de un acreedor (clave "acreedorId-conceptoId").
+  // Arrancan plegados.
+  const [conceptosAbiertos, setConceptosAbiertos] = useState<Set<string>>(new Set())
   const [modalCargo, setModalCargo] = useState<Acreedor | null>(null)
   const [modalPago, setModalPago] = useState<Acreedor | null>(null)
   const [modalEditarCargo, setModalEditarCargo] = useState<Obligacion | null>(null)
@@ -129,6 +177,60 @@ export default function ObligacionesPage() {
       next.has(cat) ? next.delete(cat) : next.add(cat)
       return next
     })
+  }
+
+  function toggleConcepto(key: string) {
+    setConceptosAbiertos(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
+
+  // Tabla de movimientos (Fecha / Concepto / Comprobante / Cargo / Pago / Saldo).
+  // Se usa tanto para el listado plano como dentro de cada subgrupo por
+  // concepto (ahí la columna Concepto se oculta porque ya está en el encabezado).
+  function renderTabla(filas: (Obligacion & { saldoCorrido: number })[], mostrarConcepto: boolean) {
+    return (
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs text-gray-500">
+            <th className="pb-1 font-medium">Fecha</th>
+            {mostrarConcepto && <th className="pb-1 font-medium">Concepto</th>}
+            <th className="pb-1 font-medium">Comprobante</th>
+            <th className="pb-1 font-medium text-right">Cargo</th>
+            <th className="pb-1 font-medium text-right">Pago</th>
+            <th className="pb-1 font-medium text-right">Saldo</th>
+            <th className="pb-1 font-medium w-8"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map(o => (
+            <tr key={o.id} className="border-t border-gray-50">
+              <td className="py-1.5 text-gray-600">{fmtFecha(fechaEfectiva(o))}</td>
+              {mostrarConcepto && <td className="py-1.5">{o.concepto_nombre}</td>}
+              <td className="py-1.5 text-gray-400">{o.numero_comprobante || '—'}</td>
+              <td className="py-1.5 text-right">{o.tipo === 'Cargo' ? `$${fmtMonto(o.monto)}` : ''}</td>
+              <td className="py-1.5 text-right text-[#00a19a]">{o.tipo === 'Pago' ? `$${fmtMonto(o.monto)}` : ''}</td>
+              <td className="py-1.5 text-right font-medium">${fmtMonto(o.saldoCorrido)}</td>
+              <td className="py-1.5 text-right">
+                {o.tipo === 'Cargo' ? (
+                  <button type="button" onClick={() => setModalEditarCargo(o)} title="Editar cargo"
+                    className="text-gray-300 hover:text-[#00a19a] transition-colors">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => setModalEditarPago(o)} title="Editar pago"
+                    className="text-gray-300 hover:text-[#00a19a] transition-colors">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
   }
 
   function obligacionesDe(acreedorId: number): Obligacion[] {
@@ -228,6 +330,11 @@ export default function ObligacionesPage() {
             })
             .reverse()
 
+          // Si el acreedor tiene más de un concepto (ej. ARCA: Plan de pago,
+          // F931, AFIP Monotributo) el detalle se agrupa por concepto.
+          const agruparPorConcepto = new Set(items.map(o => o.concepto_gasto_id)).size > 1
+          const gruposConcepto = agruparPorConcepto ? armarGruposConcepto(items) : []
+
           return (
             <div key={acreedor.id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
               <button type="button" onClick={() => toggleExpandido(acreedor.id)}
@@ -257,45 +364,37 @@ export default function ObligacionesPage() {
 
                   {itemsConSaldo.length === 0 ? (
                     <p className="text-sm text-gray-400">Sin movimientos todavía.</p>
+                  ) : agruparPorConcepto ? (
+                    <div className="space-y-2">
+                      {gruposConcepto.map(g => {
+                        const key = `${acreedor.id}-${g.conceptoId}`
+                        const abiertoConcepto = conceptosAbiertos.has(key)
+                        return (
+                          <div key={key} className="border border-gray-200 rounded-md overflow-hidden">
+                            <button type="button" onClick={() => toggleConcepto(key)}
+                              className="w-full flex items-center justify-between gap-4 px-3 py-2 bg-[#00a19a]/5 hover:bg-[#00a19a]/10 transition-colors">
+                              <div className="flex items-center gap-2">
+                                {abiertoConcepto ? <ChevronDown className="w-4 h-4 text-[#00a19a]" /> : <ChevronRight className="w-4 h-4 text-[#00a19a]" />}
+                                <span className="text-sm font-medium text-[#3c3c3b]">{g.nombre}</span>
+                                <span className="text-xs text-gray-400">({g.cantidad} {g.cantidad === 1 ? 'movimiento' : 'movimientos'})</span>
+                              </div>
+                              <div className="flex items-center gap-5 text-xs">
+                                <span className="text-gray-500">Cargos <span className="font-medium text-gray-700">${fmtMonto(g.cargos)}</span></span>
+                                <span className="text-gray-500">Pagos <span className="font-medium text-[#00a19a]">${fmtMonto(g.pagos)}</span></span>
+                                <span className="text-gray-500">Saldo <span className={`text-sm font-semibold ${g.saldo > 0 ? 'text-red-600' : 'text-gray-400'}`}>${fmtMonto(g.saldo)}</span></span>
+                              </div>
+                            </button>
+                            {abiertoConcepto && (
+                              <div className="px-3 py-2 border-t border-gray-100">
+                                {renderTabla(g.movimientos, false)}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
                   ) : (
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-xs text-gray-500">
-                          <th className="pb-1 font-medium">Fecha</th>
-                          <th className="pb-1 font-medium">Concepto</th>
-                          <th className="pb-1 font-medium">Comprobante</th>
-                          <th className="pb-1 font-medium text-right">Cargo</th>
-                          <th className="pb-1 font-medium text-right">Pago</th>
-                          <th className="pb-1 font-medium text-right">Saldo</th>
-                          <th className="pb-1 font-medium w-8"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {itemsConSaldo.map(o => (
-                          <tr key={o.id} className="border-t border-gray-50">
-                            <td className="py-1.5 text-gray-600">{fmtFecha(fechaEfectiva(o))}</td>
-                            <td className="py-1.5">{o.concepto_nombre}</td>
-                            <td className="py-1.5 text-gray-400">{o.numero_comprobante || '—'}</td>
-                            <td className="py-1.5 text-right">{o.tipo === 'Cargo' ? `$${fmtMonto(o.monto)}` : ''}</td>
-                            <td className="py-1.5 text-right text-[#00a19a]">{o.tipo === 'Pago' ? `$${fmtMonto(o.monto)}` : ''}</td>
-                            <td className="py-1.5 text-right font-medium">${fmtMonto(o.saldoCorrido)}</td>
-                            <td className="py-1.5 text-right">
-                              {o.tipo === 'Cargo' ? (
-                                <button type="button" onClick={() => setModalEditarCargo(o)} title="Editar cargo"
-                                  className="text-gray-300 hover:text-[#00a19a] transition-colors">
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                              ) : (
-                                <button type="button" onClick={() => setModalEditarPago(o)} title="Editar pago"
-                                  className="text-gray-300 hover:text-[#00a19a] transition-colors">
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    renderTabla(itemsConSaldo, true)
                   )}
                 </div>
               )}
