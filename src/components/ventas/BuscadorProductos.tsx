@@ -152,7 +152,7 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (resultados.length > 1) {
+    if (resultados.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         setIndiceFoco(prev => Math.min(prev + 1, resultados.length - 1))
@@ -298,7 +298,7 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
       </div>
 
       {/* Lista de resultados con navegación por teclado */}
-      {resultados.length > 1 && (
+      {resultados.length > 0 && (
         <div ref={listaRef} className="absolute z-20 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-64 overflow-y-auto">
           {resultados.map((a, idx) => (
             <button
@@ -323,6 +323,13 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
           <div className="px-4 py-1.5 text-xs text-gray-400 border-t border-gray-100">
             ↑↓ para navegar · Enter para seleccionar
           </div>
+        </div>
+      )}
+
+      {/* Aviso cuando lo escrito no coincide con ningún artículo */}
+      {query.trim() && catalogoListo && resultados.length === 0 && (
+        <div className="absolute z-20 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 px-4 py-3 text-sm text-gray-500">
+          Sin resultados para «{query.trim()}»
         </div>
       )}
 
