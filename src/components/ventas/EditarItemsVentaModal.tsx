@@ -82,6 +82,15 @@ function fmtInput(n: number): string {
   return n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
 }
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// Un porcentaje nunca lleva separador de miles: coma o punto son siempre decimales
+// (con parsearMonto, "5,149" se leía como 5149).
+function parsearPct(v: string): number {
+  const n = parseFloat((v || '').replace(',', '.').replace(/[^\d.]/g, ''))
+  return isNaN(n) ? 0 : n
+}
+const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 3 })
+const fmtMontoDesc = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
+const acotar = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n))
 
 export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoPctGeneral, onClose, onSaved }: Props) {
   const [cargando, setCargando] = useState(true)
@@ -101,9 +110,15 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
   // Buffer de texto en edición para precios (evita que se pierda la coma/punto)
   const [precioTexto, setPrecioTexto] = useState<Record<number, string>>({})
 
-  // Descuento general editable (arranca con el de la venta; 0 = sin descuento).
-  // Se guarda como texto para no perder la coma mientras se escribe.
-  const [descuentoTexto, setDescuentoTexto] = useState<string>(String(descuentoPctGeneral || 0).replace('.', ','))
+  // Descuento general editable (0 = sin descuento). El % se guarda SIN redondear
+  // (descuentoPct) y el monto en $ sale de ahí, así un artículo cambiado por otro
+  // del mismo precio no mueve ni un centavo. Editar el $ recalcula el % exacto.
+  const [descuentoPct, setDescuentoPct] = useState<number>(acotar(descuentoPctGeneral || 0, 0, 100))
+  const [pctOriginal, setPctOriginal] = useState<number>(acotar(descuentoPctGeneral || 0, 0, 100))
+  const [totalOriginalRef, setTotalOriginalRef] = useState<number>(0)
+  // Textos en edición (null = se muestra el valor formateado)
+  const [pctTexto, setPctTexto] = useState<string | null>(null)
+  const [montoTexto, setMontoTexto] = useState<string | null>(null)
 
   // Paso de confirmación tras guardar, si el nuevo total difiere de lo cobrado
   const [pasoDiferencia, setPasoDiferencia] = useState<{
@@ -128,7 +143,7 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
   async function cargarDatos() {
     setCargando(true)
     const supabase = createClient()
-    const [itemsRes, pagosRes, catalogoRes, emisoresRes] = await Promise.all([
+    const [itemsRes, pagosRes, catalogoRes, emisoresRes, ventaRes] = await Promise.all([
       supabase.from('venta_items')
         .select('articulo_id, cantidad, precio_unitario, descuento_pct, subtotal, costo_unitario, articulos(nombre)')
         .eq('venta_id', ventaId),
@@ -137,6 +152,7 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
         .select('id, nombre, codigo_interno, codigo_barra, precio_local, rubros(nombre), marcas(nombre)')
         .eq('activo', true).order('nombre'),
       supabase.from('emisores_pago').select('id, nombre').eq('activo', true).order('nombre'),
+      supabase.from('ventas').select('subtotal, total, descuento_pct').eq('id', ventaId).single(),
     ])
     setEmisores(emisoresRes.data || [])
 
@@ -151,6 +167,26 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
     }))
     setItemsOriginales(itemsCargados)
     setItems(itemsCargados)
+
+    // Descuento original EXACTO: ventas.descuento_pct viene redondeado (ej. 5,15),
+    // pero el total realmente cobrado no. Si el % que sale del total coincide con
+    // el guardado (diferencia solo de redondeo), se usa el exacto; si no (venta con
+    // recargo, ajuste, etc.) se mantiene el % guardado como antes.
+    const subItems = itemsCargados.reduce((s, i) => s + i.subtotal, 0)
+    const pctGuardado = acotar(Number(ventaRes.data?.descuento_pct ?? descuentoPctGeneral ?? 0) || 0, 0, 100)
+    let pctInicial = pctGuardado
+    let totalRef = Math.round(subItems * (1 - pctGuardado / 100) * 100) / 100
+    const totalVenta = ventaRes.data?.total
+    if (subItems > 0 && typeof totalVenta === 'number') {
+      const pctExacto = ((subItems - totalVenta) / subItems) * 100
+      if (Math.abs(pctExacto - pctGuardado) <= 0.01) {
+        pctInicial = acotar(pctExacto, 0, 100)
+        totalRef = totalVenta
+      }
+    }
+    setDescuentoPct(pctInicial)
+    setPctOriginal(pctInicial)
+    setTotalOriginalRef(totalRef)
     setTotalPagado((pagosRes.data || []).reduce((s, p: any) => s + p.monto, 0))
     setCatalogo((catalogoRes.data || []).map((a: any) => ({
       ...a,
@@ -218,12 +254,12 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
     else if (e.key === 'Enter' && indiceSeleccionado >= 0) { e.preventDefault(); agregarArticulo(resultados[indiceSeleccionado]) }
   }
 
-  // Descuento general vigente en el modal (0 a 100). El original (prop) solo
-  // se usa para comparar "Diferencia vs. original".
-  const descuentoGeneral = Math.min(100, Math.max(0, parsearMonto(descuentoTexto)))
+  // Descuento general vigente: el monto sale del % exacto, redondeado a centavos,
+  // y el total siempre es subtotal - monto (nunca un % redondeado).
   const subtotalArticulos = items.reduce((s, i) => s + i.subtotal, 0)
-  const nuevoTotal = subtotalArticulos * (1 - descuentoGeneral / 100)
-  const diferenciaVsOriginal = nuevoTotal - itemsOriginales.reduce((s, i) => s + i.subtotal, 0) * (1 - descuentoPctGeneral / 100)
+  const descuentoMonto = Math.round(subtotalArticulos * descuentoPct) / 100
+  const nuevoTotal = Math.round((subtotalArticulos - descuentoMonto) * 100) / 100
+  const diferenciaVsOriginal = nuevoTotal - totalOriginalRef
 
   // Calcula, por artículo, cuánto hay que sumar/restar de stock (delta entre
   // el carrito original y el editado). Positivo = salió más mercadería
@@ -328,7 +364,7 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
       // 4) Recalcular total de la venta
       const { error: ventaError } = await supabase
         .from('ventas')
-        .update({ subtotal: subtotalArticulos, total: nuevoTotal, descuento_pct: descuentoGeneral })
+        .update({ subtotal: Math.round(subtotalArticulos * 100) / 100, total: nuevoTotal, descuento_pct: Math.round(descuentoPct * 10000) / 10000 })
         .eq('id', ventaId)
       if (ventaError) throw new Error('Error al actualizar el total: ' + ventaError.message)
 
@@ -584,15 +620,34 @@ export default function EditarItemsVentaModal({ ventaId, numeroVenta, descuentoP
               <div className="min-w-64 space-y-1">
                 <div className="flex justify-between items-center text-xs text-gray-500">
                   <span>Descuento general (%)</span>
-                  <input type="text" inputMode="decimal" value={descuentoTexto}
+                  <input type="text" inputMode="decimal"
+                    value={pctTexto !== null ? pctTexto : fmtPct(descuentoPct)}
                     onFocus={e => e.target.select()}
-                    onChange={e => setDescuentoTexto(e.target.value)}
-                    onBlur={() => setDescuentoTexto(String(descuentoGeneral).replace('.', ','))}
-                    className="w-20 px-2 py-1 border border-gray-300 rounded text-right text-sm text-[#3c3c3b] focus:outline-none focus:ring-1 focus:ring-[#00a19a]" />
+                    onChange={e => {
+                      const raw = e.target.value
+                      setPctTexto(raw)
+                      setDescuentoPct(acotar(parsearPct(raw), 0, 100))
+                    }}
+                    onBlur={() => setPctTexto(null)}
+                    className="w-24 px-2 py-1 border border-gray-300 rounded text-right text-sm text-[#3c3c3b] focus:outline-none focus:ring-1 focus:ring-[#00a19a]" />
                 </div>
-                {descuentoGeneral !== (descuentoPctGeneral || 0) && (
+                <div className="flex justify-between items-center text-xs text-gray-500">
+                  <span>Descuento general ($)</span>
+                  <input type="text" inputMode="decimal"
+                    value={montoTexto !== null ? montoTexto : fmtMontoDesc(descuentoMonto)}
+                    onFocus={e => e.target.select()}
+                    onChange={e => {
+                      const raw = e.target.value
+                      setMontoTexto(raw)
+                      const m = acotar(parsearMonto(raw), 0, subtotalArticulos)
+                      setDescuentoPct(subtotalArticulos > 0 ? (m / subtotalArticulos) * 100 : 0)
+                    }}
+                    onBlur={() => setMontoTexto(null)}
+                    className="w-24 px-2 py-1 border border-gray-300 rounded text-right text-sm text-[#3c3c3b] focus:outline-none focus:ring-1 focus:ring-[#00a19a]" />
+                </div>
+                {Math.abs(descuentoPct - pctOriginal) > 0.0005 && (
                   <p className="text-[11px] text-gray-400 text-right">
-                    Descuento original: {descuentoPctGeneral || 0}%
+                    Descuento original: {fmtPct(pctOriginal)}%
                   </p>
                 )}
                 <div className="flex justify-between text-sm">
