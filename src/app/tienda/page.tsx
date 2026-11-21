@@ -54,7 +54,7 @@ export default async function TiendaPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 relative flex items-center justify-center">
           <Link href="/tienda">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-habitus.png" alt="Hábitus SD — Suplementos Deportivos" className="h-20 w-auto" />
+            <img src="/logo-habitus-texto.svg" alt="Hábitus SD — Suplementos Deportivos" className="h-11 sm:h-20 md:h-24 w-auto" />
           </Link>
           <div className="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2">
             <CarritoBoton />
