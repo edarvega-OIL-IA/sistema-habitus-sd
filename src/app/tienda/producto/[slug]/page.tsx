@@ -296,7 +296,7 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
                           esActual
                             ? 'bg-offer-teal text-white border-offer-teal'
                             : v.stock <= 0
-                            ? 'bg-white text-gray-300 border-border-gray'
+                            ? 'bg-white text-gray-500 line-through border-border-gray'
                             : 'bg-white text-gray-600 border-gray-300 hover:border-offer-teal'
                         }`}
                       >

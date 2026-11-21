@@ -107,7 +107,7 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
                   v.id === seleccionadaId
                     ? 'bg-offer-teal text-white border-offer-teal ring-2 ring-offer-teal ring-offset-1'
                     : v.stock <= 0
-                    ? 'bg-white text-gray-300 border-border-gray'
+                    ? 'bg-white text-gray-500 line-through border-border-gray'
                     : 'bg-white text-gray-600 border-gray-300 hover:border-offer-teal focus:ring-2 focus:ring-offer-teal focus:ring-offset-1'
                 }`}
               >
@@ -170,8 +170,8 @@ export default function ProductoCard({ titulo, marca, rubro, variantes }: Props)
               <button
                 type="button"
                 onClick={handleAgregar}
-                className={`flex-1 min-w-[100px] h-9 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
-                  agregado ? 'bg-offer-teal text-white' : 'bg-charcoal text-white hover:bg-black'
+                className={`flex-1 min-w-[100px] h-9 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                  agregado ? 'bg-charcoal text-white' : 'bg-offer-teal text-black hover:brightness-95'
                 }`}
               >
                 {agregado ? <Check className="w-3.5 h-3.5" /> : <ShoppingCart className="w-3.5 h-3.5" />}
