@@ -18,7 +18,6 @@
 //     (filtros, búsqueda, orden y el mezclado aleatorio) lo hace el navegador
 //     en components/tienda/CatalogoTienda.tsx.
 
-import Link from 'next/link'
 import CarritoBoton from '@/components/tienda/CarritoBoton'
 import CatalogoTienda from '@/components/tienda/CatalogoTienda'
 import { Mail, Phone, MapPin } from 'lucide-react'
@@ -52,10 +51,14 @@ export default async function TiendaPage() {
       {/* Header */}
       <header className="bg-charcoal text-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 relative flex items-center justify-center">
-          <Link href="/tienda">
+          {/* <a> común a propósito (no <Link>): los filtros y la búsqueda viven en el
+              estado del navegador (CatalogoTienda). Con <Link> a la misma ruta, Next no
+              recarga el componente y el filtro queda puesto; con <a> vuelve al inicio limpio. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/tienda" aria-label="Hábitus SD — ir al inicio de la tienda">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/logo-habitus-texto.svg" alt="Hábitus SD — Suplementos Deportivos" className="h-11 sm:h-20 md:h-24 w-auto" />
-          </Link>
+          </a>
           <div className="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2">
             <CarritoBoton />
           </div>
