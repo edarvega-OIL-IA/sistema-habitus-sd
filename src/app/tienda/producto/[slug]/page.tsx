@@ -292,12 +292,13 @@ export default async function DetalleProductoPage({ params }: { params: Promise<
                         key={v.id}
                         href={`/tienda/producto/${armarSlugProducto(v.id, titulo)}`}
                         title={v.stock <= 0 ? `${etiqueta || 'Variante'} — sin stock` : etiqueta || ''}
-                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                        aria-current={esActual ? 'page' : undefined}
+                        className={`relative px-2 py-0.5 rounded-full text-xs font-medium border transition-colors before:content-[''] before:absolute before:inset-0 before:-m-2 before:pointer-events-none ${
                           esActual
-                            ? 'bg-offer-teal text-white border-offer-teal'
+                            ? 'bg-offer-teal text-white border-offer-teal ring-2 ring-offer-teal ring-offset-1'
                             : v.stock <= 0
                             ? 'bg-white text-gray-500 line-through border-border-gray'
-                            : 'bg-white text-gray-600 border-gray-300 hover:border-offer-teal'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-offer-teal focus:ring-2 focus:ring-offer-teal focus:ring-offset-1'
                         }`}
                       >
                         {etiqueta || 'Variante'}
