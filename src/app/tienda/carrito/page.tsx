@@ -8,6 +8,10 @@ import { MINIMOS_POR_RUBRO } from '@/lib/tienda/config'
 
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
 
+// Anillo de foco visible para teclado (FOCO sobre fondo claro, FOCO_OSCURO sobre el encabezado)
+const FOCO = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offer-teal focus-visible:ring-offset-2'
+const FOCO_OSCURO = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-charcoal'
+
 export default function CarritoPage() {
   const { items, cargado, actualizarCantidad, quitar, vaciar, totalPrecio } = useCarrito()
 
@@ -31,7 +35,7 @@ export default function CarritoPage() {
     <div className="min-h-screen bg-surface-subtle">
       <header className="bg-charcoal text-white">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6">
-          <Link href="/tienda" className="text-xs text-white/60 hover:text-white flex items-center gap-1 mb-2">
+          <Link href="/tienda" className={`text-xs text-white/60 hover:text-white flex items-center gap-1 mb-2 ${FOCO_OSCURO}`}>
             <ArrowLeft className="w-3 h-3" /> Seguir comprando
           </Link>
           <h1 className="text-xl font-bold">Tu carrito</h1>
@@ -42,7 +46,7 @@ export default function CarritoPage() {
         {items.length === 0 ? (
           <div className="bg-white border border-border-gray rounded-lg p-12 text-center">
             <p className="text-sm text-medium-gray mb-3">Todavía no agregaste nada al carrito.</p>
-            <Link href="/tienda" className="text-sm text-offer-teal font-medium hover:underline">Ver catálogo</Link>
+            <Link href="/tienda" className={`text-sm text-offer-teal font-medium hover:underline ${FOCO}`}>Ver catálogo</Link>
           </div>
         ) : (
           <>
@@ -80,7 +84,7 @@ export default function CarritoPage() {
                     <p className="text-sm font-bold text-charcoal mt-1">{fmt(it.precio)}</p>
                   </div>
                   <div className="flex flex-col items-end gap-2 shrink-0">
-                    <button onClick={() => quitar(it.articuloId)} aria-label="Quitar producto" className="text-gray-300 hover:text-red-500 transition-colors">
+                    <button onClick={() => quitar(it.articuloId)} aria-label="Quitar producto" className={`text-gray-300 hover:text-red-500 transition-colors ${FOCO}`}>
                       <Trash2 className="w-4 h-4" />
                     </button>
                     <div className="flex items-center border border-gray-300 rounded-lg">
@@ -88,7 +92,7 @@ export default function CarritoPage() {
                         onClick={() => actualizarCantidad(it.articuloId, it.cantidad - 1)}
                         disabled={it.cantidad <= 1}
                         aria-label="Disminuir cantidad"
-                        className="relative w-9 h-9 flex items-center justify-center text-medium-gray hover:text-offer-teal disabled:opacity-30 before:content-[''] before:absolute before:inset-0 before:-m-1 before:pointer-events-none"
+                        className={`relative w-9 h-9 flex items-center justify-center text-medium-gray hover:text-offer-teal disabled:opacity-30 before:content-[''] before:absolute before:inset-0 before:-m-1 before:pointer-events-none ${FOCO}`}
                       >
                         <Minus className="w-3 h-3" />
                       </button>
@@ -97,7 +101,7 @@ export default function CarritoPage() {
                         onClick={() => actualizarCantidad(it.articuloId, it.cantidad + 1)}
                         disabled={it.cantidad >= it.stockDisponible}
                         aria-label="Aumentar cantidad"
-                        className="relative w-9 h-9 flex items-center justify-center text-medium-gray hover:text-offer-teal disabled:opacity-30 before:content-[''] before:absolute before:inset-0 before:-m-1 before:pointer-events-none"
+                        className={`relative w-9 h-9 flex items-center justify-center text-medium-gray hover:text-offer-teal disabled:opacity-30 before:content-[''] before:absolute before:inset-0 before:-m-1 before:pointer-events-none ${FOCO}`}
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -108,7 +112,7 @@ export default function CarritoPage() {
             </div>
 
             <div className="flex justify-between items-center mt-4">
-              <button onClick={vaciar} className="text-xs text-medium-gray hover:text-red-500">Vaciar carrito</button>
+              <button onClick={vaciar} className={`text-xs text-medium-gray hover:text-red-500 ${FOCO}`}>Vaciar carrito</button>
               <p className="text-lg font-bold text-charcoal">Total: {fmt(totalPrecio)}</p>
             </div>
 
@@ -116,14 +120,14 @@ export default function CarritoPage() {
               <button
                 disabled
                 title="Completá el pedido mínimo para continuar"
-                className="w-full mt-4 bg-offer-teal text-white py-3 rounded-lg font-semibold text-sm opacity-40 cursor-not-allowed transition-colors"
+                className="w-full mt-4 bg-offer-teal text-black py-3 rounded-lg font-semibold text-sm opacity-40 cursor-not-allowed transition-colors"
               >
                 Continuar
               </button>
             ) : (
               <Link
                 href="/tienda/checkout"
-                className="w-full mt-4 bg-offer-teal text-white py-3 rounded-lg font-semibold text-sm hover:bg-offer-teal/90 transition-colors flex items-center justify-center"
+                className={`w-full mt-4 bg-offer-teal text-black py-3 rounded-lg font-semibold text-sm hover:brightness-95 transition-colors flex items-center justify-center ${FOCO}`}
               >
                 Continuar
               </Link>

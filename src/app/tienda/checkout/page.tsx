@@ -15,6 +15,10 @@ interface LocalidadConCP {
 
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
 
+// Anillo de foco visible para teclado (FOCO sobre fondo claro, FOCO_OSCURO sobre el encabezado)
+const FOCO = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offer-teal focus-visible:ring-offset-2'
+const FOCO_OSCURO = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-charcoal'
+
 type MetodoEnvio = 'retiro_local' | 'envio_cinco_saltos' | 'envio_correo_argentino'
 
 interface ConfigEnvios {
@@ -208,7 +212,7 @@ export default function CheckoutPage() {
       <div className="min-h-screen bg-[#ededed] flex items-center justify-center px-4">
         <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
           <p className="text-sm text-gray-400 mb-3">Tu carrito está vacío.</p>
-          <Link href="/tienda" className="text-sm text-[#00a19a] font-medium hover:underline">Ver catálogo</Link>
+          <Link href="/tienda" className={`text-sm text-[#00a19a] font-medium hover:underline ${FOCO}`}>Ver catálogo</Link>
         </div>
       </div>
     )
@@ -318,7 +322,7 @@ export default function CheckoutPage() {
     <div className="min-h-screen bg-[#ededed]">
       <header className="bg-[#3c3c3b] text-white">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6">
-          <Link href="/tienda/carrito" className="text-xs text-white/60 hover:text-white flex items-center gap-1 mb-2">
+          <Link href="/tienda/carrito" className={`text-xs text-white/60 hover:text-white flex items-center gap-1 mb-2 ${FOCO_OSCURO}`}>
             <ArrowLeft className="w-3 h-3" /> Volver al carrito
           </Link>
           <h1 className="text-xl font-bold">Finalizar pedido</h1>
@@ -338,7 +342,7 @@ export default function CheckoutPage() {
                   </ul>
                 )}
                 {detalles.length > 0 && (
-                  <Link href="/tienda/carrito" className="text-xs underline mt-1 inline-block">Volver al carrito para ajustar</Link>
+                  <Link href="/tienda/carrito" className={`text-xs underline mt-1 inline-block ${FOCO}`}>Volver al carrito para ajustar</Link>
                 )}
               </div>
             </div>
@@ -552,7 +556,7 @@ export default function CheckoutPage() {
               {/* Estado de la cotización en vivo */}
               {cotizandoEnvioCA && (
                 <p className="text-xs text-gray-400 flex items-center gap-1.5">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Cotizando envío...
+                  <Loader2 className="w-3 h-3 motion-safe:animate-spin" /> Cotizando envío...
                 </p>
               )}
 
@@ -640,9 +644,9 @@ export default function CheckoutPage() {
           <button
             type="submit"
             disabled={enviando}
-            className="w-full bg-[#00a19a] text-white py-3 rounded-lg font-semibold text-sm hover:bg-[#008f89] disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+            className={`w-full bg-offer-teal text-black py-3 rounded-lg font-semibold text-sm hover:brightness-95 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 ${FOCO}`}
           >
-            {enviando && <Loader2 className="w-4 h-4 animate-spin" />}
+            {enviando && <Loader2 className="w-4 h-4 motion-safe:animate-spin" />}
             {enviando ? 'Procesando...' : medioElegido === 'mercado_pago' ? 'Ir a pagar' : 'Confirmar pedido'}
           </button>
         </form>
