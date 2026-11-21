@@ -1,5 +1,11 @@
+import type { Metadata } from 'next'
 import Sidebar from '@/components/layout/Sidebar'
 import Header from '@/components/layout/Header'
+
+// El sistema (rutas protegidas) no debe aparecer en buscadores.
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+}
 
 export default function SistemaLayout({
   children,
