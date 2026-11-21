@@ -81,8 +81,8 @@ export default function DetalleAgregar({ articuloId, titulo, sabor, marca, rubro
       <button
         type="button"
         onClick={handleAgregar}
-        className={`flex-1 min-w-[160px] h-11 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-          agregado ? 'bg-offer-teal text-white' : 'bg-charcoal text-white hover:bg-black'
+        className={`flex-1 min-w-[160px] h-11 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
+          agregado ? 'bg-charcoal text-white' : 'bg-offer-teal text-black hover:brightness-95'
         }`}
       >
         {agregado ? <Check className="w-4 h-4" /> : <ShoppingCart className="w-4 h-4" />}
