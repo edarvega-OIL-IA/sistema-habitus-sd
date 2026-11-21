@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Hábitus SD",
-  description: "Sistema de gestión Hábitus Suplementos Deportivos",
+  description: "Hábitus Suplementos Deportivos",
 };
 
 export default function RootLayout({
