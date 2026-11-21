@@ -84,7 +84,7 @@ export default function CarritoPage() {
                     <p className="text-sm font-bold text-charcoal mt-1">{fmt(it.precio)}</p>
                   </div>
                   <div className="flex flex-col items-end gap-2 shrink-0">
-                    <button onClick={() => quitar(it.articuloId)} aria-label="Quitar producto" className={`text-gray-300 hover:text-red-500 transition-colors ${FOCO}`}>
+                    <button onClick={() => quitar(it.articuloId)} aria-label="Quitar producto" className={`text-gray-500 hover:text-red-500 transition-colors ${FOCO}`}>
                       <Trash2 className="w-4 h-4" />
                     </button>
                     <div className="flex items-center border border-gray-300 rounded-lg">
