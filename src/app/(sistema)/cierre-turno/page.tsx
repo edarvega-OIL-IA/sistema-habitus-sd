@@ -1232,7 +1232,7 @@ export default function CierreTurnoPage() {
   // ── VISTA PRINCIPAL ───────────────────────────────────────────
   return (
     <div>
-      <h1 className="text-xl font-semibold text-[#3c3c3b] mb-6">Caja</h1>
+      <h1 className="text-xl font-semibold text-[#3c3c3b] mb-3">Caja</h1>
 
       {/* Sin turno abierto */}
       {!turnoAbierto && (
@@ -1265,9 +1265,9 @@ export default function CierreTurnoPage() {
 
       {/* Con turno abierto */}
       {turnoAbierto && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {/* Info turno */}
-          <div className="bg-[#00a19a]/10 border border-[#00a19a]/30 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="bg-[#00a19a]/10 border border-[#00a19a]/30 rounded-lg px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-2.5 h-2.5 rounded-full bg-[#00a19a] animate-pulse" />
               <div>
@@ -1301,7 +1301,7 @@ export default function CierreTurnoPage() {
 
           {/* Cards resumen */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="bg-white rounded-lg border border-gray-200 p-3">
               <div className="flex items-center justify-between mb-1">
                 <p className="text-xs text-gray-500">Apertura</p>
                 {puedeCorregirApertura && (
@@ -1317,7 +1317,7 @@ export default function CierreTurnoPage() {
               </div>
               <p className="text-lg font-bold text-[#3c3c3b]">{fmt(apertura)}</p>
             </div>
-            <div className="bg-green-50 rounded-lg border border-green-200 p-4">
+            <div className="bg-green-50 rounded-lg border border-green-200 p-3">
               <div className="flex items-center gap-1 mb-1">
                 <TrendingUp className="w-3 h-3 text-green-600" />
                 <p className="text-xs text-green-600">Ventas efectivo</p>
@@ -1325,7 +1325,7 @@ export default function CierreTurnoPage() {
               <p className="text-lg font-bold text-green-700">{fmt(totalVentasEfectivo)}</p>
               <p className="text-xs text-green-600 mt-0.5">{ventasEfectivo.length} {ventasEfectivo.length === 1 ? 'venta' : 'ventas'}</p>
             </div>
-            <div className="bg-green-50 rounded-lg border border-green-200 p-4">
+            <div className="bg-green-50 rounded-lg border border-green-200 p-3">
               <div className="flex items-center gap-1 mb-1">
                 <TrendingUp className="w-3 h-3 text-green-600" />
                 <p className="text-xs text-green-600">Ingresos efectivo</p>
@@ -1333,7 +1333,7 @@ export default function CierreTurnoPage() {
               <p className="text-lg font-bold text-green-700">{fmt(totalIngresosEfectivo)}</p>
               <p className="text-xs text-green-600 mt-0.5">{ingresosEfectivo.length} {ingresosEfectivo.length === 1 ? 'ingreso' : 'ingresos'}</p>
             </div>
-            <div className="bg-red-50 rounded-lg border border-red-200 p-4">
+            <div className="bg-red-50 rounded-lg border border-red-200 p-3">
               <div className="flex items-center gap-1 mb-1">
                 <TrendingDown className="w-3 h-3 text-red-600" />
                 <p className="text-xs text-red-600">Egresos + Retiros</p>
@@ -1341,7 +1341,7 @@ export default function CierreTurnoPage() {
               <p className="text-lg font-bold text-red-700">{fmt(totalEgresos)}</p>
               <p className="text-xs text-red-600 mt-0.5">{egresosEfectivo.length} registros</p>
             </div>
-            <div className="bg-[#3c3c3b] rounded-lg p-4">
+            <div className="bg-[#3c3c3b] rounded-lg p-3">
               <p className="text-xs text-white/70 mb-1">Esperado en caja</p>
               <p className="text-lg font-bold text-white">{fmt(esperadoEnCaja)}</p>
             </div>
@@ -1431,7 +1431,7 @@ export default function CierreTurnoPage() {
       )}
 
       {/* Filtros del historial — mismo estilo que Registro de ventas */}
-      <div className="mt-6 bg-white rounded-lg border border-gray-200 p-4">
+      <div className="mt-3 bg-white rounded-lg border border-gray-200 px-4 py-3">
         <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-3">
           <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
             <div className="flex items-center gap-2 pb-2">
@@ -1536,25 +1536,25 @@ export default function CierreTurnoPage() {
       </div>
 
       {/* Totales del período filtrado */}
-      <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
+      <div className="mt-3 bg-white rounded-lg border border-gray-200 p-3">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+          <div className="bg-gray-50 rounded-lg border border-gray-200 px-4 py-2.5">
             <p className="text-xs text-gray-500 mb-1">Cajas</p>
             <p className="text-lg font-bold text-[#3c3c3b]">{resumen.cajas}</p>
           </div>
-          <div className="bg-green-50 rounded-lg border border-green-200 p-4">
+          <div className="bg-green-50 rounded-lg border border-green-200 px-4 py-2.5">
             <p className="text-xs text-green-600 mb-1">Ingresos</p>
             <p className="text-lg font-bold text-green-700">{fmt(resumen.ingresos)}</p>
           </div>
-          <div className="bg-red-50 rounded-lg border border-red-200 p-4">
+          <div className="bg-red-50 rounded-lg border border-red-200 px-4 py-2.5">
             <p className="text-xs text-red-600 mb-1">Egresos</p>
             <p className="text-lg font-bold text-red-700">{fmt(resumen.egresos)}</p>
           </div>
-          <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+          <div className="bg-gray-50 rounded-lg border border-gray-200 px-4 py-2.5">
             <p className="text-xs text-gray-500 mb-1">Con diferencia</p>
             <p className="text-lg font-bold text-[#3c3c3b]">{resumen.conDiferencia}</p>
           </div>
-          <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+          <div className="bg-gray-50 rounded-lg border border-gray-200 px-4 py-2.5">
             <p className="text-xs text-gray-500 mb-1">Suma de diferencias</p>
             <p className={`text-lg font-bold ${
               Math.abs(resumen.sumaDiferencias) < 0.01 ? 'text-[#00a19a]'
@@ -1567,8 +1567,8 @@ export default function CierreTurnoPage() {
       </div>
 
       {/* Detalle: historial de cajas */}
-      <div className="mt-4 bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+      <div className="mt-3 bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="px-4 py-2 border-b border-gray-100 bg-gray-50">
           <h2 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Historial de cajas</h2>
         </div>
 
@@ -1582,17 +1582,17 @@ export default function CierreTurnoPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="text-left px-4 py-2 text-xs text-gray-500">Fecha</th>
-                  <th className="text-left px-4 py-2 text-xs text-gray-500">Turno</th>
-                  <th className="text-left px-4 py-2 text-xs text-gray-500">Responsable</th>
-                  <th className="text-left px-4 py-2 text-xs text-gray-500">Apertura</th>
-                  <th className="text-left px-4 py-2 text-xs text-gray-500">Cierre</th>
-                  <th className="text-right px-4 py-2 text-xs text-gray-500">Dinero apertura</th>
-                  <th className="text-right px-4 py-2 text-xs text-gray-500">Ingresos</th>
-                  <th className="text-right px-4 py-2 text-xs text-gray-500">Egresos</th>
-                  <th className="text-right px-4 py-2 text-xs text-gray-500">Dinero cierre</th>
-                  <th className="text-right px-4 py-2 text-xs text-gray-500">Diferencia</th>
-                  <th className="text-left px-4 py-2 text-xs text-gray-500">Estado</th>
+                  <th className="text-left px-4 py-1.5 text-xs text-gray-500">Fecha</th>
+                  <th className="text-left px-4 py-1.5 text-xs text-gray-500">Turno</th>
+                  <th className="text-left px-4 py-1.5 text-xs text-gray-500">Responsable</th>
+                  <th className="text-left px-4 py-1.5 text-xs text-gray-500">Apertura</th>
+                  <th className="text-left px-4 py-1.5 text-xs text-gray-500">Cierre</th>
+                  <th className="text-right px-4 py-1.5 text-xs text-gray-500">Dinero apertura</th>
+                  <th className="text-right px-4 py-1.5 text-xs text-gray-500">Ingresos</th>
+                  <th className="text-right px-4 py-1.5 text-xs text-gray-500">Egresos</th>
+                  <th className="text-right px-4 py-1.5 text-xs text-gray-500">Dinero cierre</th>
+                  <th className="text-right px-4 py-1.5 text-xs text-gray-500">Diferencia</th>
+                  <th className="text-left px-4 py-1.5 text-xs text-gray-500">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -1602,35 +1602,35 @@ export default function CierreTurnoPage() {
                   const cuadrada = c.estado_cierre_turno_id === 2
                   return (
                     <tr key={c.id} className={esSabado(c.fecha) ? 'bg-gray-100 hover:bg-gray-200/70' : 'hover:bg-gray-50'}>
-                      <td className="px-4 py-2 text-gray-700">
+                      <td className="px-4 py-1.5 text-gray-700">
                         {fmtFechaConDia(c.fecha)}
                       </td>
-                      <td className="px-4 py-2 text-gray-700">{c.turnos?.nombre ?? '—'}</td>
-                      <td className="px-4 py-2 text-gray-700">
+                      <td className="px-4 py-1.5 text-gray-700">{c.turnos?.nombre ?? '—'}</td>
+                      <td className="px-4 py-1.5 text-gray-700">
                         {c.usuarios ? `${c.usuarios.nombre} ${c.usuarios.apellido}` : '—'}
                       </td>
-                      <td className="px-4 py-2 text-gray-500">{fmtFecha(c.creado_en)}</td>
-                      <td className="px-4 py-2 text-gray-500">{abierto ? '—' : (c.cerrado_en ? fmtFecha(c.cerrado_en) : '—')}</td>
-                      <td className="px-4 py-2 text-right text-gray-700">
+                      <td className="px-4 py-1.5 text-gray-500">{fmtFecha(c.creado_en)}</td>
+                      <td className="px-4 py-1.5 text-gray-500">{abierto ? '—' : (c.cerrado_en ? fmtFecha(c.cerrado_en) : '—')}</td>
+                      <td className="px-4 py-1.5 text-right text-gray-700">
                         {fmt(c.apertura_contada ?? c.apertura)}
                       </td>
-                      <td className="px-4 py-2 text-right text-green-700">
+                      <td className="px-4 py-1.5 text-right text-green-700">
                         {c.ingresos_sistema ? `+${fmt(c.ingresos_sistema)}` : '—'}
                       </td>
-                      <td className="px-4 py-2 text-right text-red-700">
+                      <td className="px-4 py-1.5 text-right text-red-700">
                         {c.egresos_sistema ? `-${fmt(c.egresos_sistema)}` : '—'}
                       </td>
-                      <td className="px-4 py-2 text-right text-gray-700">
+                      <td className="px-4 py-1.5 text-right text-gray-700">
                         {c.efectivo_real !== null ? fmt(c.efectivo_real) : '—'}
                       </td>
-                      <td className={`px-4 py-2 text-right font-medium ${
+                      <td className={`px-4 py-1.5 text-right font-medium ${
                         abierto ? 'text-gray-400'
                         : cuadrada ? 'text-[#00a19a]'
                         : diferenciaFinal > 0 ? 'text-blue-600' : 'text-red-600'
                       }`}>
                         {abierto ? '—' : `${diferenciaFinal >= 0 ? '+' : ''}${fmt(diferenciaFinal)}`}
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-4 py-1.5">
                         {abierto ? (
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-[#00a19a] bg-[#00a19a]/10 px-2 py-0.5 rounded-full">
                             <span className="w-1.5 h-1.5 rounded-full bg-[#00a19a] animate-pulse" />
