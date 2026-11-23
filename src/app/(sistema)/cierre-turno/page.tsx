@@ -660,6 +660,7 @@ export default function CierreTurnoPage() {
       desde: fechaISO(new Date(Date.UTC(anioHoy, mesHoy - 2, 1))),
       hasta: fechaISO(new Date(Date.UTC(anioHoy, mesHoy - 1, 0))),
     },
+    { label: 'Todos', desde: '2026-01-01', hasta: hoy },
   ]
 
   const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
@@ -1377,92 +1378,94 @@ export default function CierreTurnoPage() {
 
       {/* Filtros del historial */}
       <div className="mt-6 bg-white rounded-lg border border-gray-200 px-4 py-3">
-          <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-3">
-          {/* Grupo 1: período */}
-          <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-          <div className="flex items-center gap-2 text-sm font-medium text-gray-700 pb-2">
-            <Filter className="w-4 h-4 text-gray-500" />
-            Filtros
-          </div>
-          <div className="flex flex-wrap items-center gap-2 pb-1">
-            {atajosPeriodo.map(a => {
-              const activo = filtroDesde === a.desde && filtroHasta === a.hasta
-              return (
-                <button
-                  key={a.label}
-                  type="button"
-                  onClick={() => cambiarFiltro(() => { setFiltroDesde(a.desde); setFiltroHasta(a.hasta) })}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                    activo
-                      ? 'bg-[#00a19a] text-white border-[#00a19a]'
-                      : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-                  }`}
+        <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-3">
+          {/* Izquierda: Filtros + fechas/turno/responsable + atajos */}
+          <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-gray-700 pb-2">
+              <Filter className="w-4 h-4 text-gray-500" />
+              Filtros
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex items-end gap-2">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Desde</label>
+                  <input
+                    type="date"
+                    value={filtroDesde}
+                    onChange={e => e.target.value && cambiarFiltro(() => setFiltroDesde(e.target.value))}
+                    className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+                  />
+                </div>
+                <span className="text-gray-400 pb-2">—</span>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Hasta</label>
+                  <input
+                    type="date"
+                    value={filtroHasta}
+                    onChange={e => e.target.value && cambiarFiltro(() => setFiltroHasta(e.target.value))}
+                    className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Turno</label>
+                <select
+                  value={filtroTurno}
+                  onChange={e => cambiarFiltro(() => setFiltroTurno(e.target.value))}
+                  className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
                 >
-                  {a.label}
-                </button>
-              )
-            })}
-          </div>
-          </div>
-          {/* Grupo 2: turno / responsable / fechas */}
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Desde</label>
-              <input
-                type="date"
-                value={filtroDesde}
-                onChange={e => e.target.value && cambiarFiltro(() => setFiltroDesde(e.target.value))}
-                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
-              />
+                  <option value="">Todos</option>
+                  {turnos.map(t => (
+                    <option key={t.id} value={t.id}>{t.nombre}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Responsable</label>
+                <select
+                  value={filtroResponsable}
+                  onChange={e => cambiarFiltro(() => setFiltroResponsable(e.target.value))}
+                  className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+                >
+                  <option value="">Todos</option>
+                  {usuarios.map(u => (
+                    <option key={u.id} value={u.id}>{u.nombre} {u.apellido}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Hasta</label>
-              <input
-                type="date"
-                value={filtroHasta}
-                onChange={e => e.target.value && cambiarFiltro(() => setFiltroHasta(e.target.value))}
-                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Turno</label>
-              <select
-                value={filtroTurno}
-                onChange={e => cambiarFiltro(() => setFiltroTurno(e.target.value))}
-                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
-              >
-                <option value="">Todos</option>
-                {turnos.map(t => (
-                  <option key={t.id} value={t.id}>{t.nombre}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Responsable</label>
-              <select
-                value={filtroResponsable}
-                onChange={e => cambiarFiltro(() => setFiltroResponsable(e.target.value))}
-                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
-              >
-                <option value="">Todos</option>
-                {usuarios.map(u => (
-                  <option key={u.id} value={u.id}>{u.nombre} {u.apellido}</option>
-                ))}
-              </select>
+            <div className="flex flex-wrap items-center gap-2 pb-1">
+              {atajosPeriodo.map(a => {
+                const activo = filtroDesde === a.desde && filtroHasta === a.hasta
+                return (
+                  <button
+                    key={a.label}
+                    type="button"
+                    onClick={() => cambiarFiltro(() => { setFiltroDesde(a.desde); setFiltroHasta(a.hasta) })}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      activo
+                        ? 'bg-[#00a19a] text-white border-[#00a19a]'
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {a.label}
+                  </button>
+                )
+              })}
             </div>
           </div>
-          {/* Grupo 3: estado */}
+          {/* Derecha: estado */}
           <label className="flex items-center gap-2 text-sm text-gray-600 pb-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={soloDiferencia}
-                onChange={e => cambiarFiltro(() => setSoloDiferencia(e.target.checked))}
-                className="accent-[#00a19a]"
-              />
-              Solo con diferencia
-            </label>
+            <input
+              type="checkbox"
+              checked={soloDiferencia}
+              onChange={e => cambiarFiltro(() => setSoloDiferencia(e.target.checked))}
+              className="accent-[#00a19a]"
+            />
+            Solo con diferencia
+          </label>
         </div>
-        </div>
+      </div>
 
       {/* Totales del período filtrado */}
       <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
