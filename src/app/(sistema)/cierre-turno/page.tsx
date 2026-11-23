@@ -135,7 +135,6 @@ function lunesDe(fecha: string): string {
 type ModoPeriodo = 'dia' | 'semana' | 'mes' | 'anio' | 'libre' | 'todos'
 
 const MODOS_PERIODO: { modo: ModoPeriodo; label: string }[] = [
-  { modo: 'dia', label: 'Día' },
   { modo: 'semana', label: 'Semana' },
   { modo: 'mes', label: 'Mes' },
   { modo: 'anio', label: 'Año' },
