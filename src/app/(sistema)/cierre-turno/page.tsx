@@ -108,6 +108,30 @@ function fmtFechaConDia(fecha: string): string {
   return `${dia} ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${a}`
 }
 
+// ── Fechas para los filtros del historial (todo como 'YYYY-MM-DD') ──
+const PAGINA_HISTORIAL = 30
+
+function fechaISO(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+// Hoy según el horario de Argentina (no el del navegador).
+function hoyAR(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+}
+
+function sumarDias(fecha: string, n: number): string {
+  const [a, m, d] = fecha.split('-').map(Number)
+  return fechaISO(new Date(Date.UTC(a, m - 1, d + n)))
+}
+
+// La semana empieza el lunes.
+function lunesDe(fecha: string): string {
+  const [a, m, d] = fecha.split('-').map(Number)
+  const diaSemana = new Date(Date.UTC(a, m - 1, d)).getUTCDay() // 0 = domingo
+  return sumarDias(fecha, -((diaSemana + 6) % 7))
+}
+
 export default function CierreTurnoPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -155,10 +179,26 @@ export default function CierreTurnoPage() {
   // Historial de cajas (todas, abiertas y cerradas)
   const [historialCierres, setHistorialCierres] = useState<HistorialCierre[]>([])
   const [loadingHistorial, setLoadingHistorial] = useState(true)
+  const reqHistorialRef = useRef(0) // descarta respuestas viejas si se cambian los filtros rápido
+  const [ultimoCierreTurno, setUltimoCierreTurno] = useState<string | null>(null) // nombre del turno del último cierre
+
+  // Filtros del historial — por defecto, la semana actual (de lunes a hoy)
+  const [filtroDesde, setFiltroDesde] = useState<string>(() => lunesDe(hoyAR()))
+  const [filtroHasta, setFiltroHasta] = useState<string>(() => hoyAR())
+  const [filtroTurno, setFiltroTurno] = useState<string>('')
+  const [filtroResponsable, setFiltroResponsable] = useState<string>('')
+  const [soloDiferencia, setSoloDiferencia] = useState(false)
+  const [limiteHistorial, setLimiteHistorial] = useState(PAGINA_HISTORIAL)
+  const [resumen, setResumen] = useState({ cajas: 0, ingresos: 0, egresos: 0, conDiferencia: 0, sumaDiferencias: 0 })
 
   useEffect(() => {
     inicializar()
   }, [])
+
+  // El historial se recarga solo cuando cambia algún filtro o "Cargar más"
+  useEffect(() => {
+    cargarHistorialCierres()
+  }, [filtroDesde, filtroHasta, filtroTurno, filtroResponsable, soloDiferencia, limiteHistorial])
 
   useEffect(() => {
     if (vista === 'cerrar') setTimeout(() => efectivoRef.current?.focus(), 100)
@@ -198,7 +238,7 @@ export default function CierreTurnoPage() {
       // Cargar último cierre confirmado para mostrar apertura esperada
       const { data: ultimoCierre } = await supabase
         .from('cierres_turno')
-        .select('id, efectivo_real')
+        .select('id, efectivo_real, turnos ( nombre )')
         .eq('sucursal_id', sucursalId)
         .neq('estado_cierre_turno_id', 1)
         .not('efectivo_real', 'is', null)
@@ -208,32 +248,64 @@ export default function CierreTurnoPage() {
 
       setUltimaApertura(ultimoCierre?.efectivo_real ?? 0)
       setUltimoCierreId(ultimoCierre?.id ?? null)
-
-      await cargarHistorialCierres()
+      setUltimoCierreTurno((ultimoCierre as any)?.turnos?.nombre ?? null)
     } finally {
       setLoading(false)
     }
   }
 
+  // Aplica los filtros actuales del historial a una consulta de cierres_turno.
+  function aplicarFiltrosHistorial(q: any): any {
+    q = q.eq('sucursal_id', sucursalId).gte('fecha', filtroDesde).lte('fecha', filtroHasta)
+    if (filtroTurno) q = q.eq('turno_id', parseInt(filtroTurno, 10))
+    if (filtroResponsable) q = q.eq('usuario_id', filtroResponsable)
+    // Estados: 1 = Abierta, 2 = Cuadrada; cualquier otro = Con diferencia
+    if (soloDiferencia) q = q.not('estado_cierre_turno_id', 'in', '(1,2)')
+    return q
+  }
+
   async function cargarHistorialCierres() {
+    const reqId = ++reqHistorialRef.current
     setLoadingHistorial(true)
     try {
-      const { data } = await supabase
-        .from('cierres_turno')
-        .select(`
-          id, fecha, creado_en, cerrado_en, apertura, apertura_contada, diferencia_apertura,
-          ingresos_sistema, egresos_sistema, efectivo_real, diferencia, estado_cierre_turno_id,
-          turnos ( nombre ),
-          usuarios ( nombre, apellido )
-        `)
-        .eq('sucursal_id', sucursalId)
-        .order('creado_en', { ascending: false })
-        .limit(30)
+      const [lista, totales] = await Promise.all([
+        aplicarFiltrosHistorial(
+          supabase.from('cierres_turno').select(`
+            id, fecha, creado_en, cerrado_en, apertura, apertura_contada, diferencia_apertura,
+            ingresos_sistema, egresos_sistema, efectivo_real, diferencia, estado_cierre_turno_id,
+            turnos ( nombre ),
+            usuarios ( nombre, apellido )
+          `)
+        )
+          .order('creado_en', { ascending: false })
+          .range(0, limiteHistorial - 1),
+        // Totales sobre TODO el período filtrado (no solo las filas visibles)
+        aplicarFiltrosHistorial(
+          supabase.from('cierres_turno').select('ingresos_sistema, egresos_sistema, diferencia, estado_cierre_turno_id')
+        ),
+      ])
+      if (reqId !== reqHistorialRef.current) return // llegó una consulta más nueva
 
-      setHistorialCierres((data as any[]) || [])
+      setHistorialCierres((lista.data as any[]) || [])
+
+      const filas = (totales.data as any[]) || []
+      const redondear = (n: number) => Math.round(n * 100) / 100
+      setResumen({
+        cajas: filas.length,
+        ingresos: redondear(filas.reduce((s, f) => s + (f.ingresos_sistema ?? 0), 0)),
+        egresos: redondear(filas.reduce((s, f) => s + (f.egresos_sistema ?? 0), 0)),
+        conDiferencia: filas.filter(f => f.estado_cierre_turno_id !== 1 && f.estado_cierre_turno_id !== 2).length,
+        sumaDiferencias: redondear(filas.reduce((s, f) => s + (f.estado_cierre_turno_id === 1 ? 0 : (f.diferencia ?? 0)), 0)),
+      })
     } finally {
-      setLoadingHistorial(false)
+      if (reqId === reqHistorialRef.current) setLoadingHistorial(false)
     }
+  }
+
+  // Cambiar cualquier filtro vuelve a la primera página
+  function cambiarFiltro(fn: () => void) {
+    fn()
+    setLimiteHistorial(PAGINA_HISTORIAL)
   }
 
   async function cargarTurnoAbierto() {
@@ -492,10 +564,9 @@ export default function CierreTurnoPage() {
       return
     }
 
-    // El turno que se va a reabrir ya está en el historial cargado — no
-    // hace falta pedirlo de nuevo a la base solo para este chequeo.
-    const cierreAReabrir = historialCierres.find((c: any) => c.id === ultimoCierreId)
-    const nombreTurnoAReabrir = (cierreAReabrir as any)?.turnos?.nombre
+    // El nombre del turno a reabrir se guarda al inicializar (no sale del
+    // historial, porque ese ahora está filtrado y puede no incluir ese cierre).
+    const nombreTurnoAReabrir = ultimoCierreTurno ?? undefined
     const [inusual, rango] = horarioInusualPara(nombreTurnoAReabrir)
     if (inusual && rango) {
       const continuar = window.confirm(
@@ -516,6 +587,7 @@ export default function CierreTurnoPage() {
       setMotivoReapertura('')
       setVista('principal')
       await inicializar()
+      await cargarHistorialCierres()
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -574,6 +646,21 @@ export default function CierreTurnoPage() {
   const puedeCorregirApertura =
     esAdmin && !!turnoAbierto &&
     ventasEfectivo.length === 0 && ingresosEfectivo.length === 0 && egresosEfectivo.length === 0
+
+  // Atajos de período para el historial (la semana empieza el lunes)
+  const hoy = hoyAR()
+  const lunesActual = lunesDe(hoy)
+  const [anioHoy, mesHoy] = hoy.split('-').map(Number)
+  const atajosPeriodo = [
+    { label: 'Esta semana', desde: lunesActual, hasta: hoy },
+    { label: 'Semana anterior', desde: sumarDias(lunesActual, -7), hasta: sumarDias(lunesActual, -1) },
+    { label: 'Este mes', desde: `${anioHoy}-${String(mesHoy).padStart(2, '0')}-01`, hasta: hoy },
+    {
+      label: 'Mes anterior',
+      desde: fechaISO(new Date(Date.UTC(anioHoy, mesHoy - 2, 1))),
+      hasta: fechaISO(new Date(Date.UTC(anioHoy, mesHoy - 1, 0))),
+    },
+  ]
 
   const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
   const fmtFecha = (s: string) => new Date(s).toLocaleTimeString('es-AR', { 
@@ -1297,12 +1384,121 @@ export default function CierreTurnoPage() {
         <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
           <h2 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Historial de cajas</h2>
         </div>
-        {loadingHistorial ? (
+
+        {/* Filtros */}
+        <div className="px-4 py-3 border-b border-gray-100 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {atajosPeriodo.map(a => {
+              const activo = filtroDesde === a.desde && filtroHasta === a.hasta
+              return (
+                <button
+                  key={a.label}
+                  type="button"
+                  onClick={() => cambiarFiltro(() => { setFiltroDesde(a.desde); setFiltroHasta(a.hasta) })}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    activo
+                      ? 'bg-[#00a19a] text-white border-[#00a19a]'
+                      : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {a.label}
+                </button>
+              )
+            })}
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Desde</label>
+              <input
+                type="date"
+                value={filtroDesde}
+                onChange={e => e.target.value && cambiarFiltro(() => setFiltroDesde(e.target.value))}
+                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Hasta</label>
+              <input
+                type="date"
+                value={filtroHasta}
+                onChange={e => e.target.value && cambiarFiltro(() => setFiltroHasta(e.target.value))}
+                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Turno</label>
+              <select
+                value={filtroTurno}
+                onChange={e => cambiarFiltro(() => setFiltroTurno(e.target.value))}
+                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+              >
+                <option value="">Todos</option>
+                {turnos.map(t => (
+                  <option key={t.id} value={t.id}>{t.nombre}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Responsable</label>
+              <select
+                value={filtroResponsable}
+                onChange={e => cambiarFiltro(() => setFiltroResponsable(e.target.value))}
+                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+              >
+                <option value="">Todos</option>
+                {usuarios.map(u => (
+                  <option key={u.id} value={u.id}>{u.nombre} {u.apellido}</option>
+                ))}
+              </select>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-600 pb-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={soloDiferencia}
+                onChange={e => cambiarFiltro(() => setSoloDiferencia(e.target.checked))}
+                className="accent-[#00a19a]"
+              />
+              Solo con diferencia
+            </label>
+          </div>
+        </div>
+
+        {/* Resumen del período filtrado */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+          <div>
+            <p className="text-xs text-gray-500">Cajas</p>
+            <p className="text-sm font-semibold text-[#3c3c3b]">{resumen.cajas}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Ingresos</p>
+            <p className="text-sm font-semibold text-green-700">{fmt(resumen.ingresos)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Egresos</p>
+            <p className="text-sm font-semibold text-red-700">{fmt(resumen.egresos)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Con diferencia</p>
+            <p className="text-sm font-semibold text-[#3c3c3b]">{resumen.conDiferencia}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Suma de diferencias</p>
+            <p className={`text-sm font-semibold ${
+              Math.abs(resumen.sumaDiferencias) < 0.01 ? 'text-[#00a19a]'
+              : resumen.sumaDiferencias > 0 ? 'text-blue-600' : 'text-red-600'
+            }`}>
+              {resumen.sumaDiferencias >= 0 ? '+' : ''}{fmt(resumen.sumaDiferencias)}
+            </p>
+          </div>
+        </div>
+
+        {loadingHistorial && historialCierres.length === 0 ? (
           <p className="text-sm text-gray-400 px-4 py-6 text-center">Cargando...</p>
         ) : historialCierres.length === 0 ? (
-          <p className="text-sm text-gray-400 px-4 py-6 text-center">Todavía no hay cajas registradas.</p>
+          <p className="text-sm text-gray-400 px-4 py-6 text-center">No hay cajas para los filtros elegidos.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className={`overflow-x-auto transition-opacity ${loadingHistorial ? 'opacity-60' : ''}`}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
@@ -1378,6 +1574,19 @@ export default function CierreTurnoPage() {
               </tbody>
             </table>
           </div>
+          {historialCierres.length < resumen.cajas && (
+            <div className="px-4 py-3 border-t border-gray-100 text-center">
+              <button
+                type="button"
+                onClick={() => setLimiteHistorial(l => l + PAGINA_HISTORIAL)}
+                disabled={loadingHistorial}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded text-sm hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                Cargar más ({historialCierres.length} de {resumen.cajas})
+              </button>
+            </div>
+          )}
+          </>
         )}
       </div>
     </div>
