@@ -1376,12 +1376,13 @@ export default function CierreTurnoPage() {
       )}
 
       {/* Filtros del historial */}
-      <div className="mt-6 bg-white rounded-lg border border-gray-200 p-4 space-y-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+      <div className="mt-6 bg-white rounded-lg border border-gray-200 px-4 py-3">
+          <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-700 pb-2">
             <Filter className="w-4 h-4 text-gray-500" />
             Filtros
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 pb-1">
             {atajosPeriodo.map(a => {
               const activo = filtroDesde === a.desde && filtroHasta === a.hasta
               return (
@@ -1400,7 +1401,7 @@ export default function CierreTurnoPage() {
               )
             })}
           </div>
-          <div className="flex flex-wrap items-end gap-3">
+          <div className="contents">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Desde</label>
               <input
@@ -1454,6 +1455,7 @@ export default function CierreTurnoPage() {
               />
               Solo con diferencia
             </label>
+          </div>
           </div>
         </div>
 
