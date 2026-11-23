@@ -1177,29 +1177,7 @@ export default function CierreTurnoPage() {
   // ── VISTA PRINCIPAL ───────────────────────────────────────────
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-[#3c3c3b]">Caja</h1>
-        {turnoAbierto && (
-          <div className="flex items-center gap-2">
-            {puedeCorregirApertura && (
-              <button
-                onClick={() => { setError(null); setAperturaCorregida(''); setVista('corregir') }}
-                className="border border-gray-300 text-gray-700 px-4 py-2 rounded text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
-              >
-                <Pencil className="w-4 h-4" />
-                Corregir apertura
-              </button>
-            )}
-            <button
-              onClick={() => { setError(null); setVista('retiro') }}
-              className="border border-gray-300 text-gray-700 px-4 py-2 rounded text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
-            >
-              <Banknote className="w-4 h-4" />
-              Retiro de caja
-            </button>
-          </div>
-        )}
-      </div>
+      <h1 className="text-xl font-semibold text-[#3c3c3b] mb-6">Caja</h1>
 
       {/* Sin turno abierto */}
       {!turnoAbierto && (
@@ -1234,7 +1212,7 @@ export default function CierreTurnoPage() {
       {turnoAbierto && (
         <div className="space-y-4">
           {/* Info turno */}
-          <div className="bg-[#00a19a]/10 border border-[#00a19a]/30 rounded-lg p-4 flex items-center justify-between">
+          <div className="bg-[#00a19a]/10 border border-[#00a19a]/30 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-2.5 h-2.5 rounded-full bg-[#00a19a] animate-pulse" />
               <div>
@@ -1247,13 +1225,41 @@ export default function CierreTurnoPage() {
                 </p>
               </div>
             </div>
-            <span className="text-xs bg-[#00a19a] text-white px-2.5 py-1 rounded-full font-medium">Activo</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs bg-[#00a19a] text-white px-2.5 py-1 rounded-full font-medium mr-1">Activo</span>
+              <button
+                onClick={() => { setError(null); setVista('retiro') }}
+                className="bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+              >
+                <Banknote className="w-4 h-4" />
+                Retiro de caja
+              </button>
+              <button
+                onClick={() => { setError(null); setVista('cerrar') }}
+                className="bg-[#3c3c3b] text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-black transition-colors flex items-center gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                Cerrar turno
+              </button>
+            </div>
           </div>
 
           {/* Cards resumen */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <p className="text-xs text-gray-500 mb-1">Apertura</p>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-gray-500">Apertura</p>
+                {puedeCorregirApertura && (
+                  <button
+                    onClick={() => { setError(null); setAperturaCorregida(''); setVista('corregir') }}
+                    title="Corregir el efectivo contado al abrir"
+                    className="text-xs text-[#00a19a] hover:underline flex items-center gap-1"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    Corregir
+                  </button>
+                )}
+              </div>
               <p className="text-lg font-bold text-[#3c3c3b]">{fmt(apertura)}</p>
             </div>
             <div className="bg-green-50 rounded-lg border border-green-200 p-4">
@@ -1366,16 +1372,6 @@ export default function CierreTurnoPage() {
             </div>
           )}
 
-          {/* Botón cerrar turno */}
-          <div className="flex justify-end">
-            <button
-              onClick={() => { setError(null); setVista('cerrar') }}
-              className="bg-[#3c3c3b] text-white px-6 py-2.5 rounded font-medium text-sm hover:bg-black transition-colors flex items-center gap-2"
-            >
-              <LogOut className="w-4 h-4" />
-              Cerrar turno
-            </button>
-          </div>
         </div>
       )}
 
