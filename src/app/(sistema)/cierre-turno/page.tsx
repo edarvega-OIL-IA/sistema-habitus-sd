@@ -1376,43 +1376,43 @@ export default function CierreTurnoPage() {
         </div>
       )}
 
-      {/* Filtros del historial */}
-      <div className="mt-6 bg-white rounded-lg border border-gray-200 px-4 py-3">
+      {/* Filtros del historial — mismo estilo que Registro de ventas */}
+      <div className="mt-6 bg-white rounded-lg border border-gray-200 p-4">
         <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-3">
-          {/* Izquierda: Filtros + fechas/turno/responsable + atajos */}
+          {/* Izquierda: Filtros · fechas · turno/responsable · atajos */}
           <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-gray-700 pb-2">
+            <div className="flex items-center gap-2 pb-2">
               <Filter className="w-4 h-4 text-gray-500" />
-              Filtros
+              <h2 className="text-sm font-semibold text-gray-700">Filtros</h2>
             </div>
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="flex items-end gap-2">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Desde</label>
-                  <input
-                    type="date"
-                    value={filtroDesde}
-                    onChange={e => e.target.value && cambiarFiltro(() => setFiltroDesde(e.target.value))}
-                    className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
-                  />
-                </div>
-                <span className="text-gray-400 pb-2">—</span>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Hasta</label>
-                  <input
-                    type="date"
-                    value={filtroHasta}
-                    onChange={e => e.target.value && cambiarFiltro(() => setFiltroHasta(e.target.value))}
-                    className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
-                  />
-                </div>
-              </div>
+            <div className="flex items-end gap-2">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Turno</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Desde</label>
+                <input
+                  type="date"
+                  value={filtroDesde}
+                  onChange={e => e.target.value && cambiarFiltro(() => setFiltroDesde(e.target.value))}
+                  className="px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+                />
+              </div>
+              <span className="text-gray-400 text-sm pb-2.5">—</span>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Hasta</label>
+                <input
+                  type="date"
+                  value={filtroHasta}
+                  onChange={e => e.target.value && cambiarFiltro(() => setFiltroHasta(e.target.value))}
+                  className="px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+                />
+              </div>
+            </div>
+            <div className="flex items-end gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Turno</label>
                 <select
                   value={filtroTurno}
                   onChange={e => cambiarFiltro(() => setFiltroTurno(e.target.value))}
-                  className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+                  className="w-36 px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
                 >
                   <option value="">Todos</option>
                   {turnos.map(t => (
@@ -1421,11 +1421,11 @@ export default function CierreTurnoPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Responsable</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Responsable</label>
                 <select
                   value={filtroResponsable}
                   onChange={e => cambiarFiltro(() => setFiltroResponsable(e.target.value))}
-                  className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+                  className="w-48 px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
                 >
                   <option value="">Todos</option>
                   {usuarios.map(u => (
@@ -1434,7 +1434,7 @@ export default function CierreTurnoPage() {
                 </select>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 pb-1">
+            <div className="flex flex-wrap items-center gap-2">
               {atajosPeriodo.map(a => {
                 const activo = filtroDesde === a.desde && filtroHasta === a.hasta
                 return (
@@ -1442,10 +1442,10 @@ export default function CierreTurnoPage() {
                     key={a.label}
                     type="button"
                     onClick={() => cambiarFiltro(() => { setFiltroDesde(a.desde); setFiltroHasta(a.hasta) })}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    className={`px-3 py-2 text-sm font-medium border rounded transition-colors ${
                       activo
                         ? 'bg-[#00a19a] text-white border-[#00a19a]'
-                        : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
                     }`}
                   >
                     {a.label}
@@ -1455,12 +1455,12 @@ export default function CierreTurnoPage() {
             </div>
           </div>
           {/* Derecha: estado */}
-          <label className="flex items-center gap-2 text-sm text-gray-600 pb-1.5 cursor-pointer">
+          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none pb-2">
             <input
               type="checkbox"
               checked={soloDiferencia}
               onChange={e => cambiarFiltro(() => setSoloDiferencia(e.target.checked))}
-              className="accent-[#00a19a]"
+              className="w-4 h-4 accent-[#00a19a]"
             />
             Solo con diferencia
           </label>
