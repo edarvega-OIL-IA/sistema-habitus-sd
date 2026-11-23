@@ -96,6 +96,12 @@ type Vista = 'principal' | 'abrir' | 'cerrar' | 'retiro' | 'historial' | 'reaper
 // horaria del navegador no corra el día.
 const DIAS_SEMANA = ['dom', 'lun', 'mar', 'mie', 'jue', 'vie', 'sab']
 
+// Los sábados se pintan en gris suave para separar visualmente las semanas.
+function esSabado(fecha: string): boolean {
+  const [a, m, d] = fecha.split('-').map(Number)
+  return new Date(Date.UTC(a, m - 1, d)).getUTCDay() === 6
+}
+
 function fmtFechaConDia(fecha: string): string {
   const [a, m, d] = fecha.split('-').map(Number)
   const dia = DIAS_SEMANA[new Date(Date.UTC(a, m - 1, d)).getUTCDay()]
@@ -1319,7 +1325,7 @@ export default function CierreTurnoPage() {
                   const diferenciaFinal = c.diferencia ?? 0
                   const cuadrada = c.estado_cierre_turno_id === 2
                   return (
-                    <tr key={c.id} className="hover:bg-gray-50">
+                    <tr key={c.id} className={esSabado(c.fecha) ? 'bg-gray-100 hover:bg-gray-200/70' : 'hover:bg-gray-50'}>
                       <td className="px-4 py-2 text-gray-700">
                         {fmtFechaConDia(c.fecha)}
                       </td>
