@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Clock, LogIn, LogOut, AlertCircle, CheckCircle2, Banknote, TrendingUp, TrendingDown, Plus, X, Pencil } from 'lucide-react'
+import { Clock, LogIn, LogOut, AlertCircle, CheckCircle2, Banknote, TrendingUp, TrendingDown, Plus, X, Pencil, Filter } from 'lucide-react'
 
 interface TurnoAbierto {
   id: number
@@ -1379,14 +1379,12 @@ export default function CierreTurnoPage() {
         </div>
       )}
 
-      {/* Historial de cajas */}
-      <div className="mt-6 bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-          <h2 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Historial de cajas</h2>
-        </div>
-
-        {/* Filtros */}
-        <div className="px-4 py-3 border-b border-gray-100 space-y-3">
+      {/* Filtros del historial */}
+      <div className="mt-6 bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <Filter className="w-4 h-4 text-gray-500" />
+            Filtros
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             {atajosPeriodo.map(a => {
               const activo = filtroDesde === a.desde && filtroHasta === a.hasta
@@ -1463,33 +1461,41 @@ export default function CierreTurnoPage() {
           </div>
         </div>
 
-        {/* Resumen del período filtrado */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 px-4 py-3 border-b border-gray-100 bg-gray-50/50">
-          <div>
-            <p className="text-xs text-gray-500">Cajas</p>
-            <p className="text-sm font-semibold text-[#3c3c3b]">{resumen.cajas}</p>
+      {/* Totales del período filtrado */}
+      <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+            <p className="text-xs text-gray-500 mb-1">Cajas</p>
+            <p className="text-lg font-bold text-[#3c3c3b]">{resumen.cajas}</p>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">Ingresos</p>
-            <p className="text-sm font-semibold text-green-700">{fmt(resumen.ingresos)}</p>
+          <div className="bg-green-50 rounded-lg border border-green-200 p-4">
+            <p className="text-xs text-green-600 mb-1">Ingresos</p>
+            <p className="text-lg font-bold text-green-700">{fmt(resumen.ingresos)}</p>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">Egresos</p>
-            <p className="text-sm font-semibold text-red-700">{fmt(resumen.egresos)}</p>
+          <div className="bg-red-50 rounded-lg border border-red-200 p-4">
+            <p className="text-xs text-red-600 mb-1">Egresos</p>
+            <p className="text-lg font-bold text-red-700">{fmt(resumen.egresos)}</p>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">Con diferencia</p>
-            <p className="text-sm font-semibold text-[#3c3c3b]">{resumen.conDiferencia}</p>
+          <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+            <p className="text-xs text-gray-500 mb-1">Con diferencia</p>
+            <p className="text-lg font-bold text-[#3c3c3b]">{resumen.conDiferencia}</p>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">Suma de diferencias</p>
-            <p className={`text-sm font-semibold ${
+          <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+            <p className="text-xs text-gray-500 mb-1">Suma de diferencias</p>
+            <p className={`text-lg font-bold ${
               Math.abs(resumen.sumaDiferencias) < 0.01 ? 'text-[#00a19a]'
               : resumen.sumaDiferencias > 0 ? 'text-blue-600' : 'text-red-600'
             }`}>
               {resumen.sumaDiferencias >= 0 ? '+' : ''}{fmt(resumen.sumaDiferencias)}
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Detalle: historial de cajas */}
+      <div className="mt-4 bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+          <h2 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Historial de cajas</h2>
         </div>
 
         {loadingHistorial && historialCierres.length === 0 ? (
