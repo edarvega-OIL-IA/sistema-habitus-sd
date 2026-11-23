@@ -140,6 +140,8 @@ export default function CierreTurnoPage() {
   const [turnoAbierto, setTurnoAbierto] = useState<TurnoAbierto | null>(null)
   const [turnos, setTurnos] = useState<Turno[]>([])
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
+  // Ids de quienes alguna vez abrieron una caja (para el filtro Responsable del historial)
+  const [idsResponsablesCaja, setIdsResponsablesCaja] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [procesando, setProcesando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -232,6 +234,12 @@ export default function CierreTurnoPage() {
         .eq('estado_usuario_id', 1)
         .order('nombre')
       setUsuarios((usuariosData as any[]) || [])
+
+      const { data: respData } = await supabase
+        .from('cierres_turno')
+        .select('usuario_id')
+        .eq('sucursal_id', sucursalId)
+      setIdsResponsablesCaja(new Set((respData || []).map((r: any) => r.usuario_id)))
 
       await cargarTurnoAbierto()
 
@@ -1428,7 +1436,7 @@ export default function CierreTurnoPage() {
                   className="w-48 px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
                 >
                   <option value="">Todos</option>
-                  {usuarios.map(u => (
+                  {usuarios.filter(u => idsResponsablesCaja.has(u.id)).map(u => (
                     <option key={u.id} value={u.id}>{u.nombre} {u.apellido}</option>
                   ))}
                 </select>
