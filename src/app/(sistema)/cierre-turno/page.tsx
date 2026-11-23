@@ -91,6 +91,17 @@ interface HistorialCierre {
 
 type Vista = 'principal' | 'abrir' | 'cerrar' | 'retiro' | 'historial' | 'reapertura' | 'corregir'
 
+// Día de la semana abreviado (3 letras) para la columna Fecha del historial.
+// `fecha` viene como DATE 'YYYY-MM-DD'; se calcula con UTC para que la zona
+// horaria del navegador no corra el día.
+const DIAS_SEMANA = ['dom', 'lun', 'mar', 'mie', 'jue', 'vie', 'sab']
+
+function fmtFechaConDia(fecha: string): string {
+  const [a, m, d] = fecha.split('-').map(Number)
+  const dia = DIAS_SEMANA[new Date(Date.UTC(a, m - 1, d)).getUTCDay()]
+  return `${dia} ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${a}`
+}
+
 export default function CierreTurnoPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -1310,7 +1321,7 @@ export default function CierreTurnoPage() {
                   return (
                     <tr key={c.id} className="hover:bg-gray-50">
                       <td className="px-4 py-2 text-gray-700">
-                        {c.fecha.split('-').reverse().join('/')}
+                        {fmtFechaConDia(c.fecha)}
                       </td>
                       <td className="px-4 py-2 text-gray-700">{c.turnos?.nombre ?? '—'}</td>
                       <td className="px-4 py-2 text-gray-700">
