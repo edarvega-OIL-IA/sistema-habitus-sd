@@ -132,6 +132,54 @@ function lunesDe(fecha: string): string {
   return sumarDias(fecha, -((diaSemana + 6) % 7))
 }
 
+type ModoPeriodo = 'dia' | 'semana' | 'mes' | 'anio' | 'libre' | 'todos'
+
+const MODOS_PERIODO: { modo: ModoPeriodo; label: string }[] = [
+  { modo: 'dia', label: 'Día' },
+  { modo: 'semana', label: 'Semana' },
+  { modo: 'mes', label: 'Mes' },
+  { modo: 'anio', label: 'Año' },
+  { modo: 'libre', label: 'Libre' },
+]
+
+// Rango Desde/Hasta de cada modo, a partir de una fecha de referencia (la semana empieza el lunes)
+function rangoPeriodo(modo: ModoPeriodo, ref: string): { desde: string; hasta: string } {
+  const [y, m] = ref.split('-').map(Number)
+  const mm = String(m).padStart(2, '0')
+  if (modo === 'dia') return { desde: ref, hasta: ref }
+  if (modo === 'semana') { const l = lunesDe(ref); return { desde: l, hasta: sumarDias(l, 6) } }
+  if (modo === 'mes') return { desde: `${y}-${mm}-01`, hasta: fechaISO(new Date(Date.UTC(y, m, 0))) }
+  if (modo === 'anio') return { desde: `${y}-01-01`, hasta: `${y}-12-31` }
+  return { desde: '2026-01-01', hasta: hoyAR() } // todos (el sistema arrancó en 2026)
+}
+
+// Avanza (+1) o retrocede (-1) la fecha de referencia según el modo
+function moverReferencia(modo: ModoPeriodo, ref: string, dir: number): string {
+  const [y, m] = ref.split('-').map(Number)
+  if (modo === 'dia') return sumarDias(ref, dir)
+  if (modo === 'semana') return sumarDias(ref, 7 * dir)
+  if (modo === 'mes') return fechaISO(new Date(Date.UTC(y, m - 1 + dir, 1)))
+  if (modo === 'anio') return `${y + dir}-01-01`
+  return ref
+}
+
+// Texto del botón activo (ej. "lun, 23 nov", "23 nov – 29 nov", "noviembre de 2026", "2026")
+function etiquetaPeriodo(modo: ModoPeriodo, ref: string): string {
+  const [y, m, d] = ref.split('-').map(Number)
+  const f = (fecha: Date, o: Intl.DateTimeFormatOptions) => fecha.toLocaleDateString('es-AR', { ...o, timeZone: 'UTC' })
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  if (modo === 'dia') return f(dt, { weekday: 'short', day: 'numeric', month: 'short' })
+  if (modo === 'semana') {
+    const [ly, lm, ld] = lunesDe(ref).split('-').map(Number)
+    const lun = new Date(Date.UTC(ly, lm - 1, ld))
+    const dom = new Date(Date.UTC(ly, lm - 1, ld + 6))
+    return `${f(lun, { day: 'numeric', month: 'short' })} – ${f(dom, { day: 'numeric', month: 'short' })}`
+  }
+  if (modo === 'mes') return f(dt, { month: 'long', year: 'numeric' })
+  if (modo === 'anio') return String(y)
+  return ''
+}
+
 export default function CierreTurnoPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -184,9 +232,11 @@ export default function CierreTurnoPage() {
   const reqHistorialRef = useRef(0) // descarta respuestas viejas si se cambian los filtros rápido
   const [ultimoCierreTurno, setUltimoCierreTurno] = useState<string | null>(null) // nombre del turno del último cierre
 
-  // Filtros del historial — por defecto, la semana actual (de lunes a hoy)
-  const [filtroDesde, setFiltroDesde] = useState<string>(() => lunesDe(hoyAR()))
-  const [filtroHasta, setFiltroHasta] = useState<string>(() => hoyAR())
+  // Filtros del historial — por defecto, la semana actual (lunes a domingo)
+  const [modoPeriodo, setModoPeriodo] = useState<ModoPeriodo>('semana')
+  const [fechaRef, setFechaRef] = useState<string>(() => hoyAR())
+  const [filtroDesde, setFiltroDesde] = useState<string>(() => rangoPeriodo('semana', hoyAR()).desde)
+  const [filtroHasta, setFiltroHasta] = useState<string>(() => rangoPeriodo('semana', hoyAR()).hasta)
   const [filtroTurno, setFiltroTurno] = useState<string>('')
   const [filtroResponsable, setFiltroResponsable] = useState<string>('')
   const [soloDiferencia, setSoloDiferencia] = useState(false)
@@ -655,21 +705,18 @@ export default function CierreTurnoPage() {
     esAdmin && !!turnoAbierto &&
     ventasEfectivo.length === 0 && ingresosEfectivo.length === 0 && egresosEfectivo.length === 0
 
-  // Atajos de período para el historial (la semana empieza el lunes)
-  const hoy = hoyAR()
-  const lunesActual = lunesDe(hoy)
-  const [anioHoy, mesHoy] = hoy.split('-').map(Number)
-  const atajosPeriodo = [
-    { label: 'Esta semana', desde: lunesActual, hasta: hoy },
-    { label: 'Semana anterior', desde: sumarDias(lunesActual, -7), hasta: sumarDias(lunesActual, -1) },
-    { label: 'Este mes', desde: `${anioHoy}-${String(mesHoy).padStart(2, '0')}-01`, hasta: hoy },
-    {
-      label: 'Mes anterior',
-      desde: fechaISO(new Date(Date.UTC(anioHoy, mesHoy - 2, 1))),
-      hasta: fechaISO(new Date(Date.UTC(anioHoy, mesHoy - 1, 0))),
-    },
-    { label: 'Todos', desde: '2026-01-01', hasta: hoy },
-  ]
+  // Período del historial: elegir modo o moverse con las flechas
+  const elegirModo = (modo: ModoPeriodo) => cambiarFiltro(() => {
+    setModoPeriodo(modo)
+    const r = rangoPeriodo(modo, fechaRef)
+    setFiltroDesde(r.desde); setFiltroHasta(r.hasta)
+  })
+  const moverPeriodo = (dir: number) => cambiarFiltro(() => {
+    const ref = moverReferencia(modoPeriodo, fechaRef, dir)
+    setFechaRef(ref)
+    const r = rangoPeriodo(modoPeriodo, ref)
+    setFiltroDesde(r.desde); setFiltroHasta(r.hasta)
+  })
 
   const fmt = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
   const fmtFecha = (s: string) => new Date(s).toLocaleTimeString('es-AR', { 
@@ -1387,33 +1434,66 @@ export default function CierreTurnoPage() {
       {/* Filtros del historial — mismo estilo que Registro de ventas */}
       <div className="mt-6 bg-white rounded-lg border border-gray-200 p-4">
         <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-3">
-          {/* Izquierda: Filtros · fechas · turno/responsable · atajos */}
-          <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
+          <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
             <div className="flex items-center gap-2 pb-2">
               <Filter className="w-4 h-4 text-gray-500" />
               <h2 className="text-sm font-semibold text-gray-700">Filtros</h2>
             </div>
-            <div className="flex items-end gap-2">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Desde</label>
-                <input
-                  type="date"
-                  value={filtroDesde}
-                  onChange={e => e.target.value && cambiarFiltro(() => setFiltroDesde(e.target.value))}
-                  className="px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
-                />
-              </div>
-              <span className="text-gray-400 text-sm pb-2.5">—</span>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Hasta</label>
-                <input
-                  type="date"
-                  value={filtroHasta}
-                  onChange={e => e.target.value && cambiarFiltro(() => setFiltroHasta(e.target.value))}
-                  className="px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
-                />
-              </div>
+
+            {/* Período: Día / Semana / Mes / Año / Libre / Todos */}
+            <div className="flex flex-wrap items-center gap-2 pb-0.5">
+              {MODOS_PERIODO.map(({ modo, label }) => {
+                const activo = modoPeriodo === modo
+                const conFlechas = activo && modo !== 'libre'
+                return (
+                  <div key={modo} className="flex items-center">
+                    {conFlechas && (
+                      <button type="button" onClick={() => moverPeriodo(-1)} className="w-7 h-9 flex items-center justify-center rounded-l border border-r-0 border-gray-300 hover:bg-gray-100 text-gray-600 text-sm">‹</button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => elegirModo(modo)}
+                      className={`px-3 py-2 text-sm font-medium border transition-colors ${
+                        activo ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                      } ${conFlechas ? '' : 'rounded'}`}
+                    >
+                      {conFlechas ? etiquetaPeriodo(modo, fechaRef) : label}
+                    </button>
+                    {conFlechas && (
+                      <button type="button" onClick={() => moverPeriodo(1)} className="w-7 h-9 flex items-center justify-center rounded-r border border-l-0 border-gray-300 hover:bg-gray-100 text-gray-600 text-sm">›</button>
+                    )}
+                  </div>
+                )
+              })}
+              <button
+                type="button"
+                onClick={() => elegirModo('todos')}
+                className={`px-3 py-2 text-sm font-medium border rounded transition-colors ${
+                  modoPeriodo === 'todos' ? 'bg-[#00a19a] text-white border-[#00a19a]' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                Todos
+              </button>
             </div>
+
+            {/* Fechas */}
+            <div className="flex items-center gap-2 pb-0.5">
+              <input
+                type="date"
+                value={filtroDesde}
+                onChange={e => e.target.value && cambiarFiltro(() => { setModoPeriodo('libre'); setFiltroDesde(e.target.value) })}
+                className="px-2 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+              />
+              <span className="text-gray-400 text-sm">—</span>
+              <input
+                type="date"
+                value={filtroHasta}
+                onChange={e => e.target.value && cambiarFiltro(() => { setModoPeriodo('libre'); setFiltroHasta(e.target.value) })}
+                className="px-2 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a19a]"
+              />
+            </div>
+
+            {/* Turno y Responsable */}
             <div className="flex items-end gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Turno</label>
@@ -1442,27 +1522,8 @@ export default function CierreTurnoPage() {
                 </select>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {atajosPeriodo.map(a => {
-                const activo = filtroDesde === a.desde && filtroHasta === a.hasta
-                return (
-                  <button
-                    key={a.label}
-                    type="button"
-                    onClick={() => cambiarFiltro(() => { setFiltroDesde(a.desde); setFiltroHasta(a.hasta) })}
-                    className={`px-3 py-2 text-sm font-medium border rounded transition-colors ${
-                      activo
-                        ? 'bg-[#00a19a] text-white border-[#00a19a]'
-                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    {a.label}
-                  </button>
-                )
-              })}
-            </div>
           </div>
-          {/* Derecha: estado */}
+
           <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none pb-2">
             <input
               type="checkbox"
