@@ -1377,6 +1377,8 @@ export default function CierreTurnoPage() {
 
       {/* Filtros del historial */}
       <div className="mt-6 bg-white rounded-lg border border-gray-200 px-4 py-3">
+          <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-3">
+          {/* Grupo 1: período */}
           <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
           <div className="flex items-center gap-2 text-sm font-medium text-gray-700 pb-2">
             <Filter className="w-4 h-4 text-gray-500" />
@@ -1401,7 +1403,9 @@ export default function CierreTurnoPage() {
               )
             })}
           </div>
-          <div className="contents">
+          </div>
+          {/* Grupo 2: turno / responsable / fechas */}
+          <div className="flex flex-wrap items-end gap-3">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Desde</label>
               <input
@@ -1446,7 +1450,9 @@ export default function CierreTurnoPage() {
                 ))}
               </select>
             </div>
-            <label className="flex items-center gap-2 text-sm text-gray-600 pb-1.5 cursor-pointer">
+          </div>
+          {/* Grupo 3: estado */}
+          <label className="flex items-center gap-2 text-sm text-gray-600 pb-1.5 cursor-pointer">
               <input
                 type="checkbox"
                 checked={soloDiferencia}
@@ -1455,8 +1461,7 @@ export default function CierreTurnoPage() {
               />
               Solo con diferencia
             </label>
-          </div>
-          </div>
+        </div>
         </div>
 
       {/* Totales del período filtrado */}
