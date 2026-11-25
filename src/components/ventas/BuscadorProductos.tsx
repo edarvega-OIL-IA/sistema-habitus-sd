@@ -66,6 +66,12 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
   const catalogoRef = useRef<Articulo[]>([])
   const [catalogoListo, setCatalogoListo] = useState(false)
 
+  // La lista de sugerencias solo se muestra mientras haya texto escrito en el
+  // buscador. Si el campo queda vacío (por ejemplo, tras un escaneo o una
+  // transmisión repetida del lector), la lista se oculta aunque quedara
+  // algún resultado viejo en el estado.
+  const listaVisible = query.trim() !== '' && resultados.length > 0
+
   // Anti-rebote con ventana deslizante: mientras sigan llegando lecturas
   // del mismo código, el bloqueo se mantiene; se libera recién con un
   // silencio real de más de UMBRAL_REBOTE_MS.
@@ -152,7 +158,7 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (resultados.length > 0) {
+    if (listaVisible) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         setIndiceFoco(prev => Math.min(prev + 1, resultados.length - 1))
@@ -176,6 +182,7 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
       // hace instantes (o mientras sigue llegando en ráfaga), se ignora.
       if (esEscaneoDuplicado(texto)) {
         setQuery('')
+        setResultados([])
         return
       }
 
@@ -189,6 +196,7 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
           texto === art.codigo_barra || texto === art.codigo_interno
         if (coincideConElAbierto) {
           setQuery('')
+          setResultados([])
           return
         }
       }
@@ -298,7 +306,7 @@ export default function BuscadorProductos({ onAgregarItem }: BuscadorProductosPr
       </div>
 
       {/* Lista de resultados con navegación por teclado */}
-      {resultados.length > 0 && (
+      {listaVisible && (
         <div ref={listaRef} className="absolute z-20 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-64 overflow-y-auto">
           {resultados.map((a, idx) => (
             <button
