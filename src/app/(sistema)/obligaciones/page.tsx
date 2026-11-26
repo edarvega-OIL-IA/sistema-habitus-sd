@@ -80,7 +80,7 @@ function armarGruposConcepto(items: Obligacion[]): GrupoConcepto[] {
         cantidad: lista.length,
         cargos,
         pagos,
-        saldo: Math.round((cargos - pagos) * 100) / 100,
+        saldo: redondear(cargos - pagos),
         movimientos: conSaldo.reverse(),
       }
     })
@@ -90,8 +90,13 @@ function armarGruposConcepto(items: Obligacion[]): GrupoConcepto[] {
 function fmtFecha(f: string) {
   return f.slice(0, 10).split('-').reverse().join('/')
 }
+// Redondea a centavos y evita el "-0,00": los totales de montos decimales
+// pueden dar restos de punto flotante (ej. -0.000000005) que no son un saldo real.
+function redondear(n: number): number {
+  return Math.round(n * 100) / 100 + 0
+}
 function fmtMonto(n: number) {
-  return n.toLocaleString('es-AR', { minimumFractionDigits: 2 })
+  return redondear(n).toLocaleString('es-AR', { minimumFractionDigits: 2 })
 }
 
 export default function ObligacionesPage() {
@@ -240,10 +245,10 @@ export default function ObligacionesPage() {
   }
 
   function saldoDe(acreedorId: number): number {
-    return obligacionesDe(acreedorId).reduce((acc, o) => acc + (o.tipo === 'Cargo' ? o.monto : -o.monto), 0)
+    return redondear(obligacionesDe(acreedorId).reduce((acc, o) => acc + (o.tipo === 'Cargo' ? o.monto : -o.monto), 0))
   }
 
-  const totalPendiente = acreedores.reduce((acc, a) => acc + saldoDe(a.id), 0)
+  const totalPendiente = redondear(acreedores.reduce((acc, a) => acc + saldoDe(a.id), 0))
 
   // Categorías presentes, en el mismo orden en que ya aparecían agrupadas
   const categorias = Array.from(new Set(acreedores.map(a => a.categoria_nombre)))
@@ -295,7 +300,7 @@ export default function ObligacionesPage() {
       <div className="space-y-3">
        {grupos.map(grupo => {
         const abiertaCategoria = categoriasAbiertas.has(grupo.categoria)
-        const saldoCategoria = grupo.acreedores.reduce((acc, a) => acc + saldoDe(a.id), 0)
+        const saldoCategoria = redondear(grupo.acreedores.reduce((acc, a) => acc + saldoDe(a.id), 0))
         return (
         <div key={grupo.categoria} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <button type="button" onClick={() => toggleCategoria(grupo.categoria)}
